@@ -1,0 +1,17 @@
+---
+description: WPF tray app UI — status panel, settings, themes
+globs:
+  - "src/TrayApp/**/*.xaml"
+  - "src/TrayApp/**/*.cs"
+alwaysApply: false
+---
+
+# UI design (tray app)
+
+- Match existing light/dark themes via `ThemeService` and `AppTheme.*.xaml`.
+- Status panel: scannable health, errors/warnings counts, progress steps, clickable URL when port is ready.
+- Settings: clear labels for run mode, launch profile, file-change behaviour.
+- Avoid modal overload — tray-first workflow; settings and log viewer as separate windows.
+- Keep XAML code-behind thin — orchestration stays in Infrastructure.
+
+After XAML edits, user verifies via `tray-ui-change` skill handoff.

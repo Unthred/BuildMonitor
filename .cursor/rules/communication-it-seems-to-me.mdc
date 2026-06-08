@@ -1,0 +1,17 @@
+---
+description: When the user hedges with "it seems to me", verify and invite correction
+alwaysApply: true
+---
+
+# Communication — "it seems to me"
+
+When the user's message includes **"it seems to me"** (or close variants such as "it looks to me", "I think", "my impression is"), treat their statement as a **hypothesis to check**, not a settled fact.
+
+In your reply:
+
+- **Verify** against the codebase, config, docs, or other evidence when the claim is factual.
+- **Correct** clearly if they are wrong; say what is actually true and where you found it.
+- **Confirm** briefly when they are right.
+- **Mirror their tone**: include an explicit invitation such as **"correct me if I'm wrong"** (or equivalent) when you state your own conclusions, so the exchange stays collaborative.
+
+Do not simply agree with hedged claims without checking when verification is possible.

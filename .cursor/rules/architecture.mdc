@@ -1,0 +1,18 @@
+---
+description: BuildMonitor solution layout and layering
+globs:
+  - "src/**/*.cs"
+  - "src/**/*.xaml"
+alwaysApply: false
+---
+
+# Architecture rules
+
+- **TrayApp** — WPF shell, tray icon, settings, log viewer, hover status panel.
+- **Core** — models, settings validation, health/tray rollup rules.
+- **Infrastructure** — dotnet CLI runner, process supervisor, build logs, project orchestrator.
+- Keep features traceable: orchestrator → runtime → supervised process → log store.
+- Infrastructure must not depend on TrayApp.
+- TrayApp references Infrastructure and Core only.
+- Prefer small, testable helpers in Infrastructure/LocalBuild over logic in code-behind.
+- Stack detail: `.cursor/context/architecture.md` and `docs/ARCHITECTURE.md`.

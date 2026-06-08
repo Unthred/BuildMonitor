@@ -9,4 +9,7 @@
   <Folder Name="/src/TrayApp/">
     <Project Path="src/TrayApp/BuildMonitor.TrayApp.csproj" />
   </Folder>
+  <Folder Name="/src/BuildMonitor.Tests/">
+    <Project Path="src/BuildMonitor.Tests/BuildMonitor.Tests.csproj" />
+  </Folder>
 </Solution>

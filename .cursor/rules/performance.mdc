@@ -1,0 +1,17 @@
+---
+description: Orchestrator, log I/O, and subprocess performance
+globs:
+  - "src/**/*.cs"
+alwaysApply: false
+---
+
+# Performance rules
+
+- Do not write full run logs to disk on every output line — debounce background saves.
+- Do not probe ports on every stdout line — use timed polling until ready.
+- Avoid `StringBuilder.ToString()` on entire process output in hot paths.
+- File watcher debounce must coalesce rapid saves — avoid rebuild storms.
+- `MSBUILDDISABLENODEREUSE` only on one-shot builds, not long-running watch (`DotNetProcessConfigurator`).
+- Prefer `--no-build` on watch start when a fresh build already succeeded.
+
+Before ship on orchestrator/log changes, run **`.cursor/skills/performance-pass/SKILL.md`** when user asks or change is high-risk.

@@ -1,0 +1,16 @@
+---
+description: Core and Infrastructure coding standards
+globs: "src/**/*.cs"
+alwaysApply: false
+---
+
+# Infrastructure rules
+
+Applies to `src/Core/` and `src/Infrastructure/` (not TrayApp UI).
+
+- Use async/await for I/O; pass `CancellationToken` through orchestrator and log store calls.
+- Keep parsers and probes static and pure where possible (`BuildLogParser`, `DotNetRunOutputParser`, `LocalPortProbe`).
+- Do not block the stdout callback thread with heavy work — debounce disk writes and port probes.
+- Child process environment: use `DotNetProcessConfigurator` — do not duplicate env sanitization.
+- Never log or persist user secrets from `%LocalAppData%` settings.
+- General C# style: `.cursor/context/coding-standards.md`.

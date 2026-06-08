@@ -1,0 +1,32 @@
+---
+description: Compiler warning policy — no new warnings in your diff
+alwaysApply: true
+---
+
+# Build warnings
+
+## Target
+
+Full solution build should eventually produce **zero** compiler warnings.
+
+## Current rule
+
+| Rule | Required |
+|------|----------|
+| Build succeeds | Yes |
+| **No new warnings** in files you add or modify | Yes |
+| Fix pre-existing warnings in files you touch | When practical in the same PR |
+
+## Agent
+
+- Do not introduce compiler warnings (nullable, unused, obsolete, etc.).
+- Do not claim "build is clean" — user runs build per `no-unapproved-runtime-execution.mdc`.
+- At ship/PR: remind user to confirm **no new warnings in their diff**.
+
+## User verification
+
+```powershell
+dotnet build BuildMonitor.slnx
+```
+
+Scan output for `warning` lines mentioning paths you changed.

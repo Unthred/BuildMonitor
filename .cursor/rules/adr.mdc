@@ -1,0 +1,52 @@
+---
+description: When and how to record Architecture Decision Records
+globs:
+  - "docs/adr/*.md"
+alwaysApply: false
+---
+
+# ADR rules
+
+## When to write an ADR
+
+Record an ADR when the team chooses one approach among valid alternatives with **lasting impact**, including:
+
+- Storage or database technology
+- Authentication / secrets strategy
+- Deployment or hosting model
+- Public API or URL contract changes
+- Major refactors that change data location or boundaries
+
+Skip ADRs for bug fixes, cosmetic UI, or routine dependency bumps unless they change an architectural decision.
+
+## File naming and location
+
+- Directory: `docs/adr/`
+- Name: `NNNN-kebab-case-title.md` (four-digit zero-padded number, monotonic)
+- Index: update `docs/README.md` ADR table when adding an ADR
+
+## Template and sections
+
+Copy `docs/adr/0001-template.md`. Required sections:
+
+- **Context** — problem and constraints
+- **Decision** — what we chose
+- **Consequences** — positives and trade-offs
+- **Status** and **Date** in the header
+
+## Status lifecycle
+
+| Status | Meaning |
+|--------|---------|
+| Proposed | Under review in PR |
+| Accepted | Merged and in effect |
+| Superseded | Replaced; link to newer ADR |
+| Deprecated | No longer recommended; may still be in code |
+
+- Do not delete accepted ADRs.
+- To change a decision, add a new ADR and mark the old one **Superseded** with forward/back links.
+
+## References
+
+- Link to code paths and `docs/features/` or `docs/ops/` pages.
+- No secrets in ADRs.

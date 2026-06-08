@@ -1,0 +1,63 @@
+---
+description: Definition of done for features and other changes that affect users or behaviour
+globs:
+  - "src/**/*.cs"
+  - "src/**/*.xaml"
+  - "docs/**"
+alwaysApply: false
+---
+
+# Feature delivery rule
+
+Use this checklist before declaring a feature complete. It complements `core.mdc`, `documentation.mdc`, and `adr.mdc`.
+
+## Definition of done
+
+1. **Code**
+   - Build succeeds; **no new compiler warnings** in files this change adds or modifies (`build-warnings.mdc`).
+   - Async with `CancellationToken` on I/O in Infrastructure.
+   - Keep orchestration and parsing in Infrastructure/Core; TrayApp stays thin.
+
+2. **Tests** (default: include in the same change — see `testing.mdc`)
+   - New or changed logic in Core/Infrastructure has unit tests in `BuildMonitor.Tests`.
+   - UI-only XAML: document manual checks in the feature doc when tests are N/A.
+   - Existing tests still pass.
+
+3. **Documentation**
+   - `docs/features/<file>.md` added or updated for user-facing changes.
+   - **Behaviour section** (see `documentation.mdc`) when the change has non-obvious pipeline logic (orchestrator, process output parsing, port probing).
+   - [`docs/SETTINGS.md`](../../docs/SETTINGS.md) when settings schema changes.
+   - [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) when orchestration or project layout changes.
+   - [`docs/LOGS.md`](../../docs/LOGS.md) when log format or storage changes.
+   - [`docs/README.md`](../../docs/README.md) index updated when a top-level doc was added.
+   - [`README.md`](../../README.md) when developer setup steps change.
+
+4. **ADR** (only when a lasting decision was made)
+   - New ADR under `docs/adr/NNNN-title.md` from `0001-template.md`.
+   - Or existing ADR superseded with forward/back links.
+
+5. **Security**
+   - No secrets, PATs, or user settings in committed files.
+   - New config keys documented in `docs/SETTINGS.md` only.
+
+6. **PR**
+   - PR description follows [`.github/pull_request_template.md`](../../.github/pull_request_template.md) and links the issue (`Closes #N`).
+
+## Triggers requiring an ADR
+
+Add an ADR when the change introduces or changes:
+
+- Settings schema version or persistence location
+- Child process launch / environment isolation strategy
+- Log storage format or retention
+- A major refactor of orchestrator boundaries
+
+## Drift-check anchors
+
+When you touch these, expect documentation updates in the same change:
+
+- `src/Infrastructure/Services/ProjectOrchestrator.cs`
+- `src/Infrastructure/LocalBuild/DotNetProcessConfigurator.cs`
+- `src/Core/Settings/LocalAppSettings.cs`
+- `src/TrayApp/SettingsWindow.xaml.cs`
+- `docs/SETTINGS.md`

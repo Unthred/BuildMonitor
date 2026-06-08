@@ -1,0 +1,24 @@
+---
+description: When to use BuildMonitor skills — opt-in only (credit-conservation.mdc)
+alwaysApply: true
+---
+
+# Agent workflow (skills)
+
+Skills under `.cursor/skills/` are **opt-in** (`disable-model-invocation: true`). **Do not** load or follow a skill until the user names it or the trigger phrase below applies.
+
+| Skill | Load only when |
+|-------|----------------|
+| `feature-kickoff` | User says **kickoff**, **plan the feature**, **before we code**, or asks for issue scope/acceptance criteria |
+| `feature-ship` | User says **ship**, **ship it**, **ready for review**, **open PR**, **merge**, or **definition of done** |
+| `tray-ui-change` | User says **tray-ui-change** or asks for UI handoff after WPF/XAML edits |
+| `security-pass` | User says **security pass** or asks for a security review |
+| `performance-pass` | User says **performance pass** or asks about orchestrator/log slowness |
+
+**Do not** auto-run kickoff on every bug/feature mention. **Do not** auto-run security-pass + performance-pass before every PR.
+
+**Order (when user drives full flow):** kickoff → implement → ship. Security/performance only if warranted or user asks.
+
+**Schema / tests / build:** `testing.mdc`, `no-unapproved-runtime-execution.mdc` — not skill files.
+
+**Issues before commit (moderate):** see `work-tracking.mdc` — link GitHub Issue for features/bugs; chores can opt out.
