@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Core/">
+    <Project Path="src/Core/BuildMonitor.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/Infrastructure/">
+    <Project Path="src/Infrastructure/BuildMonitor.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/TrayApp/">
+    <Project Path="src/TrayApp/BuildMonitor.TrayApp.csproj" />
+  </Folder>
+</Solution>

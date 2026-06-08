@@ -1,0 +1,43 @@
+# Build outputs
+bin/
+obj/
+out/
+publish/
+
+# User-specific / local IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+**/packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test / coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs and local app data (user machine)
+*.log
+logs/
+
+# Secrets — never commit
+.env
+.env.*
+*.pfx
+credentials.json
+secrets.json

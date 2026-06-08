@@ -1,0 +1,171 @@
+<Window x:Class="BuildMonitor.TrayApp.BuildLogViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Build Log"
+        Width="960"
+        Height="720"
+        MinWidth="640"
+        MinHeight="480"
+        WindowStartupLocation="Manual">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="LogRow" Height="*" MinHeight="120" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="IssuesRow" Height="*" MinHeight="80" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock x:Name="HeaderText" FontWeight="Bold" FontSize="14" />
+            <TextBlock x:Name="BuildTimeText" Margin="0,2,0,0" Opacity="0.85" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,8,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <ComboBox x:Name="LogKindCombo"
+                          Width="120"
+                          VerticalAlignment="Center"
+                          SelectionChanged="LogKindChanged" />
+                <CheckBox x:Name="FollowOutputCheckBox"
+                          Content="Follow output"
+                          Margin="12,0,0,0"
+                          VerticalAlignment="Center"
+                          VerticalContentAlignment="Center"
+                          IsChecked="True"
+                          ToolTip="When checked, the log scrolls to show the latest lines as they are added."
+                          Checked="FollowOutputChanged"
+                          Unchecked="FollowOutputChanged" />
+            </StackPanel>
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <Button Content="Copy all" Padding="8,4" Click="CopyAllClicked" />
+                <Button Content="Copy selection" Padding="8,4" Margin="6,0,0,0" Click="CopySelectionClicked" />
+                <Button Content="Copy issues" Padding="8,4" Margin="6,0,0,0" Click="CopyErrorsClicked" />
+                <Button Content="Open log file" Padding="8,4" Margin="6,0,0,0" Click="OpenLogFileClicked" />
+            </StackPanel>
+        </Grid>
+
+        <RichTextBox x:Name="LogText"
+                     Grid.Row="2"
+                     IsReadOnly="True"
+                     IsDocumentEnabled="True"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas"
+                     FontSize="12" />
+
+        <GridSplitter Grid.Row="3"
+                      Height="6"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center"
+                      ShowsPreview="True"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext" />
+
+        <Border Grid.Row="4"
+                BorderBrush="{StaticResource ThemeBorderBrush}"
+                BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0"
+                      Margin="8,6,8,6"
+                      Background="{StaticResource ThemeCardBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Show:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"
+                                   Opacity="0.85" />
+                        <RadioButton x:Name="FilterAllRadio"
+                                     Content="All"
+                                     GroupName="IssueFilter"
+                                     IsChecked="True"
+                                     VerticalAlignment="Center"
+                                     VerticalContentAlignment="Center"
+                                     Margin="0,0,12,0" />
+                        <RadioButton x:Name="FilterErrorsRadio"
+                                     Content="Errors"
+                                     GroupName="IssueFilter"
+                                     VerticalAlignment="Center"
+                                     VerticalContentAlignment="Center"
+                                     Margin="0,0,12,0" />
+                        <RadioButton x:Name="FilterWarningsRadio"
+                                     Content="Warnings"
+                                     GroupName="IssueFilter"
+                                     VerticalAlignment="Center"
+                                     VerticalContentAlignment="Center" />
+                        <TextBlock x:Name="IssueSummaryText"
+                                   VerticalAlignment="Center"
+                                   Margin="16,0,0,0"
+                                   Opacity="0.75" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button x:Name="PreviousIssueButton"
+                                Content="Previous"
+                                Padding="8,4"
+                                VerticalAlignment="Center"
+                                Click="PreviousIssueClicked" />
+                        <Button x:Name="NextIssueButton"
+                                Content="Next"
+                                Padding="8,4"
+                                Margin="6,0,0,0"
+                                VerticalAlignment="Center"
+                                Click="NextIssueClicked" />
+                    </StackPanel>
+                </Grid>
+
+                <ListBox x:Name="ErrorsList"
+                     Grid.Row="1"
+                     BorderThickness="0"
+                     SelectionChanged="ErrorsListSelectionChanged"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Text}"
+                                   TextWrapping="Wrap"
+                                   FontFamily="Consolas"
+                                   FontSize="11"
+                                   Padding="2,1">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource LogIssueWarningBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource LogIssueErrorBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="5"
+                   x:Name="FooterText"
+                   Margin="0,8,0,0"
+                   Opacity="0.75"
+                   TextWrapping="Wrap" />
+    </Grid>
+</Window>

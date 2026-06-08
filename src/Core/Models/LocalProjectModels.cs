@@ -1,0 +1,99 @@
+namespace BuildMonitor.Core.Models;
+
+public enum ProjectRunMode
+{
+    None = 0,
+    Run = 1,
+    Watch = 2
+}
+
+public enum TestRunTrigger
+{
+    Off = 0,
+    OnBuildSuccess = 1,
+    OnFileChange = 2
+}
+
+public enum FileChangeMode
+{
+    Off = 0,
+    TriggerRebuild = 1,
+    WatchOnly = 2
+}
+
+public enum ProjectLifecycleState
+{
+    Idle = 0,
+    Building = 1,
+    BuildFailed = 2,
+    BuildOk = 3,
+    Running = 4,
+    Watching = 5,
+    Crashed = 6,
+    Testing = 7,
+    TestFailed = 8,
+    TestOk = 9
+}
+
+public enum BuildLogKind
+{
+    Build = 0,
+    Test = 1,
+    WatchCompile = 2,
+    Run = 3
+}
+
+public enum UserNotificationKind
+{
+    Info = 0,
+    Warning = 1,
+    Error = 2
+}
+
+public enum UserNotificationCategory
+{
+    BuildStart = 0,
+    BuildSuccess = 1,
+    BuildFailure = 2,
+    Warning = 3,
+    Error = 4,
+    Info = 5,
+    FileChangeDetected = 6
+}
+
+public sealed record BuildLogRecord(
+    string ProjectId,
+    BuildLogKind Kind,
+    string CommandLine,
+    int ExitCode,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset FinishedAtUtc,
+    string LogFilePath,
+    int ErrorCount,
+    IReadOnlyList<string> ErrorLines);
+
+public sealed record LiveBuildLogView(
+    string Text,
+    bool IsLive,
+    ProjectLifecycleState State,
+    int ErrorCount,
+    int WarningCount,
+    int Revision);
+
+public sealed record ProjectHealthSnapshot(
+    string ProjectId,
+    string DisplayName,
+    MonitorHealth Health,
+    string HealthLabel,
+    ProjectLifecycleState State,
+    int? LastExitCode,
+    TimeSpan? LastDuration,
+    string? LastErrorPreview,
+    int ErrorCount,
+    int WarningCount,
+    DateTimeOffset LastChangedUtc,
+    DateTimeOffset? LastBuildFinishedAtUtc,
+    bool IsActive,
+    IReadOnlyList<BuildProgressStep> ProgressSteps,
+    string? ListenUrl = null,
+    bool ListenUrlReady = false);

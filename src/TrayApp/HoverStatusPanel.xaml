@@ -1,0 +1,21 @@
+<Window x:Class="BuildMonitor.TrayApp.HoverStatusPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Build Status"
+        Width="480"
+        Height="420"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True">
+    <Border x:Name="PanelBorder" Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="10">
+        <DockPanel>
+            <TextBlock DockPanel.Dock="Top" FontWeight="Bold" FontSize="14" Text="Local build status" Margin="0,0,0,8" />
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ProjectCards" />
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>

@@ -1,0 +1,20 @@
+---
+description: Require explicit approval before any runtime execution
+alwaysApply: true
+---
+
+# Runtime Execution Safety
+
+- Never run the user's application, tests, scripts, migrations, seeders, or background workers unless the user explicitly asks in the current conversation.
+- Never start long-running dev servers/watchers unless explicitly requested.
+- Before any command that executes project runtime code, ask for approval and wait for a clear yes.
+- Prefer static validation first (code inspection, lint/type checks only when explicitly approved).
+- If execution is requested, run the minimum-scope command needed and stop processes when verification is done.
+
+Examples requiring approval:
+
+- `dotnet run`
+- `dotnet test`
+- `npm start` / `npm test`
+- `python app.py`
+- DB migrations/seeding commands
