@@ -96,4 +96,5 @@ public sealed record ProjectHealthSnapshot(
     bool IsActive,
     IReadOnlyList<BuildProgressStep> ProgressSteps,
     string? ListenUrl = null,
-    bool ListenUrlReady = false);
+    bool ListenUrlReady = false,
+    bool SupportsAppRestart = false);

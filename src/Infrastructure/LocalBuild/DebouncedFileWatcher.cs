@@ -6,7 +6,7 @@ public sealed class DebouncedFileWatcher : IDisposable
     private readonly System.Timers.Timer debounceTimer;
     private readonly HashSet<string> ignoreSegments = new(StringComparer.OrdinalIgnoreCase)
     {
-        "bin", "obj", ".git", ".vs", "node_modules"
+        "bin", "obj", ".git", ".vs", "node_modules", "TestResults", "coverage"
     };
 
     public event Action? Changed;

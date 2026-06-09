@@ -170,7 +170,9 @@ public static class BuildLogHighlighter
             || Contains(line, "Test Run Failed")
             || Contains(line, ": error ")
             || Contains(line, "error CS")
-            || Contains(line, "error MSB"))
+            || Contains(line, "error MSB")
+            || line.TrimStart().StartsWith("Failed ", StringComparison.OrdinalIgnoreCase)
+            || Contains(line, "[FAIL]"))
         {
             return WpfColor.FromRgb(220, 53, 69);
         }
@@ -186,7 +188,9 @@ public static class BuildLogHighlighter
 
         if (Contains(line, "Build succeeded")
             || Contains(line, "Test Run Successful")
-            || Contains(line, "Passed!"))
+            || Contains(line, "Passed!")
+            || line.TrimStart().StartsWith("Passed ", StringComparison.OrdinalIgnoreCase)
+            || Contains(line, "[PASS]"))
         {
             return WpfColor.FromRgb(40, 167, 69);
         }

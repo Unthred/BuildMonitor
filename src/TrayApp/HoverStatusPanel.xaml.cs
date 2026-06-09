@@ -11,6 +11,7 @@ using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.TrayApp.Services;
 using WpfButton = System.Windows.Controls.Button;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
+using WpfOrientation = System.Windows.Controls.Orientation;
 
 namespace BuildMonitor.TrayApp;
 
@@ -19,6 +20,8 @@ public partial class HoverStatusPanel : Window
     private ResolvedTheme currentTheme = ResolvedTheme.Light;
 
     public event Action<string>? ViewLogRequested;
+    public event Action<string>? RestartAppRequested;
+    public event Action<string>? RunTestsRequested;
 
     public HoverStatusPanel()
     {
@@ -109,15 +112,45 @@ public partial class HoverStatusPanel : Window
                 });
             }
 
+            var actions = new StackPanel
+            {
+                Orientation = WpfOrientation.Horizontal,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+
             var viewLog = new WpfButton
             {
                 Content = "View log",
-                Margin = new Thickness(0, 6, 0, 0),
                 HorizontalAlignment = WpfHorizontalAlignment.Left,
                 Tag = snapshot.ProjectId
             };
             viewLog.Click += (_, _) => ViewLogRequested?.Invoke(snapshot.ProjectId);
-            panel.Children.Add(viewLog);
+            actions.Children.Add(viewLog);
+
+            if (snapshot.SupportsAppRestart)
+            {
+                var restart = new WpfButton
+                {
+                    Content = "Restart app",
+                    Margin = new Thickness(8, 0, 0, 0),
+                    HorizontalAlignment = WpfHorizontalAlignment.Left,
+                    Tag = snapshot.ProjectId
+                };
+                restart.Click += (_, _) => RestartAppRequested?.Invoke(snapshot.ProjectId);
+                actions.Children.Add(restart);
+            }
+
+            var runTests = new WpfButton
+            {
+                Content = "Run tests",
+                Margin = new Thickness(8, 0, 0, 0),
+                HorizontalAlignment = WpfHorizontalAlignment.Left,
+                Tag = snapshot.ProjectId
+            };
+            runTests.Click += (_, _) => RunTestsRequested?.Invoke(snapshot.ProjectId);
+            actions.Children.Add(runTests);
+
+            panel.Children.Add(actions);
 
             card.Child = panel;
             ProjectCards.Items.Add(card);

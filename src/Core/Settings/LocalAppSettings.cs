@@ -19,6 +19,7 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
     private string projectFile = string.Empty;
     private string launchProfile = string.Empty;
     private string extraDotNetArgs = string.Empty;
+    private string testProjectFile = string.Empty;
     private bool isActiveInSession;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -65,6 +66,13 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
         set => SetField(ref extraDotNetArgs, value);
     }
 
+    /// <summary>Optional .sln/.slnx or test .csproj. Empty = auto-detect from repo root.</summary>
+    public string TestProjectFile
+    {
+        get => testProjectFile;
+        set => SetField(ref testProjectFile, value);
+    }
+
     public bool IsActiveInSession
     {
         get => isActiveInSession;
@@ -95,6 +103,10 @@ public sealed class ProjectRunOptions
     public ProjectRunMode RunMode { get; set; } = ProjectRunMode.Watch;
     public bool RestartOnCrash { get; set; } = true;
     public int MaxRestartRetries { get; set; } = 5;
+    /// <summary>When watch mode detects source changes, restart without prompting (tray has no stdin).</summary>
+    public bool AutoRestartOnWatchChanges { get; set; } = true;
+    /// <summary>After a manual or file-triggered rebuild, start run/watch again if it was running.</summary>
+    public bool RestartAppAfterRebuild { get; set; } = true;
     public TestRunTrigger RunTests { get; set; } = TestRunTrigger.Off;
     public FileChangeMode FileChanges { get; set; } = FileChangeMode.WatchOnly;
     public bool ReleaseOutputLocksBeforeBuild { get; set; }

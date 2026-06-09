@@ -15,6 +15,8 @@ public partial class App : System.Windows.Application
     private Forms.NotifyIcon? notifyIcon;
     private Forms.ContextMenuStrip? trayContextMenu;
     private Forms.ToolStripMenuItem? rebuildSubmenu;
+    private Forms.ToolStripMenuItem? restartSubmenu;
+    private Forms.ToolStripMenuItem? runTestsSubmenu;
     private Forms.ToolStripMenuItem? stopSubmenu;
     private Forms.ToolStripMenuItem? viewLogsSubmenu;
     private ProjectOrchestrator? orchestrator;
@@ -227,6 +229,12 @@ public partial class App : System.Windows.Application
         rebuildSubmenu = new Forms.ToolStripMenuItem("Rebuild");
         trayContextMenu.Items.Add(rebuildSubmenu);
 
+        restartSubmenu = new Forms.ToolStripMenuItem("Restart app");
+        trayContextMenu.Items.Add(restartSubmenu);
+
+        runTestsSubmenu = new Forms.ToolStripMenuItem("Run tests");
+        trayContextMenu.Items.Add(runTestsSubmenu);
+
         stopSubmenu = new Forms.ToolStripMenuItem("Stop");
         trayContextMenu.Items.Add(stopSubmenu);
 
@@ -324,6 +332,29 @@ public partial class App : System.Windows.Application
         hoverPanel = new HoverStatusPanel();
         ApplyThemeToUi();
         hoverPanel.ViewLogRequested += projectId => OpenLogViewer(projectId);
+        hoverPanel.RestartAppRequested += projectId =>
+            RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(projectId, CancellationToken.None));
+        hoverPanel.RunTestsRequested += projectId =>
+        {
+            var name = currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
+            OpenLogViewer(projectId, name, BuildLogKind.Test);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await orchestrator!.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                        ToastNotificationService.ShowIfEnabled(
+                            "Local Build Monitor",
+                            ToastNotificationService.FormatException(ex),
+                            ToastKind.Error,
+                            UserNotificationCategory.Error));
+                }
+            });
+        };
         hoverPanel.MouseEnter += (_, _) =>
         {
             pointerOverStatusPanel = true;
@@ -334,7 +365,7 @@ public partial class App : System.Windows.Application
         hoverPanel.Closed += (_, _) => hoverPanel = null;
     }
 
-    private void OpenLogViewer(string projectId, string? displayName = null)
+    private void OpenLogViewer(string projectId, string? displayName = null, BuildLogKind? logKind = null)
     {
         if (orchestrator is null)
         {
@@ -358,6 +389,11 @@ public partial class App : System.Windows.Application
                         existing.Show();
                     }
 
+                    if (logKind is not null)
+                    {
+                        existing.SelectLogKind(logKind.Value);
+                    }
+
                     existing.Activate();
                     existing.Focus();
                     return;
@@ -379,6 +415,11 @@ public partial class App : System.Windows.Application
         viewer.Closed += (_, _) => openLogViewers.Remove(projectId);
         openLogViewers[projectId] = viewer;
         viewer.Show();
+
+        if (logKind is not null)
+        {
+            viewer.SelectLogKind(logKind.Value);
+        }
     }
 
     private async Task ShowSettingsAsync()
@@ -593,6 +634,8 @@ public partial class App : System.Windows.Application
         var active = currentSettings.Projects.Where(p => p.IsActiveInSession).ToList();
 
         BuildRebuildSubmenu(active);
+        BuildRestartSubmenu(active);
+        BuildRunTestsSubmenu(active);
         BuildStopSubmenu(active);
         BuildViewLogsSubmenu(active);
 
@@ -627,6 +670,97 @@ public partial class App : System.Windows.Application
                     RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(id, CancellationToken.None))));
             }
         }
+    }
+
+    private void BuildRestartSubmenu(List<LocalProjectDefinition> active)
+    {
+        if (restartSubmenu is null)
+        {
+            return;
+        }
+
+        restartSubmenu.DropDownItems.Clear();
+        var restartable = active.Where(p => p.RunOptions.RunMode != ProjectRunMode.None).ToList();
+        restartSubmenu.Enabled = restartable.Count > 0;
+
+        if (restartable.Count == 0)
+        {
+            return;
+        }
+
+        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+            RunTrayMenuBackgroundAction(async () =>
+            {
+                foreach (var p in restartable)
+                {
+                    await orchestrator!.RestartAppAsync(p.Id, CancellationToken.None);
+                }
+            })));
+
+        restartSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        foreach (var project in restartable)
+        {
+            var id = project.Id;
+            var name = project.DisplayName;
+            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
+        }
+    }
+
+    private void BuildRunTestsSubmenu(List<LocalProjectDefinition> active)
+    {
+        if (runTestsSubmenu is null)
+        {
+            return;
+        }
+
+        runTestsSubmenu.DropDownItems.Clear();
+        runTestsSubmenu.Enabled = active.Count > 0;
+
+        if (active.Count == 0)
+        {
+            return;
+        }
+
+        runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+            RunTrayMenuUiAction(() => StartRunTestsForProjects(active))));
+
+        runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        foreach (var project in active)
+        {
+            var id = project.Id;
+            var name = project.DisplayName;
+            runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+                RunTrayMenuUiAction(() => StartRunTestsForProjects([project]))));
+        }
+    }
+
+    private void StartRunTestsForProjects(IReadOnlyList<LocalProjectDefinition> projects)
+    {
+        foreach (var project in projects)
+        {
+            OpenLogViewer(project.Id, project.DisplayName, BuildLogKind.Test);
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                foreach (var project in projects)
+                {
+                    await orchestrator!.RunTestsAsync(project.Id, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                    ToastNotificationService.ShowIfEnabled(
+                        "Local Build Monitor",
+                        ToastNotificationService.FormatException(ex),
+                        ToastKind.Error,
+                        UserNotificationCategory.Error));
+            }
+        });
     }
 
     private void BuildStopSubmenu(List<LocalProjectDefinition> active)
@@ -718,14 +852,24 @@ public partial class App : System.Windows.Application
                     UserNotificationCategory.BuildSuccess);
             }
 
-            if ((previousState == ProjectLifecycleState.Building && currentState == ProjectLifecycleState.BuildFailed)
-                || (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestFailed))
+            if (previousState == ProjectLifecycleState.Building && currentState == ProjectLifecycleState.BuildFailed)
             {
                 var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
                     ? "See build log for details."
                     : snapshot.LastErrorPreview;
                 ToastNotificationService.ShowIfEnabled(
                     $"Build failed — {snapshot.DisplayName}",
+                    message,
+                    ToastKind.Error,
+                    UserNotificationCategory.BuildFailure);
+            }
+            else if (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestFailed)
+            {
+                var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
+                    ? "See test log for details."
+                    : snapshot.LastErrorPreview;
+                ToastNotificationService.ShowIfEnabled(
+                    $"Tests failed — {snapshot.DisplayName}",
                     message,
                     ToastKind.Error,
                     UserNotificationCategory.BuildFailure);
