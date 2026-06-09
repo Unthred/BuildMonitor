@@ -11,7 +11,16 @@ public sealed class SupervisedProcess : IDisposable
     public string ProjectId { get; }
     public string CommandLine { get; private set; } = string.Empty;
     public bool IsRunning => process is { HasExited: false };
-    public string Output => output.ToString();
+    public string Output
+    {
+        get
+        {
+            lock (output)
+            {
+                return output.ToString();
+            }
+        }
+    }
 
     public event Action<string, int>? Exited;
     public event Action<string>? OutputLineReceived;

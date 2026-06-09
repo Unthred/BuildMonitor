@@ -25,4 +25,18 @@ public class BuildLogParserTests
 
         Assert.Equal(1, BuildLogParser.ParseWarningCount(log));
     }
+
+    [Fact]
+    public void ParseErrorCount_uses_last_summary_line_when_present()
+    {
+        const string log = """
+            Pages\EbookError.razor(127,17): warning CS8602: Dereference of a possibly null reference.
+            Build succeeded.
+                1056 Warning(s)
+                0 Error(s)
+            """;
+
+        Assert.Equal(0, BuildLogParser.ParseErrorCount(log));
+        Assert.Equal(1056, BuildLogParser.ParseWarningCount(log));
+    }
 }

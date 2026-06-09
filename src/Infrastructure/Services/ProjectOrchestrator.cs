@@ -669,6 +669,12 @@ internal sealed class ProjectRuntime : IDisposable
         lastBuildFinishedAtUtc = metadata.FinishedAtUtc;
         errorCount = metadata.ErrorCount;
         lastErrorPreview = metadata.ErrorLines.FirstOrDefault();
+        if (File.Exists(metadata.LogFilePath))
+        {
+            var logText = await File.ReadAllTextAsync(metadata.LogFilePath, cancellationToken);
+            warningCount = BuildLogParser.ParseWarningCount(logText);
+        }
+
         RefreshHealth();
         HealthChanged?.Invoke();
     }
@@ -830,6 +836,8 @@ internal sealed class ProjectRuntime : IDisposable
         {
             watchRebuildInProgress = false;
             lastBuildExitCode = 0;
+            lastErrorPreview = null;
+            errorCount = 0;
             if (state is ProjectLifecycleState.BuildFailed)
             {
                 SetState(ProjectLifecycleState.Watching);
@@ -1091,6 +1099,8 @@ internal sealed class ProjectRuntime : IDisposable
             }
 
             Interlocked.Exchange(ref liveTestOutputRevision, 0);
+            var buildErrorCount = errorCount;
+            var buildWarningCount = warningCount;
             errorCount = 0;
             warningCount = 0;
             lastErrorPreview = null;
@@ -1182,6 +1192,8 @@ internal sealed class ProjectRuntime : IDisposable
 
             if (effectiveExitCode == 0)
             {
+                errorCount = buildErrorCount;
+                warningCount = buildWarningCount;
                 SetState(ProjectLifecycleState.TestOk);
             }
             else
