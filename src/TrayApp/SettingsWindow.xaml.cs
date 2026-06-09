@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.TrayApp.Services;
 using Microsoft.Win32;
 
@@ -114,10 +115,13 @@ public partial class SettingsWindow : Window
             RunModeCombo.SelectedItem = project.RunOptions.RunMode;
             RestartOnCrashCheck.IsChecked = project.RunOptions.RestartOnCrash;
             MaxRetriesText.Text = project.RunOptions.MaxRestartRetries.ToString();
+            AutoRestartOnWatchChangesCheck.IsChecked = project.RunOptions.AutoRestartOnWatchChanges;
+            RestartAppAfterRebuildCheck.IsChecked = project.RunOptions.RestartAppAfterRebuild;
             RunTestsCombo.SelectedItem = project.RunOptions.RunTests;
             FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
             ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
             ReloadLaunchProfiles(selectCurrent: true);
+            ReloadTestProjectCandidates(selectCurrent: true);
         }
         finally
         {
@@ -135,8 +139,21 @@ public partial class SettingsWindow : Window
         selectedProject.DisplayName = DisplayNameText.Text;
     }
 
-    private void ProjectFileTextLostFocus(object sender, RoutedEventArgs e) =>
+    private void ProjectFileTextLostFocus(object sender, RoutedEventArgs e)
+    {
         ReloadLaunchProfiles(selectCurrent: true);
+        ReloadTestProjectCandidates(selectCurrent: true);
+    }
+
+    private void TestProjectComboLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (isLoadingEditor || selectedProject is null)
+        {
+            return;
+        }
+
+        selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
+    }
 
     private void LaunchProfileComboSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -186,6 +203,60 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void ReloadTestProjectCandidates(bool selectCurrent)
+    {
+        var root = RootFolderText.Text.Trim();
+        var projectFile = ProjectFileText.Text.Trim();
+        var absoluteCandidates = TestProjectDiscovery.DiscoverCandidates(root, projectFile);
+        var candidates = absoluteCandidates
+            .Select(path => LaunchProfileDiscovery.ToRelativePath(root, path))
+            .ToList();
+
+        var current = selectCurrent
+            ? (TestProjectCombo.Text.Trim().Length > 0 ? TestProjectCombo.Text.Trim() : selectedProject?.TestProjectFile)
+            : selectedProject?.TestProjectFile;
+
+        TestProjectCombo.ItemsSource = candidates;
+
+        if (!string.IsNullOrWhiteSpace(current))
+        {
+            if (candidates.Contains(current, StringComparer.OrdinalIgnoreCase))
+            {
+                TestProjectCombo.SelectedItem = candidates.First(c =>
+                    string.Equals(c, current, StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                TestProjectCombo.Text = current;
+            }
+        }
+        else
+        {
+            var resolution = TestProjectDiscovery.Resolve(root, projectFile, null);
+            if (resolution.AutoDiscovered && resolution.Targets.Count == 1)
+            {
+                var relative = LaunchProfileDiscovery.ToRelativePath(root, resolution.Targets[0]);
+                if (candidates.Contains(relative, StringComparer.OrdinalIgnoreCase))
+                {
+                    TestProjectCombo.SelectedItem = relative;
+                }
+                else
+                {
+                    TestProjectCombo.Text = relative;
+                }
+
+                if (selectedProject is not null && selectCurrent)
+                {
+                    selectedProject.TestProjectFile = string.Empty;
+                }
+            }
+            else
+            {
+                TestProjectCombo.Text = string.Empty;
+            }
+        }
+    }
+
     private void CommitEditorToSelected()
     {
         if (selectedProject is null)
@@ -197,6 +268,7 @@ public partial class SettingsWindow : Window
         selectedProject.RootFolder = RootFolderText.Text.Trim();
         selectedProject.ProjectFile = ProjectFileText.Text.Trim();
         selectedProject.LaunchProfile = LaunchProfileCombo.Text.Trim();
+        selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
         selectedProject.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
         selectedProject.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
         selectedProject.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
@@ -204,6 +276,9 @@ public partial class SettingsWindow : Window
         {
             selectedProject.RunOptions.MaxRestartRetries = retries;
         }
+
+        selectedProject.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
+        selectedProject.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
 
         selectedProject.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
         selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
@@ -246,6 +321,7 @@ public partial class SettingsWindow : Window
             }
 
             ReloadLaunchProfiles(selectCurrent: true);
+            ReloadTestProjectCandidates(selectCurrent: true);
         }
     }
 
@@ -281,6 +357,7 @@ public partial class SettingsWindow : Window
         }
 
         ReloadLaunchProfiles(selectCurrent: false);
+        ReloadTestProjectCandidates(selectCurrent: false);
     }
 
     private void CommitMonitorAndAppSettings()

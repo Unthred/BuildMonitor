@@ -1,0 +1,46 @@
+---
+description: Call out new third-party libraries during planning before implementation
+alwaysApply: true
+---
+
+# Third-party dependencies (planning)
+
+Before the first code edit — in Plan mode, kickoff, or any implementation proposal — **explicitly highlight** every **new or newly extended** third-party dependency.
+
+## What counts
+
+- NuGet packages (new reference or major version bump)
+- npm/CDN scripts or packages
+- Native binaries, SDKs, or hosted SaaS APIs not already used in the repo for that purpose
+
+Do **not** re-list packages already in use for the same purpose unless you are upgrading, swapping, or materially changing how they are used.
+
+## Required call-out
+
+Include a **Third-party dependencies** section (or table row in kickoff) with, for each dependency:
+
+| Field | Content |
+|-------|---------|
+| Package / service | Name and target project (e.g. `BuildMonitor.Infrastructure`) |
+| Purpose | One line — what problem it solves |
+| Alternatives | Built-in .NET / existing repo packages considered and why this was chosen |
+| Risk | License, security surface, ops/hosting, or maintenance — one line if non-obvious |
+
+## Examples
+
+**Good (planning output):**
+
+```markdown
+### Third-party dependencies
+
+- **Some.Package** (`BuildMonitor.Infrastructure`) — one-line purpose for BuildMonitor.
+  - Alternatives: built-in .NET or existing repo approach considered.
+  - Risk: license, security surface, or maintenance — one line if non-obvious.
+```
+
+**Bad:** Implementing `PackageReference` or `dotnet add package` without mentioning the library in the plan first.
+
+## When to escalate
+
+- New storage, auth, deployment, or public API technology → also check `adr.mdc` ADR triggers.
+- User has not approved the dependency → stop after the plan; do not add the package until confirmed.

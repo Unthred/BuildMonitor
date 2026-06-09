@@ -1,0 +1,26 @@
+---
+description: Unit tests for Core and Infrastructure logic
+globs:
+  - "src/**/*.cs"
+  - "src/BuildMonitor.Tests/**/*.cs"
+alwaysApply: false
+---
+
+# Testing rules
+
+- Use xUnit in [`src/BuildMonitor.Tests/`](../../src/BuildMonitor.Tests/).
+- Test Core rules and Infrastructure parsers/helpers — not WPF rendering.
+- New or changed logic in Core/Infrastructure should have unit tests in the same PR unless genuinely UI-only.
+
+## Commands (user runs)
+
+```powershell
+dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj
+```
+
+## When tests are N/A
+
+- Pure XAML layout with no new logic — document manual tray/status checks in `docs/features/`.
+- Comment-only or docs-only changes.
+
+See `feature-delivery.mdc` and `feature-ship` skill for checklist enforcement.

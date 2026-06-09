@@ -1,20 +1,42 @@
 ---
-description: Require explicit approval before any runtime execution
+description: Require explicit approval before build, run, test, or watch
 alwaysApply: true
 ---
 
-# Runtime Execution Safety
+# Runtime execution safety
 
-- Never run the user's application, tests, scripts, migrations, seeders, or background workers unless the user explicitly asks in the current conversation.
-- Never start long-running dev servers/watchers unless explicitly requested.
-- Before any command that executes project runtime code, ask for approval and wait for a clear yes.
-- Prefer static validation first (code inspection, lint/type checks only when explicitly approved).
-- If execution is requested, run the minimum-scope command needed and stop processes when verification is done.
+The agent must **never** build, run, test, or watch BuildMonitor unless the user **explicitly asks in the current conversation**.
 
-Examples requiring approval:
+## Forbidden (always)
 
-- `dotnet run`
-- `dotnet test`
-- `npm start` / `npm test`
-- `python app.py`
-- DB migrations/seeding commands
+Do not invoke, schedule, or run in a terminal:
+
+- `dotnet build`, `dotnet run`, `dotnet watch`, `dotnet test`
+- `npm run`, `msbuild`, or scripts whose purpose is compile, run, or test
+- Starting or stopping `BuildMonitor.TrayApp` or child `dotnet watch` processes for verification
+- Reading the terminals folder to manage watch output
+- `Await` on watch startup or compile output
+
+**No exceptions** — not for UI work, ship checklist, or “just verify”. Give the user exact commands and wait for their output.
+
+## Required instead
+
+| Situation | Agent does |
+|-----------|------------|
+| Code edited | List files changed; stop when edits are done |
+| User should verify compile | Provide commands below; ask user to paste errors if build fails |
+| User should verify tray UI | Describe what to check in the status panel / settings after user confirms app is running |
+| Tests needed | Print `dotnet test` command; user runs it |
+| Ship / PR | User confirms build + test passed; no new warnings in changed files (`build-warnings.mdc`) |
+
+## Commands (user runs)
+
+```powershell
+dotnet build BuildMonitor.slnx
+dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj
+dotnet watch run --project src/TrayApp/BuildMonitor.TrayApp.csproj
+```
+
+## Cursor usage
+
+See `credit-conservation.mdc`. Prefer **Chat** for review; **Agent** when files must change. User runs build/test; agent does not “verify” with extra tool rounds.

@@ -35,6 +35,7 @@ public partial class BuildLogViewerWindow : Window
     private Run? highlightedLogRun;
     private bool suppressIssueSelectionSync;
     private BuildLogViewerWindowState windowState = new();
+    private BuildLogKind currentLogKind = BuildLogKind.Build;
     private bool splitterRatioApplied;
     private bool wasLive;
     private bool wasWatchLive;
@@ -148,6 +149,11 @@ public partial class BuildLogViewerWindow : Window
         windowState.FollowOutput = FollowOutputCheckBox.IsChecked == true;
     }
 
+    public void SelectLogKind(BuildLogKind kind)
+    {
+        LogKindCombo.SelectedItem = kind;
+    }
+
     private async void LogKindChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded)
@@ -195,7 +201,7 @@ public partial class BuildLogViewerWindow : Window
             wasLive = true;
             wasWatchLive = live.State is ProjectLifecycleState.Watching or ProjectLifecycleState.BuildFailed;
             lastRenderedRevision = live.Revision;
-            ApplyLiveDisplay(live, followTail);
+            ApplyLiveDisplay(live, kind, followTail);
             return;
         }
 
@@ -216,12 +222,13 @@ public partial class BuildLogViewerWindow : Window
         }
     }
 
-    private void ApplyLiveDisplay(LiveBuildLogView live, bool followTail)
+    private void ApplyLiveDisplay(LiveBuildLogView live, BuildLogKind kind, bool followTail)
     {
         currentRecord = null;
         currentLogText = BuildLogTextNormalizer.Normalize(
             BuildLogStore.TruncateTailForDisplay(live.Text, maxDisplayBytes));
-        allIssues = BuildLogParser.ParseIssues(currentLogText);
+        currentLogKind = kind;
+        allIssues = ParseIssuesForCurrentLog();
         RenderLogText();
         ApplyIssueFilter();
 
@@ -229,10 +236,13 @@ public partial class BuildLogViewerWindow : Window
         {
             ProjectLifecycleState.Building => "Build in progress…",
             ProjectLifecycleState.Watching => "Watch rebuild in progress…",
+            ProjectLifecycleState.Testing => "Tests in progress…",
             _ => "Build in progress…"
         };
-        FooterText.Text =
-            $"{live.ErrorCount} errors | {live.WarningCount} warnings | live output";
+        FooterText.Text = FormatFooterText(
+            allIssues.Count(i => i.IsError),
+            allIssues.Count(i => !i.IsError),
+            isLive: true);
 
         if (followTail)
         {
@@ -275,14 +285,15 @@ public partial class BuildLogViewerWindow : Window
             return;
         }
 
+        currentLogKind = kind;
         currentLogText = BuildLogTextNormalizer.Normalize(
             await logStore.LoadLogTextAsync(currentRecord, maxDisplayBytes));
-        allIssues = BuildLogParser.ParseIssues(currentLogText);
+        allIssues = ParseIssuesForCurrentLog();
         RenderLogText();
         ApplyIssueFilter(selectFirstIssue: allIssues.Count > 0);
 
-        var errorCount = BuildLogParser.ParseErrorCount(currentLogText);
-        var warningCount = BuildLogParser.ParseWarningCount(currentLogText);
+        var errorCount = allIssues.Count(i => i.IsError);
+        var warningCount = allIssues.Count(i => !i.IsError);
         var finishedLocal = BuildTimestampFormatter.FormatLocal(currentRecord.FinishedAtUtc);
         var kindLabel = kind switch
         {
@@ -292,7 +303,7 @@ public partial class BuildLogViewerWindow : Window
         };
         BuildTimeText.Text = $"{kindLabel}: {finishedLocal}";
         FooterText.Text =
-            $"{currentRecord.CommandLine} | exit {currentRecord.ExitCode} | {errorCount} errors | {warningCount} warnings | duration {currentRecord.FinishedAtUtc - currentRecord.StartedAtUtc:g}";
+            $"{currentRecord.CommandLine} | exit {currentRecord.ExitCode} | {FormatFooterText(errorCount, warningCount, isLive: false)} | duration {currentRecord.FinishedAtUtc - currentRecord.StartedAtUtc:g}";
 
         if (ShouldFollowOutput())
         {
@@ -356,9 +367,15 @@ public partial class BuildLogViewerWindow : Window
         var warningCount = allIssues.Count(i => !i.IsError);
         IssueSummaryText.Text = filter switch
         {
-            IssueFilter.Errors => $"{visibleIssues.Count} of {errorCount} errors shown",
-            IssueFilter.Warnings => $"{visibleIssues.Count} of {warningCount} warnings shown",
-            _ => $"{errorCount} errors, {warningCount} warnings",
+            IssueFilter.Errors => currentLogKind == BuildLogKind.Test
+                ? FormatIssueCountLabel("failure", "failures", visibleIssues.Count, errorCount)
+                : FormatIssueCountLabel("error", "errors", visibleIssues.Count, errorCount),
+            IssueFilter.Warnings => currentLogKind == BuildLogKind.Test
+                ? FormatIssueCountLabel("skipped test", "skipped tests", visibleIssues.Count, warningCount)
+                : FormatIssueCountLabel("warning", "warnings", visibleIssues.Count, warningCount),
+            _ => currentLogKind == BuildLogKind.Test
+                ? $"{errorCount} failed, {warningCount} skipped"
+                : $"{errorCount} errors, {warningCount} warnings",
         };
 
         if (filter == IssueFilter.Errors && errorCount == 0)
@@ -377,6 +394,24 @@ public partial class BuildLogViewerWindow : Window
             UpdateNavigationButtons();
         }
     }
+
+    private IReadOnlyList<LogIssue> ParseIssuesForCurrentLog() =>
+        currentLogKind == BuildLogKind.Test
+            ? DotNetTestOutputParser.ParseIssues(currentLogText)
+            : BuildLogParser.ParseIssues(currentLogText);
+
+    private string FormatFooterText(int errorCount, int warningCount, bool isLive)
+    {
+        var issueLabel = currentLogKind == BuildLogKind.Test
+            ? $"{errorCount} failed | {warningCount} skipped"
+            : $"{errorCount} errors | {warningCount} warnings";
+        return isLive ? $"{issueLabel} | live output" : issueLabel;
+    }
+
+    private static string FormatIssueCountLabel(string singular, string plural, int shown, int total) =>
+        shown == total
+            ? $"{total} {((total == 1) ? singular : plural)} shown"
+            : $"{shown} of {total} {((total == 1) ? singular : plural)} shown";
 
     private IssueFilter GetCurrentFilter()
     {

@@ -1,0 +1,71 @@
+---
+description: Documentation standards for Markdown under docs/, README, and .cursor/context
+globs:
+  - "docs/**/*.md"
+  - "README.md"
+  - ".cursor/context/**/*.md"
+alwaysApply: false
+---
+
+# Documentation rules
+
+## Where documentation lives
+
+| Kind | Location |
+|------|----------|
+| Quick start | `README.md` |
+| Architecture, settings, logs, features, ops, ADRs | `docs/` — index at `docs/README.md` |
+| Architectural decisions | `docs/adr/NNNN-title.md` |
+| Imperative agent rules | `.cursor/rules/*.mdc` |
+| Short AI context | `.cursor/context/*.md` |
+
+## When to update documentation
+
+Update docs in the **same change** as code when you alter:
+
+- Project orchestration or process supervision
+- Settings schema or monitor behaviour
+- Log storage or viewer behaviour
+- Tray UI flows users rely on
+- GitHub workflow or ops procedures
+
+Add or supersede an ADR when choosing between lasting alternatives (see `adr.mdc`).
+
+## Behaviour documentation
+
+Add a **Behaviour** section when maintainers would ask *"how does the app decide X?"*
+
+### Triggers
+
+- Multi-step orchestration (build → test → watch → restart)
+- Output parsing heuristics (listen URL, watch rebuild detection)
+- Port probing or launch profile resolution
+- File watcher debounce / coalesced rebuilds
+
+### Template
+
+```markdown
+## Behaviour
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | … | `path/to/file.cs` |
+
+**Extension points:** …
+**Failure / fallback:** …
+```
+
+## Writing style
+
+- One topic per file; aim for under ~300 lines.
+- Use markdown links to real repo paths.
+- Plain English; no secrets in documentation.
+- Mermaid allowed in `docs/`; no explicit colours on nodes.
+
+## Verification
+
+Before merging doc+code PRs:
+
+- Internal links resolve.
+- No credentials in diff.
+- `docs/README.md` includes new top-level pages.

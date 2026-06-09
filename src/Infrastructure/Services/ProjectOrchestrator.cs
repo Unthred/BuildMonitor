@@ -121,7 +121,11 @@ public sealed class ProjectOrchestrator : IDisposable
         {
             runtime.PrepareBuild("manual rebuild");
             await runtime.BuildAsync(cancellationToken);
-            runtime.EnsureRunProcessStartedAfterBuild();
+            if (runtime.RestartAppAfterRebuild)
+            {
+                runtime.EnsureRunProcessStartedAfterBuild();
+            }
+
             PublishHealth();
         }
         catch (Exception ex)
@@ -132,6 +136,53 @@ public sealed class ProjectOrchestrator : IDisposable
                 ExceptionDetailFormatter.Format(ex),
                 UserNotificationKind.Error,
                 UserNotificationCategory.BuildFailure);
+        }
+    }
+
+    public async Task RunTestsAsync(string projectId, CancellationToken cancellationToken)
+    {
+        if (!runtimes.TryGetValue(projectId, out var runtime))
+        {
+            return;
+        }
+
+        try
+        {
+            runtime.PrepareTest("manual");
+            await runtime.TestAsync(cancellationToken);
+            PublishHealth();
+        }
+        catch (Exception ex)
+        {
+            RaiseUserNotification(
+                runtime.ProjectId,
+                $"Tests failed — {runtime.DisplayName}",
+                ExceptionDetailFormatter.Format(ex),
+                UserNotificationKind.Error,
+                UserNotificationCategory.Error);
+        }
+    }
+
+    public async Task RestartAppAsync(string projectId, CancellationToken cancellationToken)
+    {
+        if (!runtimes.TryGetValue(projectId, out var runtime))
+        {
+            return;
+        }
+
+        try
+        {
+            await runtime.RestartAppAsync(cancellationToken);
+            PublishHealth();
+        }
+        catch (Exception ex)
+        {
+            RaiseUserNotification(
+                runtime.ProjectId,
+                $"Restart failed — {runtime.DisplayName}",
+                ExceptionDetailFormatter.Format(ex),
+                UserNotificationKind.Error,
+                UserNotificationCategory.Error);
         }
     }
 
@@ -182,7 +233,8 @@ public sealed class ProjectOrchestrator : IDisposable
                     false,
                     [],
                     null,
-                    false));
+                    false,
+                    p.RunOptions.RunMode != ProjectRunMode.None));
 
             return active.Concat(inactive).ToList();
         }
@@ -233,7 +285,12 @@ internal sealed class ProjectRuntime : IDisposable
     private int warningCount;
     private readonly object liveOutputSync = new();
     private readonly StringBuilder liveBuildOutput = new();
+    private readonly StringBuilder liveTestOutput = new();
     private int liveOutputRevision;
+    private int liveTestOutputRevision;
+    private int testInProgress;
+    private int testNumber;
+    private string pendingTestReason = "tests";
     private bool watchRebuildInProgress;
     private int lastBuildExitCode = -1;
     private int? lastExitCode;
@@ -266,6 +323,7 @@ internal sealed class ProjectRuntime : IDisposable
 
     public string ProjectId => definition.Id;
     public string DisplayName => definition.DisplayName;
+    public bool RestartAppAfterRebuild => definition.RunOptions.RestartAppAfterRebuild;
 
     public ProjectHealthSnapshot Snapshot
     {
@@ -289,7 +347,8 @@ internal sealed class ProjectRuntime : IDisposable
                 definition.IsActiveInSession,
                 progressSteps,
                 pendingListenUrl,
-                listenUrlReady);
+                listenUrlReady,
+                definition.RunOptions.RunMode != ProjectRunMode.None);
         }
     }
 
@@ -319,16 +378,27 @@ internal sealed class ProjectRuntime : IDisposable
 
     public void PrepareBuild(string reason) => pendingBuildReason = reason;
 
+    public void PrepareTest(string reason) => pendingTestReason = reason;
+
     public LiveBuildLogView? GetLiveBuildLogView(BuildLogKind kind)
     {
         var isDirectBuild = Volatile.Read(ref buildInProgress) != 0
             || state is ProjectLifecycleState.Building;
         var isWatchRebuild = watchRebuildInProgress && runProcess?.IsRunning == true;
         var isRunLive = kind == BuildLogKind.Run && runProcess?.IsRunning == true;
+        var isTestLive = kind == BuildLogKind.Test
+            && (Volatile.Read(ref testInProgress) != 0 || state is ProjectLifecycleState.Testing);
 
         if (kind == BuildLogKind.Run)
         {
             if (!isRunLive)
+            {
+                return null;
+            }
+        }
+        else if (kind == BuildLogKind.Test)
+        {
+            if (!isTestLive)
             {
                 return null;
             }
@@ -341,19 +411,25 @@ internal sealed class ProjectRuntime : IDisposable
         string text;
         lock (liveOutputSync)
         {
-            text = isDirectBuild
-                ? liveBuildOutput.ToString()
-                : runProcess?.Output ?? string.Empty;
+            text = kind switch
+            {
+                BuildLogKind.Test => liveTestOutput.ToString(),
+                BuildLogKind.Build when isDirectBuild => liveBuildOutput.ToString(),
+                _ => runProcess?.Output ?? string.Empty
+            };
         }
 
         var normalized = BuildLogTextNormalizer.Normalize(text);
+        var revision = kind == BuildLogKind.Test
+            ? Volatile.Read(ref liveTestOutputRevision)
+            : Volatile.Read(ref liveOutputRevision);
         return new LiveBuildLogView(
             normalized,
             true,
             state,
             BuildLogParser.ParseErrorCount(normalized),
             BuildLogParser.ParseWarningCount(normalized),
-            Volatile.Read(ref liveOutputRevision));
+            revision);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -493,6 +569,7 @@ internal sealed class ProjectRuntime : IDisposable
                 SetState(ProjectLifecycleState.BuildOk);
                 if (definition.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess)
                 {
+                    PrepareTest("build success");
                     await TestAsync(cancellationToken);
                 }
             }
@@ -513,6 +590,7 @@ internal sealed class ProjectRuntime : IDisposable
             buildProgressTracker = null;
 
             if (shouldRestartRun
+                && definition.RunOptions.RestartAppAfterRebuild
                 && definition.RunOptions.RunMode != ProjectRunMode.None
                 && result.ExitCode == 0)
             {
@@ -679,6 +757,12 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
+        if (Volatile.Read(ref testInProgress) != 0)
+        {
+            pendingFileChangeRebuild = true;
+            return;
+        }
+
         if (Volatile.Read(ref buildInProgress) != 0)
         {
             pendingFileChangeRebuild = true;
@@ -755,6 +839,12 @@ internal sealed class ProjectRuntime : IDisposable
         }
 
         if (!DotNetWatchOutput.IsFileChangeLine(line))
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref testInProgress) != 0
+            || DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
             return;
         }
@@ -853,6 +943,38 @@ internal sealed class ProjectRuntime : IDisposable
         StartRunProcess(skipEmbeddedBuild: true);
     }
 
+    public async Task RestartAppAsync(CancellationToken cancellationToken)
+    {
+        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            notifyUser?.Invoke(
+                definition.Id,
+                $"Restart skipped — {definition.DisplayName}",
+                "Wait for the current build to finish, then try again.",
+                UserNotificationKind.Warning,
+                UserNotificationCategory.Warning);
+            return;
+        }
+
+        var needsRebuild = lastBuildExitCode != 0;
+        await StopRunProcessAsync(cancellationToken);
+        restartCount = 0;
+
+        if (needsRebuild)
+        {
+            PrepareBuild("app restart");
+            await BuildAsync(cancellationToken);
+        }
+
+        EnsureRunProcessStartedAfterBuild();
+        HealthChanged?.Invoke();
+    }
+
     private void OnBuildOutputLine(string line)
     {
         lock (liveOutputSync)
@@ -898,7 +1020,9 @@ internal sealed class ProjectRuntime : IDisposable
         string output;
         lock (liveOutputSync)
         {
-            output = liveBuildOutput.ToString();
+            output = state == ProjectLifecycleState.Testing
+                ? liveTestOutput.ToString()
+                : liveBuildOutput.ToString();
         }
 
         var parsedErrors = BuildLogParser.ParseErrorCount(output);
@@ -927,29 +1051,399 @@ internal sealed class ProjectRuntime : IDisposable
 
     public async Task TestAsync(CancellationToken cancellationToken)
     {
-        SetState(ProjectLifecycleState.Testing);
-        var args = new List<string> { "test", ResolveProjectFileArg() };
-        var result = await cliRunner.RunAsync(definition.RootFolder, args, cancellationToken);
-        var parsed = BuildLogParser.ParseErrors(result.Output);
-        await logStore.SaveAsync(
-            definition.Id,
-            BuildLogKind.Test,
-            result.CommandLine,
-            result.ExitCode,
-            DateTimeOffset.UtcNow - result.Duration,
-            result.Output,
-            cancellationToken);
-
-        if (result.ExitCode == 0)
+        if (Interlocked.CompareExchange(ref testInProgress, 1, 0) != 0)
         {
-            SetState(ProjectLifecycleState.TestOk);
+            notifyUser?.Invoke(
+                definition.Id,
+                $"Tests skipped — {definition.DisplayName}",
+                "Tests are already running for this project.",
+                UserNotificationKind.Warning,
+                UserNotificationCategory.Warning);
+            return;
+        }
+
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            Interlocked.Exchange(ref testInProgress, 0);
+            notifyUser?.Invoke(
+                definition.Id,
+                $"Tests skipped — {definition.DisplayName}",
+                "Wait for the current build to finish, then try again.",
+                UserNotificationKind.Warning,
+                UserNotificationCategory.Warning);
+            return;
+        }
+
+        var testReason = pendingTestReason;
+        pendingTestReason = "tests";
+        var wasRunProcessActive = runProcess?.IsRunning == true;
+        var releaseLocksSetting = definition.RunOptions.ReleaseOutputLocksBeforeBuild;
+        var stoppedAppForTests = false;
+
+        fileWatcher?.Suspend();
+        fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddMinutes(2);
+
+        try
+        {
+            lock (liveOutputSync)
+            {
+                liveTestOutput.Clear();
+            }
+
+            Interlocked.Exchange(ref liveTestOutputRevision, 0);
+            errorCount = 0;
+            warningCount = 0;
+            lastErrorPreview = null;
+
+            var resolution = TestProjectDiscovery.Resolve(
+                definition.RootFolder,
+                definition.ProjectFile,
+                definition.TestProjectFile);
+
+            if (resolution.Targets.Count == 0)
+            {
+                WriteTestStartBanner(testReason, [], resolution.DiscoveryNote);
+                SetState(ProjectLifecycleState.TestFailed);
+                lastErrorPreview = resolution.DiscoveryNote;
+                errorCount = 1;
+                return;
+            }
+
+            WriteTestStartBanner(testReason, resolution);
+            SetState(ProjectLifecycleState.Testing);
+            NotifyProgressChanged(force: true);
+
+            var startedAtUtc = DateTimeOffset.UtcNow;
+            var commandLines = new List<string>();
+            var exitCode = 0;
+            var wallDuration = TimeSpan.Zero;
+
+            for (var i = 0; i < resolution.Targets.Count; i++)
+            {
+                var target = resolution.Targets[i];
+                if (resolution.Targets.Count > 1)
+                {
+                    AppendTestSectionHeader(i + 1, resolution.Targets.Count, target);
+                }
+
+                var targetRun = await RunTestTargetWithRetryAsync(
+                    target,
+                    wasRunProcessActive,
+                    releaseLocksSetting,
+                    cancellationToken);
+
+                stoppedAppForTests |= targetRun.StoppedApp;
+                commandLines.Add(targetRun.Result.CommandLine);
+                wallDuration += targetRun.Result.Duration;
+                if (targetRun.Result.ExitCode != 0)
+                {
+                    exitCode = targetRun.Result.ExitCode;
+                }
+            }
+
+            string logText;
+            lock (liveOutputSync)
+            {
+                logText = liveTestOutput.ToString();
+            }
+
+            var testsExecuted = DotNetTestOutputParser.LooksLikeTestsExecuted(logText);
+            var testSummary = DotNetTestOutputParser.TryParseSummary(logText);
+            var summaryLine = testSummary is not null
+                ? DotNetTestOutputParser.FormatSummaryLine(testSummary)
+                : DescribeMissingTestSummary(logText, testsExecuted);
+            var finishBanner = BuildMonitorLogBanner.FormatTestFinished(
+                testNumber,
+                testsExecuted ? exitCode : 1,
+                summaryLine,
+                wallDuration);
+            lock (liveOutputSync)
+            {
+                liveTestOutput.AppendLine(finishBanner);
+            }
+
+            Interlocked.Increment(ref liveTestOutputRevision);
+
+            lock (liveOutputSync)
+            {
+                logText = liveTestOutput.ToString();
+            }
+
+            var parsed = BuildLogParser.ParseErrors(logText);
+            var effectiveExitCode = testsExecuted ? exitCode : 1;
+            await logStore.SaveAsync(
+                definition.Id,
+                BuildLogKind.Test,
+                string.Join(" && ", commandLines),
+                effectiveExitCode,
+                startedAtUtc,
+                logText,
+                cancellationToken);
+
+            if (effectiveExitCode == 0)
+            {
+                SetState(ProjectLifecycleState.TestOk);
+            }
+            else
+            {
+                errorCount = Math.Max(parsed.ErrorCount, testsExecuted ? 0 : 1);
+                warningCount = BuildLogParser.ParseWarningCount(logText);
+                lastErrorPreview = parsed.ErrorLines.FirstOrDefault()
+                    ?? summaryLine
+                    ?? "No tests were executed";
+                SetState(ProjectLifecycleState.TestFailed);
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref testInProgress, 0);
+            fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddSeconds(10);
+            fileWatcher?.Resume();
+
+            if (stoppedAppForTests
+                && wasRunProcessActive
+                && definition.RunOptions.RunMode != ProjectRunMode.None)
+            {
+                _ = RestartRunProcessAfterTestsAsync();
+            }
+
+            HealthChanged?.Invoke();
+        }
+    }
+
+    private sealed record TestTargetRunResult(CliRunResult Result, bool StoppedApp);
+
+    private async Task RestartRunProcessAfterTestsAsync()
+    {
+        await Task.Delay(2500);
+
+        if (Volatile.Read(ref testInProgress) != 0 || Volatile.Read(ref buildInProgress) != 0)
+        {
+            return;
+        }
+
+        StartRunProcess(skipEmbeddedBuild: true);
+    }
+
+    private async Task<TestTargetRunResult> RunTestTargetWithRetryAsync(
+        string target,
+        bool wasRunProcessActive,
+        bool releaseLocksSetting,
+        CancellationToken cancellationToken)
+    {
+        var stoppedApp = false;
+        CliRunResult result;
+        var usedNoBuild = false;
+
+        if (TestRunPlanner.RequiresFullBuildFromStart(lastBuildExitCode))
+        {
+            stoppedApp = await StopAppForTestBuildIfNeededAsync(
+                wasRunProcessActive,
+                "stopping run/watch to rebuild before tests",
+                cancellationToken);
+            await ReleaseLocksForTestBuildIfNeededAsync(releaseLocksSetting, stoppedApp, cancellationToken);
+            result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: false), cancellationToken);
         }
         else
         {
-            errorCount = parsed.ErrorCount;
-            warningCount = BuildLogParser.ParseWarningCount(result.Output);
-            lastErrorPreview = parsed.ErrorLines.FirstOrDefault();
-            SetState(ProjectLifecycleState.TestFailed);
+            AppendTestNote("running tests while app stays up (--no-build)");
+            usedNoBuild = true;
+            result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: true), cancellationToken);
+
+            if (!DotNetTestOutputParser.LooksLikeTestsExecuted(result.Output)
+                && DotNetTestOutputParser.LooksLikeNeedsFullBuildBeforeTest(result.Output))
+            {
+                usedNoBuild = false;
+                stoppedApp = await StopAppForTestBuildIfNeededAsync(
+                    wasRunProcessActive,
+                    "test assemblies stale — stopping app briefly to rebuild",
+                    cancellationToken);
+                await ReleaseLocksForTestBuildIfNeededAsync(releaseLocksSetting, stoppedApp, cancellationToken);
+                result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: false), cancellationToken);
+            }
+        }
+
+        var shouldReleaseLocks = TestRunPlanner.ShouldReleaseLocksForTestBuild(releaseLocksSetting, stoppedApp);
+        var finalResult = await RetryTestOnLockErrorAsync(
+            result,
+            target,
+            usedNoBuild,
+            shouldReleaseLocks,
+            wasRunProcessActive,
+            cancellationToken);
+
+        return new TestTargetRunResult(finalResult.Result, finalResult.StoppedApp || stoppedApp);
+    }
+
+    private async Task<bool> StopAppForTestBuildIfNeededAsync(
+        bool wasRunProcessActive,
+        string note,
+        CancellationToken cancellationToken)
+    {
+        if (!wasRunProcessActive || runProcess?.IsRunning != true)
+        {
+            return false;
+        }
+
+        AppendTestNote(note);
+        await StopRunProcessAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task ReleaseLocksForTestBuildIfNeededAsync(
+        bool releaseLocksSetting,
+        bool stoppedApp,
+        CancellationToken cancellationToken)
+    {
+        if (!TestRunPlanner.ShouldReleaseLocksForTestBuild(releaseLocksSetting, stoppedApp))
+        {
+            return;
+        }
+
+        await ReleaseOutputLocksAsync(cancellationToken);
+    }
+
+    private async Task<TestTargetRunResult> RetryTestOnLockErrorAsync(
+        CliRunResult result,
+        string target,
+        bool noBuild,
+        bool shouldReleaseLocks,
+        bool wasRunProcessActive,
+        CancellationToken cancellationToken)
+    {
+        if (result.ExitCode == 0 || !BuildLogParser.IsOutputLockError(result.Output))
+        {
+            return new TestTargetRunResult(result, false);
+        }
+
+        var stoppedApp = false;
+        if (shouldReleaseLocks || wasRunProcessActive)
+        {
+            stoppedApp = await StopAppForTestBuildIfNeededAsync(
+                wasRunProcessActive,
+                "output locked — stopping app before retrying tests",
+                cancellationToken);
+            AppendTestNote("output locked — releasing and retrying tests");
+            await ReleaseOutputLocksAsync(cancellationToken);
+            await Task.Delay(1000, cancellationToken);
+            result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: false), cancellationToken);
+        }
+
+        return new TestTargetRunResult(result, stoppedApp);
+    }
+
+    private async Task<CliRunResult> RunTestAttemptAsync(
+        List<string> args,
+        CancellationToken cancellationToken) =>
+        await cliRunner.RunAsync(
+            definition.RootFolder,
+            args,
+            cancellationToken,
+            OnTestOutputLine);
+
+    private void AppendTestNote(string note)
+    {
+        lock (liveOutputSync)
+        {
+            liveTestOutput.AppendLine($"[BuildMonitor] {note}");
+            liveTestOutput.AppendLine(string.Empty);
+        }
+
+        Interlocked.Increment(ref liveTestOutputRevision);
+    }
+
+    private string WriteTestStartBanner(string reason, TestTargetResolution resolution)
+    {
+        var banner = BuildMonitorLogBanner.FormatTest(Interlocked.Increment(ref testNumber), reason);
+        lock (liveOutputSync)
+        {
+            liveTestOutput.AppendLine(banner);
+            liveTestOutput.AppendLine($"[BuildMonitor] {resolution.DiscoveryNote}");
+            if (resolution.Targets.Count == 1)
+            {
+                var tryNoBuild = lastBuildExitCode == 0;
+                liveTestOutput.AppendLine(
+                    $"dotnet {string.Join(' ', BuildTestArgs(resolution.Targets[0], tryNoBuild))}"
+                    + (tryNoBuild ? " (app stays up; brief stop only if assemblies are stale)" : string.Empty));
+            }
+
+            liveTestOutput.AppendLine(string.Empty);
+        }
+
+        Interlocked.Increment(ref liveTestOutputRevision);
+        return banner;
+    }
+
+    private void WriteTestStartBanner(string reason, IReadOnlyList<string> args, string note)
+    {
+        var banner = BuildMonitorLogBanner.FormatTest(Interlocked.Increment(ref testNumber), reason);
+        lock (liveOutputSync)
+        {
+            liveTestOutput.AppendLine(banner);
+            liveTestOutput.AppendLine($"[BuildMonitor] {note}");
+            if (args.Count > 0)
+            {
+                liveTestOutput.AppendLine($"dotnet {string.Join(' ', args)}");
+            }
+
+            liveTestOutput.AppendLine(string.Empty);
+        }
+
+        Interlocked.Increment(ref liveTestOutputRevision);
+    }
+
+    private void AppendTestSectionHeader(int index, int total, string target)
+    {
+        lock (liveOutputSync)
+        {
+            liveTestOutput.AppendLine($"[BuildMonitor] --- Test target {index}/{total}: {target} ---");
+            liveTestOutput.AppendLine($"dotnet {string.Join(' ', BuildTestArgs(target, lastBuildExitCode == 0))}");
+            liveTestOutput.AppendLine(string.Empty);
+        }
+
+        Interlocked.Increment(ref liveTestOutputRevision);
+    }
+
+    private static string? DescribeMissingTestSummary(string logText, bool testsExecuted)
+    {
+        if (testsExecuted)
+        {
+            return null;
+        }
+
+        if (BuildLogParser.IsOutputLockError(logText))
+        {
+            return "build failed — app executable is locked; enable Stop processes locking build output in settings";
+        }
+
+        if (logText.Contains("No test is available", StringComparison.OrdinalIgnoreCase)
+            || logText.Contains("No tests found", StringComparison.OrdinalIgnoreCase))
+        {
+            return "no tests discovered in target — set Test project / solution in settings";
+        }
+
+        if (DotNetTestOutputParser.LooksLikeRestoreOrBuildOnly(logText))
+        {
+            return "no tests executed (build did not reach test host) — check build errors above";
+        }
+
+        return "no tests executed";
+    }
+
+    private void OnTestOutputLine(string line)
+    {
+        lock (liveOutputSync)
+        {
+            liveTestOutput.AppendLine(line);
+        }
+
+        Interlocked.Increment(ref liveTestOutputRevision);
+
+        var countsChanged = RefreshLiveIssueCounts(force: false);
+        if (countsChanged)
+        {
+            RefreshHealth();
+            NotifyProgressChanged();
         }
     }
 
@@ -992,11 +1486,20 @@ internal sealed class ProjectRuntime : IDisposable
         runProcess.Start(
             definition.RootFolder,
             args,
-            psi => LaunchProfileEnvironmentApplier.ApplyTo(
-                psi,
-                definition.RootFolder,
-                definition.ProjectFile,
-                definition.LaunchProfile));
+            psi =>
+            {
+                LaunchProfileEnvironmentApplier.ApplyTo(
+                    psi,
+                    definition.RootFolder,
+                    definition.ProjectFile,
+                    definition.LaunchProfile);
+
+                if (definition.RunOptions.RunMode == ProjectRunMode.Watch
+                    && !definition.RunOptions.AutoRestartOnWatchChanges)
+                {
+                    psi.Environment["DOTNET_WATCH_RESTART_ON_RUDE_EDIT"] = "0";
+                }
+            });
 
         NotifyProgressChanged(force: true);
 
@@ -1097,6 +1600,27 @@ internal sealed class ProjectRuntime : IDisposable
         return args;
     }
 
+    private List<string> BuildTestArgs(string testTargetPath, bool noBuild = false)
+    {
+        var args = new List<string>
+        {
+            "test",
+            testTargetPath,
+            "--verbosity",
+            "normal",
+            "--logger",
+            "console;verbosity=detailed"
+        };
+
+        if (noBuild)
+        {
+            args.Add("--no-build");
+        }
+
+        AppendExtraArgs(args);
+        return args;
+    }
+
     private List<string> BuildRunArgs(bool skipEmbeddedBuild = false)
     {
         var args = new List<string> { "run", "--project", ResolveProjectFileArg() };
@@ -1116,8 +1640,14 @@ internal sealed class ProjectRuntime : IDisposable
 
     private List<string> BuildWatchArgs(bool skipEmbeddedBuild = false)
     {
-        // Non-interactive: no stdin for restart prompts when stdout is redirected (tray host).
-        var args = new List<string> { "watch", "--non-interactive", "run", "--project", ResolveProjectFileArg() };
+        var args = new List<string> { "watch" };
+        if (definition.RunOptions.AutoRestartOnWatchChanges)
+        {
+            // Tray host has no stdin for restart prompts — auto-restart when enabled per project.
+            args.Add("--non-interactive");
+        }
+
+        args.AddRange(["run", "--project", ResolveProjectFileArg()]);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");

@@ -91,6 +91,24 @@
                             <CheckBox x:Name="RestartOnCrashCheck" Content="Restart on crash" Margin="0,0,0,8" />
                             <TextBlock Text="Max restart retries" />
                             <TextBox x:Name="MaxRetriesText" Margin="0,4,0,8" />
+                            <CheckBox x:Name="AutoRestartOnWatchChangesCheck"
+                                      Content="Auto-restart on file changes (watch mode)"
+                                      ToolTip="When enabled, dotnet watch restarts the app automatically. Turn off to restart manually from the tray menu."
+                                      Margin="0,0,0,8" />
+                            <CheckBox x:Name="RestartAppAfterRebuildCheck"
+                                      Content="Restart app after rebuild"
+                                      ToolTip="When the app was running, start it again after a successful rebuild (manual or file-triggered)."
+                                      Margin="0,0,0,8" />
+
+                            <TextBlock Text="Test project / solution (optional)" FontWeight="SemiBold" Margin="0,8,0,4" />
+                            <TextBlock Text="Leave blank to auto-detect a .sln/.slnx or *Tests.csproj. The main Project file is used for build/run; tests need a solution or test project."
+                                       TextWrapping="Wrap"
+                                       Opacity="0.75"
+                                       Margin="0,0,0,4" />
+                            <ComboBox x:Name="TestProjectCombo"
+                                      IsEditable="True"
+                                      Margin="0,4,0,8"
+                                      LostFocus="TestProjectComboLostFocus" />
 
                             <TextBlock Text="Run tests" />
                             <ComboBox x:Name="RunTestsCombo" Margin="0,4,0,8" />
@@ -102,8 +120,8 @@
                     <ComboBox x:Name="FileChangesCombo" Margin="0,4,0,8" />
 
                             <CheckBox x:Name="ReleaseOutputLocksCheck"
-                                      Content="Stop processes locking build output before build"
-                                      ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal). Works for processes you own; apps started elsewhere or with higher privileges must be closed manually. No admin rights required for your own processes."
+                                      Content="Stop processes locking build output before build and tests"
+                                      ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually."
                                       Margin="0,0,0,8" />
                         </StackPanel>
                     </ScrollViewer>

@@ -1,0 +1,16 @@
+---
+description: Universal standards applied to every conversation
+alwaysApply: true
+---
+
+# Core
+
+- **Credit (mandatory):** See `credit-conservation.mdc` — opt-in skills, minimal tools, Chat for questions.
+- **Build/run (mandatory):** See `no-unapproved-runtime-execution.mdc` — agent never runs `dotnet build`, `dotnet watch`, or `dotnet test` unless the user explicitly asks.
+- **Build warnings:** See `build-warnings.mdc` — no **new** warnings in files you changed.
+- **Work tracking:** See `work-tracking.mdc` — GitHub Issues for features/bugs (moderate policy).
+- Use async/await with `CancellationToken` for I/O in Infrastructure; do not block on asynchronous work.
+- Never hardcode secrets; user settings live under `%LocalAppData%/BuildMonitor/` — document keys in `docs/SETTINGS.md`, never commit real settings files.
+- **Layering:** **Core** (models, rules) ← **Infrastructure** (processes, logs, orchestration) ← **TrayApp** (WPF UI only). Keep business logic out of XAML code-behind where possible.
+- Follow existing solution layout and naming unless a change is explicitly requested.
+- **Document as you build.** When adding a feature, config key, or behaviour change, update the matching `docs/` page in the same change. See `documentation.mdc`, `adr.mdc`, and `feature-delivery.mdc`.

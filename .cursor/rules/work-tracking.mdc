@@ -1,0 +1,60 @@
+---
+description: GitHub Issues and pull requests for this repo
+alwaysApply: true
+---
+
+# Work tracking (GitHub)
+
+This repo uses **GitHub** ([Unthred/BuildMonitor](https://github.com/Unthred/BuildMonitor)) — Issues and `gh` CLI, not Azure DevOps.
+
+## Conventions
+
+- **Features and enhancements:** GitHub **Issue** with a clear title.
+- **Defects:** Issue with prefix `Bug:` when helpful.
+- **Branches:** `feature/<id>-short-kebab-name` (example: `feature/42-live-build-log`).
+- **Pull requests:** body must include `Closes #<id>` (see [.github/pull_request_template.md](../../.github/pull_request_template.md)).
+- **Commits:** prefix with `#<id>:` when an issue applies (example: `#42: Debounce run log saves`).
+
+## Issue policy (moderate)
+
+| Change type | Issue required? |
+|-------------|-----------------|
+| Feature, bug fix, behaviour change | **Yes** — create or link existing issue |
+| Docs/rules-only chore | **No** — if user says `docs only`, `rules only`, or `no issue` |
+| Tiny typo / comment | **No** — unless user wants tracking |
+
+Before `git commit` or **ship it** on feature work without a supplied issue number:
+
+1. Use a supplied id — `#42`, “for issue 42”, or branch `feature/42-...`.
+2. Resolve one (in order): branch name → conversation + files changed → `gh issue list`.
+3. If exactly one plausible issue — tell the user which you chose, then commit.
+4. If several fit or none fit — **ask** or offer `gh issue create`.
+5. Do not push feature work directly to `main` without user explicitly requesting a hotfix.
+
+**Exception:** user explicitly says “no issue”, “chore only”, or “docs/rules only”.
+
+## Agent automation (`gh`)
+
+```powershell
+gh issue create --title "..." --body "..."
+gh issue view 42
+gh issue list --state open
+gh pr create --title "#42: ..." --body "Closes #42`n`n..."
+gh pr merge <n> --squash
+```
+
+Details: [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
+
+## “Ship it” (agent)
+
+When the user says **ship** or **ship it**, follow **`feature-ship`** skill:
+
+1. Commit + push on `feature/<id>-...`
+2. Create PR if none (`Closes #<id>` in body)
+3. **Merge** the PR into `main` (when user asked for full ship)
+
+**Ready for review** / **open PR** → commit + push + active PR only; do not merge unless asked.
+
+## Record of intent
+
+Chat and Cursor plan files are not the system of record. **GitHub Issues** plus **PR descriptions** plus **`docs/`** are.

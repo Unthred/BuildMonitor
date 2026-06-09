@@ -1,0 +1,51 @@
+---
+description: Minimize Cursor agent credit — tools, skills, exploration, and response size (mandatory)
+alwaysApply: true
+---
+
+# Credit conservation (mandatory)
+
+Subscription spend scales with **turns**, **tool calls**, and **context size**. Default to the cheapest path that still meets the ask.
+
+## Mode (user choice)
+
+| Need | Use | Why |
+|------|-----|-----|
+| Explain, review, “how does…”, compare options | **Chat** (Ask) | No file edits; fewer tools |
+| Big feature before coding | **Plan** | Read-only; one plan, then Agent for edits |
+| Change files | **Agent** | Only when edits are required |
+
+In Agent, prefer **one focused task per conversation**; start a new chat for unrelated work.
+
+## Skills (opt-in only)
+
+Project skills have `disable-model-invocation: true`. **Do not** `Read` a skill file unless the user names it (`kickoff`, `ship`, `security pass`, `tray-ui-change`, etc.) or the message is an explicit **ship it** / **feature kickoff** request.
+
+Do **not** chain kickoff → security-pass → performance-pass → ship on every feature. For small fixes: implement → stop; ship only when the user says ship.
+
+**Ship / kickoff:** one message beats two turns, e.g. `ship it #18 — build and tests passed` or `ready for review #18 — do not merge`.
+
+## Forbidden unless the user asked
+
+| Costly action | Instead |
+|---------------|---------|
+| `Task` / explore / shell subagents | Grep or Read the specific file |
+| Terminals folder | User pastes build/test output |
+| `dotnet build` / `watch` / `test` | Commands for user (`no-unapproved-runtime-execution.mdc`) |
+| Repo-wide search with no path hint | Grep with `path` / `glob`; Read known file |
+| Parallel “discovery” batches | One targeted lookup, then act |
+| Extra `git status` + `diff` + `log` | Only for commit, PR, or ship |
+| Re-read files already correct in the turn | Stop when the edit is done |
+| Long ship tables for a one-line typo fix | Skip ship skill; user confirms build if needed |
+
+## Per-turn discipline
+
+1. **Smallest scope** — change only what the user named.
+2. **Few tools** — aim for ≤3 tool rounds on simple tasks.
+3. **Concise replies** — list paths changed + commands for the user.
+4. **Errors** — user pastes compiler/test output; fix from that.
+5. **GitHub** — `gh` only when creating/merging PR or Issues; not for routine code edits.
+
+## Documentation
+
+Update `docs/` in the **same PR** for real features; skip new feature docs for typos or rule-only changes unless the user asks.
