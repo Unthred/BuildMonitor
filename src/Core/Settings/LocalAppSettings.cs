@@ -6,7 +6,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 4;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -105,17 +105,25 @@ public sealed class ProjectRunOptions
     public int MaxRestartRetries { get; set; } = 5;
     /// <summary>When watch mode detects source changes, restart without prompting (tray has no stdin).</summary>
     public bool AutoRestartOnWatchChanges { get; set; } = true;
+    /// <summary>When build/run output says hot reload needs a restart or rebuild, act automatically.</summary>
+    public bool AutoRestartOnHotReloadRequest { get; set; } = true;
     /// <summary>After a manual or file-triggered rebuild, start run/watch again if it was running.</summary>
     public bool RestartAppAfterRebuild { get; set; } = true;
     public TestRunTrigger RunTests { get; set; } = TestRunTrigger.Off;
     public FileChangeMode FileChanges { get; set; } = FileChangeMode.WatchOnly;
     public bool ReleaseOutputLocksBeforeBuild { get; set; }
+    /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>
+    public string WatchExcludeSegments { get; set; } =
+        ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode";
 }
 
 public sealed class GlobalMonitorSettings
 {
     public int HealthRefreshSeconds { get; set; } = 5;
-    public int FileChangeDebounceMs { get; set; } = 1500;
+    /// <summary>Quiet period after the last file change before a coalesced rebuild starts.</summary>
+    public int FileChangeDebounceMs { get; set; } = 3000;
+    /// <summary>When watch mode is enabled, batch file changes and rebuild once edits settle (instead of dotnet watch per-save rebuilds).</summary>
+    public bool CoalesceWatchRebuilds { get; set; } = true;
     public int MaxConcurrentActiveProjects { get; set; } = 3;
     public bool AutoOpenLogOnFailure { get; set; }
     public bool PlaySoundOnBuildError { get; set; } = true;
@@ -141,7 +149,7 @@ public enum ToastPosition
 public sealed class ToastNotificationSettings
 {
     public bool BuildStart { get; set; }
-    public bool BuildSuccess { get; set; }
+    public bool BuildSuccess { get; set; } = true;
     public bool BuildFailure { get; set; } = true;
     public bool FileChangeDetected { get; set; } = true;
     public bool Warnings { get; set; } = true;

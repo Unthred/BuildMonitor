@@ -6,6 +6,8 @@
 
 Closes #
 
+<!-- Issue must be on project board #3: https://github.com/users/Unthred/projects/3 -->
+
 ## Test plan
 
 - [ ] `dotnet build BuildMonitor.slnx`

@@ -8,7 +8,7 @@ alwaysApply: true
 - **Credit (mandatory):** See `credit-conservation.mdc` — opt-in skills, minimal tools, Chat for questions.
 - **Build/run (mandatory):** See `no-unapproved-runtime-execution.mdc` — agent never runs `dotnet build`, `dotnet watch`, or `dotnet test` unless the user explicitly asks.
 - **Build warnings:** See `build-warnings.mdc` — no **new** warnings in files you changed.
-- **Work tracking:** See `work-tracking.mdc` — GitHub Issues for features/bugs (moderate policy).
+- **Work tracking:** See `work-tracking.mdc` — every change needs a card on project board **#3** (issue + `gh project item-add`), and a PR to `main`.
 - Use async/await with `CancellationToken` for I/O in Infrastructure; do not block on asynchronous work.
 - Never hardcode secrets; user settings live under `%LocalAppData%/BuildMonitor/` — document keys in `docs/SETTINGS.md`, never commit real settings files.
 - **Layering:** **Core** (models, rules) ← **Infrastructure** (processes, logs, orchestration) ← **TrayApp** (WPF UI only). Keep business logic out of XAML code-behind where possible.

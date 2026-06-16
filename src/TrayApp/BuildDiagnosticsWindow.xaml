@@ -1,0 +1,101 @@
+<Window x:Class="BuildMonitor.TrayApp.BuildDiagnosticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Build diagnostics"
+        Width="1100"
+        Height="640"
+        MinWidth="800"
+        MinHeight="420"
+        WindowStartupLocation="Manual">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Recent build and watch triggers"
+                   FontWeight="SemiBold"
+                   FontSize="14" />
+        <TextBlock Grid.Row="1"
+                   Margin="0,4,0,10"
+                   TextWrapping="Wrap"
+                   Opacity="0.8"
+                   Text="Mark triggers as Expected or Unexpected to track spurious rebuilds. File paths are relative to the project root. Log file: %LocalAppData%/BuildMonitor/diagnostics/build-triggers.jsonl" />
+
+        <DataGrid x:Name="TriggersGrid"
+                  Grid.Row="2"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  SelectionMode="Single"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="When" Binding="{Binding WhenLocal}" Width="130" />
+                <DataGridTextColumn Header="Project" Binding="{Binding ProjectDisplayName}" Width="120" />
+                <DataGridTextColumn Header="Kind" Binding="{Binding KindLabel}" Width="140" />
+                <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="160" />
+                <DataGridTextColumn Header="Files" Binding="{Binding ChangedPathsText}" Width="180" />
+                <DataGridTextColumn Header="Likely cause" Binding="{Binding InferredCause}" Width="220" />
+                <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="160" />
+                <DataGridTextColumn Header="Verdict" Binding="{Binding VerdictLabel}" Width="80" />
+                <DataGridTemplateColumn Header="Your note" Width="150">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBox Text="{Binding UserNote, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="2"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Tag="{Binding}"
+                                     LostFocus="UserNoteLostFocus" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Mark" Width="200">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Expected"
+                                        Padding="6,2"
+                                        Margin="0,0,4,0"
+                                        Tag="{Binding}"
+                                        Click="ExpectedClicked" />
+                                <Button Content="Unexpected"
+                                        Padding="6,2"
+                                        Margin="0,0,4,0"
+                                        Tag="{Binding}"
+                                        Click="UnexpectedClicked" />
+                                <Button Content="Clear"
+                                        Padding="6,2"
+                                        Tag="{Binding}"
+                                        Click="ClearVerdictClicked" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,10,0,0">
+            <CheckBox x:Name="UnexpectedOnlyCheck"
+                      Content="Show unexpected only"
+                      VerticalAlignment="Center"
+                      Margin="0,0,12,0"
+                      Checked="FilterChanged"
+                      Unchecked="FilterChanged" />
+            <ComboBox x:Name="ProjectFilterCombo"
+                      Width="200"
+                      Margin="0,0,12,0"
+                      SelectionChanged="FilterChanged" />
+            <Button Content="Refresh" Padding="10,4" Margin="0,0,8,0" Click="RefreshClicked" />
+            <Button Content="Close" Padding="10,4" Click="CloseClicked" />
+        </StackPanel>
+    </Grid>
+</Window>

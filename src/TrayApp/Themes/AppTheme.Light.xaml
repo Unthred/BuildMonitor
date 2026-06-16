@@ -111,4 +111,38 @@
         <Setter Property="BorderBrush" Value="{StaticResource ThemeBorderBrush}" />
         <Setter Property="Padding" Value="4" />
     </Style>
+
+    <Style TargetType="{x:Type DataGrid}">
+        <Setter Property="Background" Value="{StaticResource ThemeCardBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeForegroundBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ThemeBorderBrush}" />
+        <Setter Property="RowBackground" Value="{StaticResource ThemeCardBrush}" />
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource ThemeBackgroundBrush}" />
+        <Setter Property="GridLinesVisibility" Value="Horizontal" />
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource ThemeBorderBrush}" />
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource ThemeBorderBrush}" />
+    </Style>
+
+    <Style TargetType="{x:Type DataGridColumnHeader}">
+        <Setter Property="Background" Value="{StaticResource ThemeControlBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeForegroundBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ThemeBorderBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,1,1" />
+        <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <Style TargetType="{x:Type DataGridCell}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeForegroundBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ThemeBorderBrush}" />
+        <Setter Property="Padding" Value="4,2" />
+    </Style>
+
+    <Style TargetType="{x:Type DataGridRow}">
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{StaticResource ThemeControlHoverBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
 </ResourceDictionary>

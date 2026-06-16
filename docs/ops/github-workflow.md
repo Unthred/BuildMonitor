@@ -2,15 +2,80 @@
 
 Repo: [github.com/Unthred/BuildMonitor](https://github.com/Unthred/BuildMonitor)
 
-## Issues
+Every change is tracked as a **card on the BuildMonitor project board** ([#3](https://github.com/users/Unthred/projects/3)), backed by a GitHub Issue and delivered through a **pull request** merged to `main`.
+
+## Project board
+
+| Field | Value |
+|-------|-------|
+| Title | **BuildMonitor** |
+| Number | **3** |
+| Owner | **Unthred** |
+| URL | [github.com/users/Unthred/projects/3](https://github.com/users/Unthred/projects/3) |
+| Repo link | `Unthred/BuildMonitor` |
+| Config | [.github/project.json](../../.github/project.json) |
+
+### Recommended automations (Project → ⚙ → Workflows)
+
+If not already set:
+
+- **Item added to project** → Status **Todo**
+- **Pull request linked to issue** → Status **In Progress** (optional)
+- **Issue closed** → Status **Done**
+
+Default **Status** field should include **Todo**, **In Progress**, **Done**.
+
+## Lifecycle
+
+| Phase | Git | Issue | Project Status |
+|-------|-----|-------|----------------|
+| Planned | — | open | **Todo** |
+| In progress | `feature/<id>-...` | open | **In Progress** |
+| In review | PR open | open | **In Progress** |
+| Shipped | merged to `main` | closed (`Closes #N`) | **Done** |
+
+**Ready for review** = PR open, issue open, Status **In Progress**.
+
+**Ship it** = squash-merge PR, issue closed, Status **Done** (automation or manual).
+
+## Issues → project board (mandatory)
+
+Every change gets an issue **and that issue is always added to project #3**. The board is the primary view; repo issues alone are not enough.
 
 ```powershell
-gh issue create --title "Add live port probe" --body "Summary and acceptance criteria"
-gh issue list --state open
-gh issue view 42
+$url = gh issue create --repo Unthred/BuildMonitor `
+  --title "Add live port probe" `
+  --body "Summary and acceptance criteria" `
+  --assignee @me `
+  --json url -q .url
+
+gh project item-add 3 --owner Unthred --url $url   # required — do not skip
 ```
 
-Use **moderate** tracking: features and bugs get an issue; docs/rules-only chores can skip when the user opts out.
+**GitHub UI:** after creating an issue, use **Projects** on the right sidebar → add to **BuildMonitor**, or run `gh project item-add` as above.
+
+**Existing issue not on the board:**
+
+```powershell
+gh project item-add 3 --owner Unthred --url "https://github.com/Unthred/BuildMonitor/issues/42"
+```
+
+```powershell
+gh issue list --repo Unthred/BuildMonitor --state open
+gh issue view 42 --repo Unthred/BuildMonitor
+```
+
+Use the [feature issue template](../../.github/ISSUE_TEMPLATE/feature.yml) when creating from the GitHub UI.
+
+### Manual Status update (when automation is not enough)
+
+```powershell
+gh project field-list 3 --owner Unthred
+gh project item-list 3 --owner Unthred --format json
+# gh project item-edit ... (field and option IDs from field-list)
+```
+
+Prefer **issue closed** + **Issue closed → Done** automation for shipped work.
 
 ## Branches
 
@@ -19,6 +84,8 @@ feature/<issue-id>-short-kebab-name
 ```
 
 Example: `feature/42-live-build-log`
+
+Do not land feature work directly on `main` except explicit hotfixes.
 
 ## Commits
 
@@ -37,8 +104,25 @@ gh pr merge --squash
 
 PR template: [.github/pull_request_template.md](../../.github/pull_request_template.md)
 
+`Closes #N` in the PR body links the work item and closes the issue on merge.
+
+## Agent: resolve issue before commit
+
+When no `#` was supplied, resolve in order:
+
+1. Branch name `feature/<id>-...`
+2. Conversation + files changed
+3. **Project board #3** — **Todo** / **In Progress** cards (preferred)
+4. `gh issue list --repo Unthred/BuildMonitor` — if matched, ensure the issue is on project #3 before commit
+
+If none match, create an issue, **`gh project item-add 3`**, agree the id, then commit.
+
 ## Ship it (agent)
 
-Full ship: commit → push → PR → merge → close issue (via `Closes #N` on merge).
+Full ship: commit → push → PR → squash merge → issue closed → project **Done**.
 
 Load `.cursor/skills/feature-ship/SKILL.md` when the user says **ship** or **ship it**.
+
+## Record of intent
+
+Chat and Cursor plans are not the system of record. The **project board (#3)**, **Issues**, **PR descriptions**, and **`docs/`** are.

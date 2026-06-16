@@ -33,4 +33,9 @@ public static class DotNetWatchOutput
         !string.IsNullOrWhiteSpace(line)
         && (line.Contains("Build succeeded", StringComparison.OrdinalIgnoreCase)
             || line.Contains("Build succeeded.", StringComparison.OrdinalIgnoreCase));
+
+    public static bool IsWatchBuildingLine(string line) =>
+        !string.IsNullOrWhiteSpace(line)
+        && line.Contains("dotnet watch", StringComparison.OrdinalIgnoreCase)
+        && line.Contains("Building", StringComparison.OrdinalIgnoreCase);
 }

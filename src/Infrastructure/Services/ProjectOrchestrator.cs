@@ -2,6 +2,7 @@ using System.Text;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 
 namespace BuildMonitor.Infrastructure.Services;
@@ -10,6 +11,7 @@ public sealed class ProjectOrchestrator : IDisposable
 {
     private readonly DotNetCliRunner cliRunner = new();
     private readonly BuildLogStore logStore;
+    private readonly BuildTriggerJournal triggerJournal;
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private AppSettings settings = new();
@@ -17,10 +19,18 @@ public sealed class ProjectOrchestrator : IDisposable
     public event Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth>? HealthUpdated;
     public event Action<string, string, string, UserNotificationKind, UserNotificationCategory>? UserNotification;
 
-    public ProjectOrchestrator(string logsRootDirectory) =>
+    public ProjectOrchestrator(string logsRootDirectory, string? appDataDirectory = null)
+    {
         logStore = new BuildLogStore(logsRootDirectory);
+        var dataRoot = appDataDirectory
+            ?? Path.GetDirectoryName(logsRootDirectory)
+            ?? logsRootDirectory;
+        triggerJournal = new BuildTriggerJournal(dataRoot);
+    }
 
     public BuildLogStore LogStore => logStore;
+
+    public BuildTriggerJournal TriggerJournal => triggerJournal;
 
     public LiveBuildLogView? GetLiveBuildLog(string projectId, BuildLogKind kind)
     {
@@ -49,13 +59,18 @@ public sealed class ProjectOrchestrator : IDisposable
             {
                 if (!runtimes.ContainsKey(project.Id))
                 {
-                    var runtime = new ProjectRuntime(project, logStore, cliRunner, RaiseUserNotification);
+                    var runtime = new ProjectRuntime(
+                        project,
+                        logStore,
+                        cliRunner,
+                        triggerJournal,
+                        RaiseUserNotification);
                     runtime.HealthChanged += OnRuntimeHealthChanged;
                     runtimes[project.Id] = runtime;
                 }
                 else
                 {
-                    runtimes[project.Id].UpdateDefinition(project, newSettings.Monitor.FileChangeDebounceMs);
+                    runtimes[project.Id].UpdateDefinition(project, newSettings.Monitor);
                 }
 
                 runtimes[project.Id].SetUserNotifier(RaiseUserNotification);
@@ -163,7 +178,16 @@ public sealed class ProjectOrchestrator : IDisposable
         }
     }
 
-    public async Task RestartAppAsync(string projectId, CancellationToken cancellationToken)
+    public async Task RestartAppAsync(string projectId, CancellationToken cancellationToken) =>
+        await RestartProjectAsync(projectId, rebuildFirst: false, cancellationToken);
+
+    public async Task RebuildAndRestartAsync(string projectId, CancellationToken cancellationToken) =>
+        await RestartProjectAsync(projectId, rebuildFirst: true, cancellationToken);
+
+    private async Task RestartProjectAsync(
+        string projectId,
+        bool rebuildFirst,
+        CancellationToken cancellationToken)
     {
         if (!runtimes.TryGetValue(projectId, out var runtime))
         {
@@ -172,7 +196,15 @@ public sealed class ProjectOrchestrator : IDisposable
 
         try
         {
-            await runtime.RestartAppAsync(cancellationToken);
+            if (rebuildFirst)
+            {
+                await runtime.RebuildAndRestartAsync(cancellationToken);
+            }
+            else
+            {
+                await runtime.RestartAppAsync(cancellationToken);
+            }
+
             PublishHealth();
         }
         catch (Exception ex)
@@ -272,6 +304,7 @@ public sealed class ProjectOrchestrator : IDisposable
 internal sealed class ProjectRuntime : IDisposable
 {
     private readonly BuildLogStore logStore;
+    private readonly BuildTriggerJournal triggerJournal;
     private readonly DotNetCliRunner cliRunner;
     private Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser;
     private SupervisedProcess? runProcess;
@@ -281,8 +314,11 @@ internal sealed class ProjectRuntime : IDisposable
     private MonitorHealth health = MonitorHealth.Unknown;
     private int restartCount;
     private string? lastErrorPreview;
-    private int errorCount;
-    private int warningCount;
+    private int buildErrorCount;
+    private int buildWarningCount;
+    private int runErrorCount;
+    private int runWarningCount;
+    private bool isRestarting;
     private readonly object liveOutputSync = new();
     private readonly StringBuilder liveBuildOutput = new();
     private readonly StringBuilder liveTestOutput = new();
@@ -299,6 +335,7 @@ internal sealed class ProjectRuntime : IDisposable
     private DateTimeOffset lastChangedUtc = DateTimeOffset.UtcNow;
     private DateTimeOffset lastProgressPublishUtc = DateTimeOffset.MinValue;
     private DateTimeOffset lastLiveCountParseUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset lastRunCountParseUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<BuildProgressStep> progressSteps = [];
     private BuildProgressTracker? buildProgressTracker;
     private int buildInProgress;
@@ -306,9 +343,13 @@ internal sealed class ProjectRuntime : IDisposable
     private bool pendingFileChangeRebuild;
     private DateTimeOffset fileChangeBuildCooldownUntil = DateTimeOffset.MinValue;
     private DateTimeOffset lastWatchFileChangeNotifyUtc = DateTimeOffset.MinValue;
-    private int fileChangeDebounceMs = 1500;
+    private DateTimeOffset lastHotReloadRestartRequestUtc = DateTimeOffset.MinValue;
+    private int fileChangeDebounceMs = 3000;
+    private bool coalesceWatchRebuilds = true;
+    private int pendingHotReloadRestartRequest;
     private int buildNumber;
     private string pendingBuildReason = "startup";
+    private IReadOnlyList<string> lastFileChangePaths = [];
     private int runProcessGeneration;
     private Action<string, int>? runProcessExitedHandler;
     private string? pendingListenUrl;
@@ -331,6 +372,13 @@ internal sealed class ProjectRuntime : IDisposable
         {
             RefreshHealth();
             RefreshListenUrlReady();
+            RefreshRunIssueCounts(force: true);
+            var (displayErrors, displayWarnings) = HealthIssueCountsFormatter.SelectPrimaryCounts(
+                state,
+                buildErrorCount,
+                buildWarningCount,
+                runErrorCount,
+                runWarningCount);
             return new ProjectHealthSnapshot(
                 definition.Id,
                 definition.DisplayName,
@@ -340,15 +388,23 @@ internal sealed class ProjectRuntime : IDisposable
                 lastExitCode,
                 lastDuration,
                 lastErrorPreview,
-                errorCount,
-                warningCount,
+                displayErrors,
+                displayWarnings,
                 lastChangedUtc,
                 lastBuildFinishedAtUtc,
                 definition.IsActiveInSession,
                 progressSteps,
-                pendingListenUrl,
+                ResolveDisplayListenUrl(),
                 listenUrlReady,
-                definition.RunOptions.RunMode != ProjectRunMode.None);
+                definition.RunOptions.RunMode != ProjectRunMode.None,
+                HealthIssueCountsFormatter.FormatStatusLine(
+                    state,
+                    buildErrorCount,
+                    buildWarningCount,
+                    runErrorCount,
+                    runWarningCount),
+                HealthIssueCountsFormatter.FormatFailurePhase(state),
+                isRestarting);
         }
     }
 
@@ -356,25 +412,74 @@ internal sealed class ProjectRuntime : IDisposable
         LocalProjectDefinition definition,
         BuildLogStore logStore,
         DotNetCliRunner cliRunner,
+        BuildTriggerJournal triggerJournal,
         Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null)
     {
         this.definition = definition;
         this.logStore = logStore;
         this.cliRunner = cliRunner;
+        this.triggerJournal = triggerJournal;
         this.notifyUser = notifyUser;
     }
 
-    public void UpdateDefinition(LocalProjectDefinition updated, int? debounceMs = null)
+    public void UpdateDefinition(LocalProjectDefinition updated, GlobalMonitorSettings? monitor = null)
     {
         definition = updated;
-        if (debounceMs is > 0)
+        if (monitor is null)
         {
-            fileChangeDebounceMs = debounceMs.Value;
+            return;
         }
+
+        if (monitor.FileChangeDebounceMs > 0)
+        {
+            fileChangeDebounceMs = monitor.FileChangeDebounceMs;
+        }
+
+        coalesceWatchRebuilds = monitor.CoalesceWatchRebuilds;
+    }
+
+    private bool UsesCoalescedWatchRebuilds() =>
+        definition.RunOptions.RunMode == ProjectRunMode.Watch && coalesceWatchRebuilds;
+
+    private bool UsesDotNetWatchProcess() =>
+        definition.RunOptions.RunMode == ProjectRunMode.Watch && !UsesCoalescedWatchRebuilds();
+
+    private bool ShouldStartFileWatcher()
+    {
+        if (definition.RunOptions.FileChanges == FileChangeMode.Off)
+        {
+            return false;
+        }
+
+        if (UsesCoalescedWatchRebuilds())
+        {
+            return true;
+        }
+
+        return definition.RunOptions.FileChanges == FileChangeMode.TriggerRebuild
+            && definition.RunOptions.RunMode != ProjectRunMode.Watch;
     }
 
     public void SetUserNotifier(Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifier) =>
         notifyUser = notifier;
+
+    private static (int Errors, int Warnings) CountLiveIssues(BuildLogKind kind, string normalized) =>
+        kind switch
+        {
+            BuildLogKind.Run => (
+                DotNetRunOutputParser.ParseErrorCount(normalized),
+                DotNetRunOutputParser.ParseWarningCount(normalized)),
+            BuildLogKind.Test => CountTestIssues(normalized),
+            _ => (
+                BuildLogParser.ParseErrorCount(normalized),
+                BuildLogParser.ParseWarningCount(normalized))
+        };
+
+    private static (int Errors, int Warnings) CountTestIssues(string normalized)
+    {
+        var testIssues = DotNetTestOutputParser.ParseIssues(normalized);
+        return (testIssues.Count(i => i.IsError), testIssues.Count(i => !i.IsError));
+    }
 
     public void PrepareBuild(string reason) => pendingBuildReason = reason;
 
@@ -423,12 +528,13 @@ internal sealed class ProjectRuntime : IDisposable
         var revision = kind == BuildLogKind.Test
             ? Volatile.Read(ref liveTestOutputRevision)
             : Volatile.Read(ref liveOutputRevision);
+        var (liveErrors, liveWarnings) = CountLiveIssues(kind, normalized);
         return new LiveBuildLogView(
             normalized,
             true,
             state,
-            BuildLogParser.ParseErrorCount(normalized),
-            BuildLogParser.ParseWarningCount(normalized),
+            liveErrors,
+            liveWarnings,
             revision);
     }
 
@@ -450,24 +556,32 @@ internal sealed class ProjectRuntime : IDisposable
 
         // Build already completed above — skip watch/run's embedded rebuild.
         StartRunProcess(skipEmbeddedBuild: true);
+        TryStartFileWatcher();
+    }
 
-        if (definition.RunOptions.FileChanges == FileChangeMode.TriggerRebuild
-            && definition.RunOptions.RunMode != ProjectRunMode.Watch)
+    private void TryStartFileWatcher()
+    {
+        if (!ShouldStartFileWatcher())
         {
-            try
-            {
-                fileWatcher = new DebouncedFileWatcher(definition.RootFolder, fileChangeDebounceMs);
-                fileWatcher.Changed += OnFileWatcherChanged;
-            }
-            catch (Exception ex)
-            {
-                notifyUser?.Invoke(
-                    definition.Id,
-                    $"File watcher disabled — {definition.DisplayName}",
-                    $"Could not watch '{definition.RootFolder}': {ex.Message}",
-                    UserNotificationKind.Warning,
-                    UserNotificationCategory.Warning);
-            }
+            return;
+        }
+
+        try
+        {
+            fileWatcher = new DebouncedFileWatcher(
+                definition.RootFolder,
+                fileChangeDebounceMs,
+                WatchExcludeSegments.Parse(definition.RunOptions.WatchExcludeSegments));
+            fileWatcher.Changed += OnFileWatcherChanged;
+        }
+        catch (Exception ex)
+        {
+            notifyUser?.Invoke(
+                definition.Id,
+                $"File watcher disabled — {definition.DisplayName}",
+                $"Could not watch '{definition.RootFolder}': {ex.Message}",
+                UserNotificationKind.Warning,
+                UserNotificationCategory.Warning);
         }
     }
 
@@ -480,8 +594,21 @@ internal sealed class ProjectRuntime : IDisposable
 
         var shouldRestartRun = runProcess?.IsRunning == true;
         var triggeredByFileChange = Volatile.Read(ref buildTriggeredByFileChange) != 0;
-        var buildReason = triggeredByFileChange ? "file change" : pendingBuildReason;
+        var buildReason = triggeredByFileChange
+            ? pendingBuildReason switch
+            {
+                "file change (queued)" => "file change (queued)",
+                _ => "file change"
+            }
+            : pendingBuildReason;
         pendingBuildReason = "startup";
+        var fileChangePaths = triggeredByFileChange ? lastFileChangePaths : null;
+        lastFileChangePaths = [];
+        RecordBuildTrigger(
+            BuildTriggerKindFormatter.FromBuildReason(buildReason, triggeredByFileChange),
+            buildReason,
+            detail: null,
+            fileChangePaths);
 
         fileWatcher?.Suspend();
 
@@ -500,8 +627,8 @@ internal sealed class ProjectRuntime : IDisposable
 
             watchRebuildInProgress = false;
             Interlocked.Exchange(ref liveOutputRevision, 0);
-            errorCount = 0;
-            warningCount = 0;
+            buildErrorCount = 0;
+            buildWarningCount = 0;
             lastErrorPreview = null;
 
             var buildBanner = WriteBuildStartBanner(buildReason);
@@ -560,8 +687,8 @@ internal sealed class ProjectRuntime : IDisposable
                 cancellationToken);
 
             lastBuildFinishedAtUtc = buildLog.FinishedAtUtc;
-            errorCount = buildLog.ErrorCount;
-            warningCount = BuildLogParser.ParseWarningCount(result.Output);
+            buildErrorCount = buildLog.ErrorCount;
+            buildWarningCount = BuildLogParser.ParseWarningCount(result.Output);
             lastErrorPreview = buildLog.ErrorLines.FirstOrDefault();
 
             if (result.ExitCode == 0)
@@ -589,6 +716,7 @@ internal sealed class ProjectRuntime : IDisposable
 
             buildProgressTracker = null;
 
+            var restartedAfterBuild = false;
             if (shouldRestartRun
                 && definition.RunOptions.RestartAppAfterRebuild
                 && definition.RunOptions.RunMode != ProjectRunMode.None
@@ -600,7 +728,10 @@ internal sealed class ProjectRuntime : IDisposable
                 }
 
                 StartRunProcess(skipEmbeddedBuild: true);
+                restartedAfterBuild = true;
             }
+
+            ApplyPendingHotReloadRestartAfterBuild(result.ExitCode, restartedAfterBuild);
         }
         finally
         {
@@ -612,8 +743,16 @@ internal sealed class ProjectRuntime : IDisposable
             {
                 fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddSeconds(3);
             }
+            else
+            {
+                var quietUntil = DateTimeOffset.UtcNow.AddMilliseconds(Math.Min(fileChangeDebounceMs / 2, 2000));
+                if (quietUntil > fileChangeBuildCooldownUntil)
+                {
+                    fileChangeBuildCooldownUntil = quietUntil;
+                }
+            }
 
-            if (pendingFileChangeRebuild)
+            if (pendingFileChangeRebuild && lastFileChangePaths.Count > 0)
             {
                 pendingFileChangeRebuild = false;
                 _ = ScheduleCoalescedFileChangeRebuildAsync();
@@ -667,7 +806,7 @@ internal sealed class ProjectRuntime : IDisposable
         lastExitCode = metadata.ExitCode;
         lastDuration = metadata.FinishedAtUtc - metadata.StartedAtUtc;
         lastBuildFinishedAtUtc = metadata.FinishedAtUtc;
-        errorCount = metadata.ErrorCount;
+        buildErrorCount = metadata.ErrorCount;
         lastErrorPreview = metadata.ErrorLines.FirstOrDefault();
         RefreshHealth();
         HealthChanged?.Invoke();
@@ -749,8 +888,18 @@ internal sealed class ProjectRuntime : IDisposable
         }
     }
 
-    private void OnFileWatcherChanged()
+    private void OnFileWatcherChanged(IReadOnlyList<string> changedPaths)
     {
+        var meaningful = WatchIgnoreRules.FilterMeaningfulPaths(
+            changedPaths,
+            WatchExcludeSegments.Parse(definition.RunOptions.WatchExcludeSegments));
+        if (meaningful.Count == 0)
+        {
+            return;
+        }
+
+        lastFileChangePaths = RelativizePaths(meaningful);
+
         if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
             pendingFileChangeRebuild = true;
@@ -786,17 +935,30 @@ internal sealed class ProjectRuntime : IDisposable
     {
         Interlocked.Increment(ref liveOutputRevision);
 
+        var runCountsChanged = RefreshRunIssueCounts(force: false);
+        if (runCountsChanged)
+        {
+            RefreshHealth();
+            NotifyProgressChanged();
+        }
+
         if (DotNetRunOutputParser.TryExtractListeningUrl(line, out var parsedUrl))
         {
+            var hadUrl = !string.IsNullOrWhiteSpace(pendingListenUrl);
             pendingListenUrl = parsedUrl;
-            MarkListenUrlReady(parsedUrl);
+            var wasReady = listenUrlReady;
+            RefreshListenUrlReady();
+            if (!hadUrl || listenUrlReady != wasReady)
+            {
+                NotifyProgressChanged(force: true);
+            }
         }
 
         if (DotNetRunOutputParser.IsHostTerminatedLine(line)
             || DotNetRunOutputParser.IsFatalStartupLine(line))
         {
             lastErrorPreview = line.Trim();
-            errorCount = Math.Max(errorCount, 1);
+            runErrorCount = Math.Max(runErrorCount, 1);
             SetState(ProjectLifecycleState.Crashed);
             notifyUser?.Invoke(
                 definition.Id,
@@ -808,7 +970,9 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
-        if (definition.RunOptions.RunMode == ProjectRunMode.Watch)
+        TryHandleHotReloadRestartRequest(line);
+
+        if (UsesDotNetWatchProcess())
         {
             HandleWatchProcessOutputLine(line);
         }
@@ -816,23 +980,54 @@ internal sealed class ProjectRuntime : IDisposable
 
     private void HandleWatchProcessOutputLine(string line)
     {
+        if (DotNetWatchOutput.IsWatchBuildingLine(line))
+        {
+            RecordBuildTrigger(
+                BuildTriggerKind.DotNetWatchCompile,
+                "dotnet watch compile started",
+                detail: line.Trim());
+            watchRebuildInProgress = true;
+            return;
+        }
+
         if (DotNetWatchOutput.IsBuildFailedLine(line))
         {
             watchRebuildInProgress = false;
             lastBuildExitCode = 1;
             lastErrorPreview = line.Trim();
-            errorCount = Math.Max(errorCount, 1);
-            SetState(ProjectLifecycleState.BuildFailed);
+            buildErrorCount = Math.Max(buildErrorCount, 1);
+            if (runProcess?.IsRunning == true)
+            {
+                RefreshHealth();
+                NotifyProgressChanged(force: true);
+                HealthChanged?.Invoke();
+            }
+            else
+            {
+                SetState(ProjectLifecycleState.BuildFailed);
+            }
+
             return;
         }
 
         if (DotNetWatchOutput.IsBuildSucceededLine(line))
         {
+            var wasWatchRebuild = watchRebuildInProgress;
             watchRebuildInProgress = false;
             lastBuildExitCode = 0;
             if (state is ProjectLifecycleState.BuildFailed)
             {
                 SetState(ProjectLifecycleState.Watching);
+            }
+
+            if (wasWatchRebuild)
+            {
+                notifyUser?.Invoke(
+                    definition.Id,
+                    $"Build succeeded — {definition.DisplayName}",
+                    "Watch rebuild completed successfully.",
+                    UserNotificationKind.Info,
+                    UserNotificationCategory.BuildSuccess);
             }
 
             return;
@@ -843,7 +1038,8 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
-        if (Volatile.Read(ref testInProgress) != 0
+        if (watchRebuildInProgress
+            || Volatile.Read(ref testInProgress) != 0
             || DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
             return;
@@ -852,9 +1048,14 @@ internal sealed class ProjectRuntime : IDisposable
         watchRebuildInProgress = true;
         listenUrlReady = false;
         listenUrlNotified = false;
+        RecordBuildTrigger(
+            BuildTriggerKind.DotNetWatchFileChange,
+            "dotnet watch detected a file change",
+            detail: line.Trim());
 
         var now = DateTimeOffset.UtcNow;
-        if ((now - lastWatchFileChangeNotifyUtc).TotalSeconds < 2)
+        var notifyCooldown = TimeSpan.FromMilliseconds(Math.Max(fileChangeDebounceMs, 2000));
+        if (now - lastWatchFileChangeNotifyUtc < notifyCooldown)
         {
             return;
         }
@@ -943,7 +1144,16 @@ internal sealed class ProjectRuntime : IDisposable
         StartRunProcess(skipEmbeddedBuild: true);
     }
 
-    public async Task RestartAppAsync(CancellationToken cancellationToken)
+    public Task RestartAppAsync(CancellationToken cancellationToken) =>
+        RestartAppCoreAsync(rebuildFirst: false, cancellationToken);
+
+    public Task RebuildAndRestartAsync(CancellationToken cancellationToken) =>
+        RestartAppCoreAsync(rebuildFirst: true, cancellationToken, "rebuild & restart");
+
+    private async Task RestartAppCoreAsync(
+        bool rebuildFirst,
+        CancellationToken cancellationToken,
+        string? buildReason = null)
     {
         if (definition.RunOptions.RunMode == ProjectRunMode.None)
         {
@@ -961,18 +1171,36 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
-        var needsRebuild = lastBuildExitCode != 0;
-        await StopRunProcessAsync(cancellationToken);
-        restartCount = 0;
-
-        if (needsRebuild)
-        {
-            PrepareBuild("app restart");
-            await BuildAsync(cancellationToken);
-        }
-
-        EnsureRunProcessStartedAfterBuild();
+        isRestarting = true;
         HealthChanged?.Invoke();
+
+        try
+        {
+            await StopRunProcessAsync(cancellationToken);
+            restartCount = 0;
+            runErrorCount = 0;
+            runWarningCount = 0;
+
+            if (rebuildFirst)
+            {
+                PrepareBuild(buildReason ?? "rebuild & restart");
+                await BuildAsync(cancellationToken);
+            }
+            else if (buildReason == "hot reload restart")
+            {
+                RecordBuildTrigger(
+                    BuildTriggerKind.HotReloadRestart,
+                    "Hot reload requested app restart (no rebuild)",
+                    detail: null);
+            }
+
+            EnsureRunProcessStartedAfterBuild();
+        }
+        finally
+        {
+            isRestarting = false;
+            HealthChanged?.Invoke();
+        }
     }
 
     private void OnBuildOutputLine(string line)
@@ -1001,6 +1229,175 @@ internal sealed class ProjectRuntime : IDisposable
         {
             NotifyProgressChanged();
         }
+
+        TryHandleHotReloadRestartRequest(line);
+    }
+
+    private void TryHandleHotReloadRestartRequest(string line)
+    {
+        var request = HotReloadRestartDetector.Classify(line);
+        if (request == HotReloadRestartRequest.None)
+        {
+            return;
+        }
+
+        if (!definition.RunOptions.AutoRestartOnHotReloadRequest
+            || definition.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return;
+        }
+
+        if (ShouldDeferRestartToDotNetWatch(line, request))
+        {
+            return;
+        }
+
+        ScheduleHotReloadRestart(request);
+    }
+
+    private bool ShouldDeferRestartToDotNetWatch(string line, HotReloadRestartRequest request) =>
+        request == HotReloadRestartRequest.RestartApp
+        && UsesDotNetWatchProcess()
+        && definition.RunOptions.AutoRestartOnWatchChanges
+        && HotReloadRestartDetector.IsWatchAutoRestartMessage(line);
+
+    private void ScheduleHotReloadRestart(HotReloadRestartRequest request)
+    {
+        if (isRestarting || Volatile.Read(ref testInProgress) != 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (now - lastHotReloadRestartRequestUtc < TimeSpan.FromSeconds(5))
+        {
+            UpgradePendingHotReloadRestartRequest(request);
+            return;
+        }
+
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            UpgradePendingHotReloadRestartRequest(request);
+            return;
+        }
+
+        if (runProcess?.IsRunning != true)
+        {
+            if (request == HotReloadRestartRequest.RebuildAndRestart)
+            {
+                lastHotReloadRestartRequestUtc = now;
+                _ = ExecuteHotReloadRestartAsync(HotReloadRestartRequest.RebuildAndRestart);
+            }
+
+            return;
+        }
+
+        lastHotReloadRestartRequestUtc = now;
+        _ = ExecuteHotReloadRestartAsync(request);
+    }
+
+    private void UpgradePendingHotReloadRestartRequest(HotReloadRestartRequest request)
+    {
+        if (request == HotReloadRestartRequest.RebuildAndRestart)
+        {
+            Volatile.Write(ref pendingHotReloadRestartRequest, (int)HotReloadRestartRequest.RebuildAndRestart);
+        }
+        else if (Volatile.Read(ref pendingHotReloadRestartRequest) == 0)
+        {
+            Volatile.Write(ref pendingHotReloadRestartRequest, (int)request);
+        }
+    }
+
+    private void ApplyPendingHotReloadRestartAfterBuild(int exitCode, bool restartedAfterBuild)
+    {
+        var pending = (HotReloadRestartRequest)Interlocked.Exchange(ref pendingHotReloadRestartRequest, 0);
+        if (pending == HotReloadRestartRequest.None || exitCode != 0)
+        {
+            return;
+        }
+
+        if (restartedAfterBuild)
+        {
+            return;
+        }
+
+        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return;
+        }
+
+        StartRunProcess(skipEmbeddedBuild: true);
+    }
+
+    private async Task ExecuteHotReloadRestartAsync(HotReloadRestartRequest request)
+    {
+        if (isRestarting
+            || Volatile.Read(ref buildInProgress) != 0
+            || Volatile.Read(ref testInProgress) != 0)
+        {
+            UpgradePendingHotReloadRestartRequest(request);
+            return;
+        }
+
+        notifyUser?.Invoke(
+            definition.Id,
+            request == HotReloadRestartRequest.RebuildAndRestart
+                ? $"Rebuild required — {definition.DisplayName}"
+                : $"Restart required — {definition.DisplayName}",
+            "Output indicated hot reload could not apply the latest changes. Restarting automatically.",
+            UserNotificationKind.Info,
+            UserNotificationCategory.Info);
+
+        try
+        {
+            await RestartAppCoreAsync(
+                rebuildFirst: request == HotReloadRestartRequest.RebuildAndRestart,
+                CancellationToken.None,
+                request == HotReloadRestartRequest.RebuildAndRestart
+                    ? "hot reload rebuild"
+                    : "hot reload restart");
+        }
+        catch (Exception ex)
+        {
+            notifyUser?.Invoke(
+                definition.Id,
+                $"Auto-restart failed — {definition.DisplayName}",
+                ex.Message,
+                UserNotificationKind.Warning,
+                UserNotificationCategory.Warning);
+        }
+    }
+
+    private bool RefreshRunIssueCounts(bool force)
+    {
+        if (runProcess?.IsRunning != true && state is not ProjectLifecycleState.Crashed)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (!force && (now - lastRunCountParseUtc).TotalMilliseconds < 150)
+        {
+            return false;
+        }
+
+        lastRunCountParseUtc = now;
+        var output = runProcess?.Output ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return false;
+        }
+
+        var parsedErrors = DotNetRunOutputParser.ParseErrorCount(output);
+        var parsedWarnings = DotNetRunOutputParser.ParseWarningCount(output);
+        if (parsedErrors == runErrorCount && parsedWarnings == runWarningCount)
+        {
+            return false;
+        }
+
+        runErrorCount = parsedErrors;
+        runWarningCount = parsedWarnings;
+        return true;
     }
 
     private bool RefreshLiveIssueCounts(bool force)
@@ -1027,13 +1424,13 @@ internal sealed class ProjectRuntime : IDisposable
 
         var parsedErrors = BuildLogParser.ParseErrorCount(output);
         var parsedWarnings = BuildLogParser.ParseWarningCount(output);
-        if (parsedErrors == errorCount && parsedWarnings == warningCount)
+        if (parsedErrors == buildErrorCount && parsedWarnings == buildWarningCount)
         {
             return false;
         }
 
-        errorCount = parsedErrors;
-        warningCount = parsedWarnings;
+        buildErrorCount = parsedErrors;
+        buildWarningCount = parsedWarnings;
         return true;
     }
 
@@ -1091,8 +1488,8 @@ internal sealed class ProjectRuntime : IDisposable
             }
 
             Interlocked.Exchange(ref liveTestOutputRevision, 0);
-            errorCount = 0;
-            warningCount = 0;
+            buildErrorCount = 0;
+            buildWarningCount = 0;
             lastErrorPreview = null;
 
             var resolution = TestProjectDiscovery.Resolve(
@@ -1105,7 +1502,7 @@ internal sealed class ProjectRuntime : IDisposable
                 WriteTestStartBanner(testReason, [], resolution.DiscoveryNote);
                 SetState(ProjectLifecycleState.TestFailed);
                 lastErrorPreview = resolution.DiscoveryNote;
-                errorCount = 1;
+                buildErrorCount = 1;
                 return;
             }
 
@@ -1186,8 +1583,8 @@ internal sealed class ProjectRuntime : IDisposable
             }
             else
             {
-                errorCount = Math.Max(parsed.ErrorCount, testsExecuted ? 0 : 1);
-                warningCount = BuildLogParser.ParseWarningCount(logText);
+                buildErrorCount = Math.Max(parsed.ErrorCount, testsExecuted ? 0 : 1);
+                buildWarningCount = BuildLogParser.ParseWarningCount(logText);
                 lastErrorPreview = parsed.ErrorLines.FirstOrDefault()
                     ?? summaryLine
                     ?? "No tests were executed";
@@ -1468,7 +1865,7 @@ internal sealed class ProjectRuntime : IDisposable
         };
         runProcess.Exited += runProcessExitedHandler;
 
-        var args = definition.RunOptions.RunMode == ProjectRunMode.Watch
+        var args = UsesDotNetWatchProcess()
             ? BuildWatchArgs(skipEmbeddedBuild)
             : BuildRunArgs(skipEmbeddedBuild);
 
@@ -1494,7 +1891,7 @@ internal sealed class ProjectRuntime : IDisposable
                     definition.ProjectFile,
                     definition.LaunchProfile);
 
-                if (definition.RunOptions.RunMode == ProjectRunMode.Watch
+                if (UsesDotNetWatchProcess()
                     && !definition.RunOptions.AutoRestartOnWatchChanges)
                 {
                     psi.Environment["DOTNET_WATCH_RESTART_ON_RUDE_EDIT"] = "0";
@@ -1504,6 +1901,7 @@ internal sealed class ProjectRuntime : IDisposable
         NotifyProgressChanged(force: true);
 
         SetState(definition.RunOptions.RunMode == ProjectRunMode.Watch
+            || UsesCoalescedWatchRebuilds()
             ? ProjectLifecycleState.Watching
             : ProjectLifecycleState.Running);
     }
@@ -1522,6 +1920,14 @@ internal sealed class ProjectRuntime : IDisposable
         listenUrlReady = false;
         listenUrlNotified = false;
         lastExitCode = exitCode;
+        var runOutput = exitedProcess.Output;
+        runErrorCount = DotNetRunOutputParser.ParseErrorCount(runOutput);
+        runWarningCount = DotNetRunOutputParser.ParseWarningCount(runOutput);
+        if (exitCode != 0 && runErrorCount == 0)
+        {
+            runErrorCount = 1;
+        }
+
         if (exitCode != 0 && definition.RunOptions.RestartOnCrash && restartCount < definition.RunOptions.MaxRestartRetries)
         {
             restartCount++;
@@ -1685,8 +2091,46 @@ internal sealed class ProjectRuntime : IDisposable
         HealthChanged?.Invoke();
     }
 
-    private void RefreshHealth() =>
-        health = ProjectHealthEvaluator.Evaluate(state, lastBuildExitCode, errorCount, warningCount);
+    private void RefreshHealth()
+    {
+        var (displayErrors, displayWarnings) = HealthIssueCountsFormatter.SelectPrimaryCounts(
+            state,
+            buildErrorCount,
+            buildWarningCount,
+            runErrorCount,
+            runWarningCount);
+        health = ProjectHealthEvaluator.Evaluate(
+            state,
+            lastBuildExitCode,
+            displayErrors,
+            displayWarnings,
+            inProgress: isRestarting
+                || state is ProjectLifecycleState.Building
+                || state is ProjectLifecycleState.Testing);
+    }
+
+    private string? ResolveDisplayListenUrl()
+    {
+        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(pendingListenUrl))
+        {
+            return pendingListenUrl;
+        }
+
+        if (candidateListenUrls.Count > 0)
+        {
+            return candidateListenUrls[0];
+        }
+
+        return LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
+            definition.RootFolder,
+            definition.ProjectFile,
+            definition.LaunchProfile);
+    }
 
     private void RefreshListenUrlReady()
     {
@@ -1776,6 +2220,49 @@ internal sealed class ProjectRuntime : IDisposable
         progressSteps = [];
         SetState(ProjectLifecycleState.Idle);
         return Task.CompletedTask;
+    }
+
+    private void RecordBuildTrigger(
+        BuildTriggerKind kind,
+        string summary,
+        string? detail,
+        IReadOnlyList<string>? changedPaths = null)
+    {
+        triggerJournal.Record(new BuildTriggerRecord(
+            Guid.NewGuid().ToString("N"),
+            definition.Id,
+            definition.DisplayName,
+            DateTimeOffset.UtcNow,
+            kind,
+            summary,
+            detail,
+            changedPaths is { Count: > 0 } ? changedPaths : null,
+            InferredCause: BuildTriggerInference.Infer(kind, detail, changedPaths)));
+    }
+
+    private IReadOnlyList<string> RelativizePaths(IReadOnlyList<string> fullPaths)
+    {
+        if (fullPaths.Count == 0)
+        {
+            return [];
+        }
+
+        var root = Path.GetFullPath(definition.RootFolder);
+        var results = new List<string>(fullPaths.Count);
+        foreach (var path in fullPaths)
+        {
+            try
+            {
+                var full = Path.GetFullPath(path);
+                results.Add(Path.GetRelativePath(root, full));
+            }
+            catch
+            {
+                results.Add(path);
+            }
+        }
+
+        return results;
     }
 
     public void Dispose()

@@ -97,4 +97,41 @@ public sealed record ProjectHealthSnapshot(
     IReadOnlyList<BuildProgressStep> ProgressSteps,
     string? ListenUrl = null,
     bool ListenUrlReady = false,
-    bool SupportsAppRestart = false);
+    bool SupportsAppRestart = false,
+    string? IssueCountsText = null,
+    string? FailurePhase = null,
+    bool IsRestarting = false);
+
+public enum BuildTriggerKind
+{
+    SessionStart = 0,
+    ManualRebuild = 1,
+    FileWatcher = 2,
+    FileWatcherQueued = 3,
+    RebuildAndRestart = 4,
+    HotReloadRebuild = 5,
+    HotReloadRestart = 6,
+    DotNetWatchCompile = 7,
+    DotNetWatchFileChange = 8,
+    Other = 9
+}
+
+public enum BuildTriggerVerdict
+{
+    Unreviewed = 0,
+    Expected = 1,
+    Unexpected = 2
+}
+
+public sealed record BuildTriggerRecord(
+    string Id,
+    string ProjectId,
+    string ProjectDisplayName,
+    DateTimeOffset OccurredAtUtc,
+    BuildTriggerKind Kind,
+    string Summary,
+    string? Detail = null,
+    IReadOnlyList<string>? ChangedPaths = null,
+    BuildTriggerVerdict Verdict = BuildTriggerVerdict.Unreviewed,
+    string? InferredCause = null,
+    string? UserNote = null);

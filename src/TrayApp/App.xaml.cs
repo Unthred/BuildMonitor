@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Services;
 using BuildMonitor.TrayApp.Services;
 using Forms = System.Windows.Forms;
@@ -20,9 +21,10 @@ public partial class App : System.Windows.Application
     private Forms.ToolStripMenuItem? stopSubmenu;
     private Forms.ToolStripMenuItem? viewLogsSubmenu;
     private ProjectOrchestrator? orchestrator;
+    private BuildDiagnosticsWindow? diagnosticsWindow;
     private HoverStatusPanel? hoverPanel;
     private SettingsStore? settingsStore;
-    private BuildLogViewerWindowStateStore? buildLogWindowStateStore;
+    private AppWindowsLayoutStore? windowsLayoutStore;
     private AppSettings currentSettings = new();
     private string appDataDirectory = string.Empty;
     private DispatcherTimer? hideStatusPanelTimer;
@@ -38,6 +40,8 @@ public partial class App : System.Windows.Application
     private int buildIconAnimationFrame;
     private MonitorHealth currentTrayHealth = MonitorHealth.Unknown;
     private bool currentTrayBuilding;
+    private bool currentTrayWebReady;
+    private ProjectHealthSnapshot? currentTrayHeadline;
     private int exitRequested;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -53,9 +57,10 @@ public partial class App : System.Windows.Application
         var settingsPath = Path.Combine(appDataDirectory, "settings.json");
         var logsPath = Path.Combine(appDataDirectory, "logs");
 
+        windowsLayoutStore = new AppWindowsLayoutStore(appDataDirectory);
+        await windowsLayoutStore.LoadAsync();
+
         settingsStore = new SettingsStore(settingsPath);
-        buildLogWindowStateStore = new BuildLogViewerWindowStateStore(
-            Path.Combine(appDataDirectory, "build-log-window.json"));
         currentSettings = await settingsStore.LoadOrCreateDefaultAsync();
 
         ThemeService.ApplyTheme(currentSettings.AppBehavior.Theme);
@@ -72,7 +77,7 @@ public partial class App : System.Windows.Application
                 UserNotificationCategory.Warning);
         }
 
-        orchestrator = new ProjectOrchestrator(logsPath);
+        orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
 
@@ -135,11 +140,16 @@ public partial class App : System.Windows.Application
 
         Dispatcher.BeginInvoke(() =>
         {
-            var toastKind = kind switch
+            var toastKind = category switch
             {
-                UserNotificationKind.Error => ToastKind.Error,
-                UserNotificationKind.Warning => ToastKind.Warning,
-                _ => ToastKind.Info
+                UserNotificationCategory.BuildSuccess => ToastKind.Success,
+                UserNotificationCategory.BuildFailure => ToastKind.Error,
+                _ => kind switch
+                {
+                    UserNotificationKind.Error => ToastKind.Error,
+                    UserNotificationKind.Warning => ToastKind.Warning,
+                    _ => ToastKind.Info
+                }
             };
             ToastNotificationService.ShowIfEnabled(title, message, toastKind, category);
         });
@@ -155,9 +165,11 @@ public partial class App : System.Windows.Application
         Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
         {
             var activeOnly = snapshots.Where(s => s.IsActive).ToList();
+            currentTrayHeadline = LocalTrayIconRollupEvaluator.ChooseHeadline(activeOnly);
             UpdateTrayIcon(
                 LocalTrayIconRollupEvaluator.Rollup(activeOnly),
-                LocalTrayIconRollupEvaluator.IsBuilding(activeOnly));
+                LocalTrayIconRollupEvaluator.IsBuilding(activeOnly),
+                LocalTrayIconRollupEvaluator.IsWebReady(currentTrayHeadline));
             hoverPanel?.Update(snapshots);
             AutoOpenLogsOnFailureTransition(snapshots);
             ShowBuildToasts(snapshots);
@@ -180,7 +192,12 @@ public partial class App : System.Windows.Application
             {
                 if (autoOpenedLogForFailure.Add(snapshot.ProjectId))
                 {
-                    OpenLogViewer(snapshot.ProjectId, snapshot.DisplayName);
+                    var logKind = LogKindForFailure(snapshot.State);
+                    OpenLogViewer(
+                        snapshot.ProjectId,
+                        snapshot.DisplayName,
+                        logKind,
+                        selectErrorsFilter: snapshot.ErrorCount > 0);
                 }
             }
             else if (snapshot.Health != MonitorHealth.Red)
@@ -215,7 +232,7 @@ public partial class App : System.Windows.Application
         var icon = new Forms.NotifyIcon
         {
             Text = "Local Build Monitor",
-            Icon = AppIconService.TrayIcon
+            Icon = TrafficLightIconFactory.GetIcon(MonitorHealth.Unknown)
         };
 
         trayContextMenu = new Forms.ContextMenuStrip();
@@ -241,12 +258,18 @@ public partial class App : System.Windows.Application
         viewLogsSubmenu = new Forms.ToolStripMenuItem("View Log");
         trayContextMenu.Items.Add(viewLogsSubmenu);
 
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Build diagnostics…",
+            null,
+            (_, _) => RunTrayMenuUiAction(ShowBuildDiagnostics)));
+
         trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
         trayContextMenu.Items.Add(new Forms.ToolStripMenuItem("Settings", null, (_, _) => RunTrayMenuUiAction(() => _ = ShowSettingsAsync())));
         trayContextMenu.Items.Add(new Forms.ToolStripMenuItem("Exit", null, (_, _) => RequestExit()));
 
         trayContextMenu.Opening += (_, _) =>
         {
+            TrayScreenPlacement.CaptureFromCursor();
             try
             {
                 RefreshProjectSubmenus();
@@ -271,6 +294,7 @@ public partial class App : System.Windows.Application
 
             if (args.Button == Forms.MouseButtons.Left)
             {
+                TrayScreenPlacement.CaptureFromCursor();
                 ToggleStatusPanel();
             }
         };
@@ -281,6 +305,7 @@ public partial class App : System.Windows.Application
     private void ToggleStatusPanel()
     {
         CancelStatusPanelTimers();
+        TrayScreenPlacement.CaptureFromCursor();
         EnsureHoverPanel();
 
         if (hoverPanel is { IsVisible: true })
@@ -296,6 +321,7 @@ public partial class App : System.Windows.Application
     private void ShowStatusPanel()
     {
         CancelStatusPanelTimers();
+        TrayScreenPlacement.CaptureFromCursor();
         EnsureHoverPanel();
         hoverPanel!.Update(orchestrator?.GetHealthSnapshots() ?? []);
         hoverPanel.ShowNearTray();
@@ -330,10 +356,16 @@ public partial class App : System.Windows.Application
         }
 
         hoverPanel = new HoverStatusPanel();
+        hoverPanel.ApplyLayout(windowsLayoutStore.Layout.StatusPanel);
+        hoverPanel.SizeChanged += (_, _) => SaveStatusPanelLayout();
         ApplyThemeToUi();
-        hoverPanel.ViewLogRequested += projectId => OpenLogViewer(projectId);
+        hoverPanel.ViewLogRequested += projectId => OpenLogViewerForProject(projectId);
+        hoverPanel.CopyErrorsRequested += projectId =>
+            RunTrayMenuBackgroundAction(() => CopyProjectErrorsAsync(projectId));
         hoverPanel.RestartAppRequested += projectId =>
             RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(projectId, CancellationToken.None));
+        hoverPanel.RebuildAndRestartRequested += projectId =>
+            RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(projectId, CancellationToken.None));
         hoverPanel.RunTestsRequested += projectId =>
         {
             var name = currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
@@ -365,7 +397,93 @@ public partial class App : System.Windows.Application
         hoverPanel.Closed += (_, _) => hoverPanel = null;
     }
 
-    private void OpenLogViewer(string projectId, string? displayName = null, BuildLogKind? logKind = null)
+    private static BuildLogKind? LogKindForFailure(ProjectLifecycleState state) =>
+        state switch
+        {
+            ProjectLifecycleState.Crashed => BuildLogKind.Run,
+            ProjectLifecycleState.BuildFailed => BuildLogKind.Build,
+            ProjectLifecycleState.TestFailed => BuildLogKind.Test,
+            _ => null
+        };
+
+    private ProjectHealthSnapshot? FindSnapshot(string projectId) =>
+        orchestrator?.GetHealthSnapshots().FirstOrDefault(s => s.ProjectId == projectId);
+
+    private void OpenLogViewerForProject(string projectId, string? displayName = null)
+    {
+        var snapshot = FindSnapshot(projectId);
+        OpenLogViewer(
+            projectId,
+            displayName,
+            snapshot is not null
+                ? LogErrorExporter.ResolvePrimaryLogKind(snapshot.State, snapshot.IssueCountsText)
+                : null,
+            selectErrorsFilter: snapshot is { ErrorCount: > 0 });
+    }
+
+    private async Task CopyProjectErrorsAsync(string projectId)
+    {
+        if (orchestrator is null)
+        {
+            return;
+        }
+
+        var snapshot = FindSnapshot(projectId);
+        if (snapshot is null || snapshot.ErrorCount == 0)
+        {
+            return;
+        }
+
+        var kind = LogErrorExporter.ResolvePrimaryLogKind(snapshot.State, snapshot.IssueCountsText);
+        var live = orchestrator.GetLiveBuildLog(projectId, kind);
+        IReadOnlyList<string> errors;
+        if (live is not null)
+        {
+            errors = LogErrorExporter.GetErrorLines(kind, live.Text);
+        }
+        else
+        {
+            var metadata = await orchestrator.LogStore.LoadMetadataAsync(projectId, kind).ConfigureAwait(false);
+            errors = metadata?.ErrorLines ?? [];
+            if (errors.Count == 0 && metadata is not null)
+            {
+                var logText = await orchestrator.LogStore
+                    .LoadLogTextAsync(metadata, currentSettings.Monitor.MaxLogDisplayBytes)
+                    .ConfigureAwait(false);
+                errors = LogErrorExporter.GetErrorLines(kind, logText);
+            }
+        }
+
+        if (errors.Count == 0 && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview))
+        {
+            errors = [snapshot.LastErrorPreview];
+        }
+
+        if (errors.Count == 0)
+        {
+            return;
+        }
+
+        await Dispatcher.InvokeAsync(() =>
+            System.Windows.Clipboard.SetText(string.Join(Environment.NewLine, errors)));
+    }
+
+    private void SaveStatusPanelLayout()
+    {
+        if (hoverPanel is null || windowsLayoutStore is null)
+        {
+            return;
+        }
+
+        hoverPanel.CaptureLayout(windowsLayoutStore.Layout.StatusPanel);
+        _ = windowsLayoutStore.SaveAsync();
+    }
+
+    private void OpenLogViewer(
+        string projectId,
+        string? displayName = null,
+        BuildLogKind? logKind = null,
+        bool selectErrorsFilter = false)
     {
         if (orchestrator is null)
         {
@@ -373,7 +491,7 @@ public partial class App : System.Windows.Application
         }
 
         var name = displayName ?? currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
-        if (buildLogWindowStateStore is null)
+        if (windowsLayoutStore is null)
         {
             return;
         }
@@ -384,6 +502,12 @@ public partial class App : System.Windows.Application
             {
                 if (existing.IsLoaded)
                 {
+                    WindowLayoutService.Apply(existing, windowsLayoutStore.Layout.BuildLog, 960, 720);
+                    if (double.IsNaN(windowsLayoutStore.Layout.BuildLog.Left))
+                    {
+                        TrayScreenPlacement.PlaceWindowCentered(existing);
+                    }
+
                     if (!existing.IsVisible)
                     {
                         existing.Show();
@@ -392,6 +516,11 @@ public partial class App : System.Windows.Application
                     if (logKind is not null)
                     {
                         existing.SelectLogKind(logKind.Value);
+                    }
+
+                    if (selectErrorsFilter)
+                    {
+                        existing.SelectErrorsFilter();
                     }
 
                     existing.Activate();
@@ -407,7 +536,7 @@ public partial class App : System.Windows.Application
 
         var viewer = new BuildLogViewerWindow(
             orchestrator.LogStore,
-            buildLogWindowStateStore,
+            windowsLayoutStore,
             projectId,
             name,
             currentSettings.Monitor.MaxLogDisplayBytes,
@@ -420,6 +549,40 @@ public partial class App : System.Windows.Application
         {
             viewer.SelectLogKind(logKind.Value);
         }
+
+        if (selectErrorsFilter)
+        {
+            viewer.SelectErrorsFilter();
+        }
+    }
+
+    private void ShowBuildDiagnostics()
+    {
+        if (orchestrator is null)
+        {
+            return;
+        }
+
+        if (diagnosticsWindow is { IsLoaded: true })
+        {
+            WindowLayoutService.Apply(diagnosticsWindow, windowsLayoutStore!.Layout.Diagnostics, 1100, 640);
+            if (double.IsNaN(windowsLayoutStore.Layout.Diagnostics.Left))
+            {
+                TrayScreenPlacement.PlaceWindowCentered(diagnosticsWindow);
+            }
+
+            if (!diagnosticsWindow.IsVisible)
+            {
+                diagnosticsWindow.Show();
+            }
+
+            diagnosticsWindow.Activate();
+            return;
+        }
+
+        diagnosticsWindow = new BuildDiagnosticsWindow(orchestrator.TriggerJournal, windowsLayoutStore!);
+        diagnosticsWindow.Closed += (_, _) => diagnosticsWindow = null;
+        diagnosticsWindow.Show();
     }
 
     private async Task ShowSettingsAsync()
@@ -429,7 +592,12 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var window = new SettingsWindow(CloneSettings(currentSettings));
+        var window = new SettingsWindow(CloneSettings(currentSettings), windowsLayoutStore!);
+        if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
+        {
+            TrayScreenPlacement.PlaceWindowCentered(window);
+        }
+
         var saved = window.ShowDialog() == true;
         if (!saved)
         {
@@ -536,6 +704,8 @@ public partial class App : System.Windows.Application
             }
 
             openLogViewers.Clear();
+            diagnosticsWindow?.Close();
+            diagnosticsWindow = null;
             hoverPanel?.Close();
             hoverPanel = null;
 
@@ -688,7 +858,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart all active", null, (_, _) =>
             RunTrayMenuBackgroundAction(async () =>
             {
                 foreach (var p in restartable)
@@ -697,13 +867,24 @@ public partial class App : System.Windows.Application
                 }
             })));
 
+        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart all active", null, (_, _) =>
+            RunTrayMenuBackgroundAction(async () =>
+            {
+                foreach (var p in restartable)
+                {
+                    await orchestrator!.RebuildAndRestartAsync(p.Id, CancellationToken.None);
+                }
+            })));
+
         restartSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
         foreach (var project in restartable)
         {
             var id = project.Id;
             var name = project.DisplayName;
-            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Restart — {name}", null, (_, _) =>
                 RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
+            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Rebuild & restart — {name}", null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(id, CancellationToken.None))));
         }
     }
 
@@ -801,7 +982,7 @@ public partial class App : System.Windows.Application
             var id = project.Id;
             var name = project.DisplayName;
             viewLogsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
-                RunTrayMenuUiAction(() => OpenLogViewer(id, name))));
+                RunTrayMenuUiAction(() => OpenLogViewerForProject(id, name))));
         }
     }
 
@@ -832,7 +1013,8 @@ public partial class App : System.Windows.Application
                 }
             }
 
-            if (previousState == ProjectLifecycleState.Building && currentState == ProjectLifecycleState.BuildOk)
+            if (previousState == ProjectLifecycleState.Building
+                && IsSuccessfulBuildEndState(currentState))
             {
                 var message = snapshot.LastDuration is { } duration
                     ? $"Completed in {FormatBuildDuration(duration)}."
@@ -852,7 +1034,9 @@ public partial class App : System.Windows.Application
                     UserNotificationCategory.BuildSuccess);
             }
 
-            if (previousState == ProjectLifecycleState.Building && currentState == ProjectLifecycleState.BuildFailed)
+            if ((previousState == ProjectLifecycleState.Building
+                    || previousState == ProjectLifecycleState.Watching)
+                && currentState == ProjectLifecycleState.BuildFailed)
             {
                 var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
                     ? "See build log for details."
@@ -884,6 +1068,11 @@ public partial class App : System.Windows.Application
             previousProjectState.Remove(staleId);
         }
     }
+
+    private static bool IsSuccessfulBuildEndState(ProjectLifecycleState state) =>
+        state is ProjectLifecycleState.BuildOk
+            or ProjectLifecycleState.Watching
+            or ProjectLifecycleState.Running;
 
     private static string FormatBuildDuration(TimeSpan duration)
     {
@@ -937,6 +1126,7 @@ public partial class App : System.Windows.Application
     {
         var theme = ThemeService.Resolve(currentSettings.AppBehavior.Theme);
         hoverPanel?.ApplyTheme(theme);
+        ApplyThemeToDiagnosticsWindow(theme);
         if (trayContextMenu is not null)
         {
             TrayMenuTheme.Apply(trayContextMenu, theme);
@@ -947,13 +1137,25 @@ public partial class App : System.Windows.Application
         Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
         {
             hoverPanel?.ApplyTheme(theme);
+            ApplyThemeToDiagnosticsWindow(theme);
             if (trayContextMenu is not null)
             {
                 TrayMenuTheme.Apply(trayContextMenu, theme);
             }
         });
 
-    private void UpdateTrayIcon(MonitorHealth health, bool isBuilding)
+    private void ApplyThemeToDiagnosticsWindow(ResolvedTheme theme)
+    {
+        if (diagnosticsWindow is not { IsLoaded: true })
+        {
+            return;
+        }
+
+        ThemeService.ApplyToWindow(diagnosticsWindow, theme);
+        ThemeService.ApplyChrome(diagnosticsWindow, theme == ResolvedTheme.Dark);
+    }
+
+    private void UpdateTrayIcon(MonitorHealth health, bool isBuilding, bool webReady)
     {
         if (notifyIcon is null)
         {
@@ -962,6 +1164,7 @@ public partial class App : System.Windows.Application
 
         currentTrayHealth = health;
         currentTrayBuilding = isBuilding;
+        currentTrayWebReady = webReady;
 
         if (isBuilding)
         {
@@ -1016,11 +1219,55 @@ public partial class App : System.Windows.Application
         notifyIcon.Icon = TrafficLightIconFactory.GetIcon(
             currentTrayHealth,
             currentTrayBuilding,
-            buildIconAnimationFrame);
-        notifyIcon.Text = currentTrayBuilding
-            ? $"Build monitor - Building ({DescribeHealth(currentTrayHealth)})"
-            : DescribeHealthTooltip(currentTrayHealth);
+            buildIconAnimationFrame,
+            currentTrayWebReady);
+        notifyIcon.Text = FormatTrayTooltip(currentTrayHeadline, currentTrayHealth, currentTrayBuilding);
     }
+
+    private static string FormatTrayTooltip(
+        ProjectHealthSnapshot? headline,
+        MonitorHealth health,
+        bool isBuilding)
+    {
+        if (isBuilding)
+        {
+            var name = headline?.DisplayName ?? "project";
+            return TruncateTrayText($"Building — {name}");
+        }
+
+        if (headline is null)
+        {
+            return DescribeHealthTooltip(health);
+        }
+
+        if (headline.Health == MonitorHealth.Red)
+        {
+            var phase = string.IsNullOrWhiteSpace(headline.FailurePhase)
+                ? "Failed"
+                : headline.FailurePhase;
+            if (!string.IsNullOrWhiteSpace(headline.LastErrorPreview))
+            {
+                return TruncateTrayText($"{headline.DisplayName} — {phase}: {headline.LastErrorPreview}");
+            }
+
+            return TruncateTrayText($"{headline.DisplayName} — {phase}");
+        }
+
+        if (headline.Health == MonitorHealth.Amber)
+        {
+            return TruncateTrayText($"{headline.DisplayName} — Warnings");
+        }
+
+        if (headline.ListenUrlReady && !string.IsNullOrWhiteSpace(headline.ListenUrl))
+        {
+            return TruncateTrayText($"{headline.DisplayName} — Site up · {headline.ListenUrl}");
+        }
+
+        return TruncateTrayText($"{headline.DisplayName} — OK");
+    }
+
+    private static string TruncateTrayText(string text, int maxLength = 63) =>
+        text.Length <= maxLength ? text : text[..(maxLength - 1)] + "…";
 
     private static void MigrateLegacyAppDataIfNeeded(string newAppDataDirectory)
     {

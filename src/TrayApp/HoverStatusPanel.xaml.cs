@@ -20,7 +20,9 @@ public partial class HoverStatusPanel : Window
     private ResolvedTheme currentTheme = ResolvedTheme.Light;
 
     public event Action<string>? ViewLogRequested;
+    public event Action<string>? CopyErrorsRequested;
     public event Action<string>? RestartAppRequested;
+    public event Action<string>? RebuildAndRestartRequested;
     public event Action<string>? RunTestsRequested;
 
     public HoverStatusPanel()
@@ -76,7 +78,10 @@ public partial class HoverStatusPanel : Window
             });
             panel.Children.Add(new TextBlock
             {
-                Text = $"Errors: {snapshot.ErrorCount} | Warnings: {snapshot.WarningCount}",
+                Text = snapshot.IsRestarting
+                    ? "Restarting app…"
+                    : snapshot.IssueCountsText
+                        ?? $"Errors: {snapshot.ErrorCount} | Warnings: {snapshot.WarningCount}",
                 Foreground = new SolidColorBrush(palette.Foreground),
                 Opacity = 0.85,
                 Margin = new Thickness(0, 2, 0, 0)
@@ -89,10 +94,13 @@ public partial class HoverStatusPanel : Window
                 Margin = new Thickness(0, 2, 0, 0)
             });
 
-            if (!string.IsNullOrWhiteSpace(snapshot.ListenUrl)
-                && snapshot.State is ProjectLifecycleState.Running or ProjectLifecycleState.Watching)
+            if (snapshot.SupportsAppRestart
+                && !string.IsNullOrWhiteSpace(snapshot.ListenUrl)
+                && ShouldShowListenUrl(snapshot))
             {
-                panel.Children.Add(snapshot.ListenUrlReady
+                var showLink = snapshot.ListenUrlReady
+                    && snapshot.State is ProjectLifecycleState.Running or ProjectLifecycleState.Watching;
+                panel.Children.Add(showLink
                     ? BuildListenUrlBlock(snapshot.ListenUrl, palette)
                     : BuildListenUrlPendingBlock(snapshot.ListenUrl, palette));
             }
@@ -127,6 +135,20 @@ public partial class HoverStatusPanel : Window
             viewLog.Click += (_, _) => ViewLogRequested?.Invoke(snapshot.ProjectId);
             actions.Children.Add(viewLog);
 
+            if (snapshot.ErrorCount > 0)
+            {
+                var copyErrors = new WpfButton
+                {
+                    Content = "Copy errors",
+                    Margin = new Thickness(8, 0, 0, 0),
+                    HorizontalAlignment = WpfHorizontalAlignment.Left,
+                    Tag = snapshot.ProjectId,
+                    ToolTip = "Copy error lines from the latest build, run, or test log"
+                };
+                copyErrors.Click += (_, _) => CopyErrorsRequested?.Invoke(snapshot.ProjectId);
+                actions.Children.Add(copyErrors);
+            }
+
             if (snapshot.SupportsAppRestart)
             {
                 var restart = new WpfButton
@@ -134,10 +156,22 @@ public partial class HoverStatusPanel : Window
                     Content = "Restart app",
                     Margin = new Thickness(8, 0, 0, 0),
                     HorizontalAlignment = WpfHorizontalAlignment.Left,
-                    Tag = snapshot.ProjectId
+                    Tag = snapshot.ProjectId,
+                    ToolTip = "Stop and start run/watch without rebuilding"
                 };
                 restart.Click += (_, _) => RestartAppRequested?.Invoke(snapshot.ProjectId);
                 actions.Children.Add(restart);
+
+                var rebuildRestart = new WpfButton
+                {
+                    Content = "Rebuild & restart",
+                    Margin = new Thickness(8, 0, 0, 0),
+                    HorizontalAlignment = WpfHorizontalAlignment.Left,
+                    Tag = snapshot.ProjectId,
+                    ToolTip = "Full build, then start run/watch"
+                };
+                rebuildRestart.Click += (_, _) => RebuildAndRestartRequested?.Invoke(snapshot.ProjectId);
+                actions.Children.Add(rebuildRestart);
             }
 
             var runTests = new WpfButton
@@ -165,6 +199,12 @@ public partial class HoverStatusPanel : Window
             });
         }
     }
+
+    private static bool ShouldShowListenUrl(ProjectHealthSnapshot snapshot) =>
+        snapshot.IsRestarting
+        || snapshot.State is ProjectLifecycleState.Running
+            or ProjectLifecycleState.Watching
+            or ProjectLifecycleState.Building;
 
     private static UIElement BuildListenUrlPendingBlock(string listenUrl, ThemePalette palette) =>
         new TextBlock
@@ -277,11 +317,25 @@ public partial class HoverStatusPanel : Window
             _ => new SolidColorBrush(palette.Foreground)
         };
 
+    public void ApplyLayout(WindowLayoutState layout)
+    {
+        if (layout.Width >= MinWidth && !double.IsNaN(layout.Width))
+        {
+            Width = layout.Width;
+        }
+
+        if (layout.Height >= MinHeight && !double.IsNaN(layout.Height))
+        {
+            Height = layout.Height;
+        }
+    }
+
+    public void CaptureLayout(WindowLayoutState layout) =>
+        WindowLayoutService.Capture(this, layout, sizeOnly: true);
+
     public void ShowNearTray()
     {
-        var workArea = SystemParameters.WorkArea;
-        Left = workArea.Right - Width - 12;
-        Top = workArea.Bottom - Height - 12;
+        TrayScreenPlacement.PlaceNearTrayBottomRight(this);
         if (!IsVisible)
         {
             Show();
