@@ -40,4 +40,41 @@ public class ProjectHealthEvaluatorTests
 
         Assert.Equal(MonitorHealth.Green, health);
     }
+
+    [Fact]
+    public void Evaluate_returns_green_when_building_despite_previous_failed_exit_code()
+    {
+        var health = ProjectHealthEvaluator.Evaluate(
+            ProjectLifecycleState.Building,
+            lastBuildExitCode: 1,
+            errorCount: 0,
+            warningCount: 0);
+
+        Assert.Equal(MonitorHealth.Green, health);
+    }
+
+    [Fact]
+    public void Evaluate_returns_green_when_watching_despite_failed_last_build_exit_code()
+    {
+        var health = ProjectHealthEvaluator.Evaluate(
+            ProjectLifecycleState.Watching,
+            lastBuildExitCode: 1,
+            errorCount: 0,
+            warningCount: 0);
+
+        Assert.Equal(MonitorHealth.Green, health);
+    }
+
+    [Fact]
+    public void Evaluate_returns_green_when_restarting_despite_crashed_state()
+    {
+        var health = ProjectHealthEvaluator.Evaluate(
+            ProjectLifecycleState.Crashed,
+            lastBuildExitCode: 1,
+            errorCount: 0,
+            warningCount: 0,
+            inProgress: true);
+
+        Assert.Equal(MonitorHealth.Green, health);
+    }
 }

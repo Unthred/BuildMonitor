@@ -1,60 +1,82 @@
 ---
-description: GitHub Issues and pull requests for this repo
+description: GitHub Issues, Projects, and pull requests for this repo
 alwaysApply: true
 ---
 
 # Work tracking (GitHub)
 
-This repo uses **GitHub** ([Unthred/BuildMonitor](https://github.com/Unthred/BuildMonitor)) — Issues and `gh` CLI, not Azure DevOps.
+This repo uses **GitHub** ([Unthred/BuildMonitor](https://github.com/Unthred/BuildMonitor)) — **Issues**, **Projects**, and `gh` CLI, not Azure DevOps.
+
+**Primary view:** the [BuildMonitor project board (#3)](https://github.com/users/Unthred/projects/3). Issues exist to back cards on that board; an issue not on the board is untracked work.
 
 ## Conventions
 
+- **Default assignee:** **@me** (Simon) for every new issue unless the user names someone else.
+- **Project board (mandatory):** [BuildMonitor (#3)](https://github.com/users/Unthred/projects/3) — **every issue is added to the project** at creation (`gh project item-add 3 …`). Config: [.github/project.json](../../.github/project.json). CLI: [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
 - **Features and enhancements:** GitHub **Issue** with a clear title.
 - **Defects:** Issue with prefix `Bug:` when helpful.
-- **Branches:** `feature/<id>-short-kebab-name` (example: `feature/42-live-build-log`).
-- **Pull requests:** body must include `Closes #<id>` (see [.github/pull_request_template.md](../../.github/pull_request_template.md)).
+- **Branches:** `feature/<id>-short-kebab-name` (example: `feature/42-live-build-log`). No direct feature commits on `main`.
+- **Pull requests:** every change lands via PR; body must include `Closes #<id>` (see [.github/pull_request_template.md](../../.github/pull_request_template.md)).
 - **Commits:** prefix with `#<id>:` when an issue applies (example: `#42: Debounce run log saves`).
 
-## Issue policy (moderate)
+## Every change (mandatory)
 
-| Change type | Issue required? |
-|-------------|-----------------|
-| Feature, bug fix, behaviour change | **Yes** — create or link existing issue |
-| Docs/rules-only chore | **No** — if user says `docs only`, `rules only`, or `no issue` |
-| Tiny typo / comment | **No** — unless user wants tracking |
+**No untracked work.** Every code, docs, rules, or behaviour change needs an issue, a feature branch, and a merged PR — unless the user explicitly opts out (see **Exception** below).
 
-Before `git commit` or **ship it** on feature work without a supplied issue number:
+| Step | Requirement |
+|------|-------------|
+| Start | Issue exists **and is on project #3** (Status **Todo** or **In Progress**) |
+| Work | Branch `feature/<id>-...`; commit with `#<id>:` prefix |
+| Review | PR with `Closes #<id>`; board Status **In Progress** |
+| Done | PR **squash-merged** to `main`; issue **closed**; board Status **Done** |
 
-1. Use a supplied id — `#42`, “for issue 42”, or branch `feature/42-...`.
-2. Resolve one (in order): branch name → conversation + files changed → `gh issue list`.
-3. If exactly one plausible issue — tell the user which you chose, then commit.
-4. If several fit or none fit — **ask** or offer `gh issue create`.
-5. Do not push feature work directly to `main` without user explicitly requesting a hotfix.
+Before `git commit`, `git push`, **ship it**, or **check in** when the user did not give an issue number:
 
-**Exception:** user explicitly says “no issue”, “chore only”, or “docs/rules only”.
+1. **Use a supplied id** — `#42`, “for issue 42”, or branch `feature/42-...`.
+2. **Resolve one** (in order):
+   - Current branch name `feature/<id>-...`
+   - Conversation + files changed (feature area, doc title)
+   - **Project board #3** — **Todo** / **In Progress** cards matching keywords (preferred over bare issue list)
+   - `gh issue list` on the repo (if found, confirm it is on project #3; if not, add it before commit)
+3. **If exactly one plausible item** — tell the user which `#` you chose, then commit with that link.
+4. **If several fit or none fit** — **ask** (list candidates with id + title) or offer to **create** a new issue (assigned @me), **`gh project item-add 3`**, then branch. Do not commit until `#` is agreed and the card is on the board.
+5. **Do not** push work to `main` without an issue and PR unless the user explicitly asks for a direct-to-main hotfix.
+
+**After linking:** set project Status to **In Progress** when starting substantial work; **Done** only when the user says ship/merge or work is complete on `main` (issue closed).
+
+**Exception:** user explicitly says “no issue”, “chore only”, or “docs/rules only, skip issue”.
 
 ## Agent automation (`gh`)
 
+**Always create issue + add to project in one flow** — never leave a repo issue off the board.
+
 ```powershell
-gh issue create --title "..." --body "..."
-gh issue view 42
-gh issue list --state open
+# Issue + project #3 (both steps required)
+$url = gh issue create --repo Unthred/BuildMonitor --title "..." --body "..." --assignee @me --json url -q .url
+gh project item-add 3 --owner Unthred --url $url
+
+# Existing issue missing from the board
+gh project item-add 3 --owner Unthred --url "https://github.com/Unthred/BuildMonitor/issues/42"
+
+gh issue view 42 --repo Unthred/BuildMonitor
+gh issue list --repo Unthred/BuildMonitor --state open
 gh pr create --title "#42: ..." --body "Closes #42`n`n..."
 gh pr merge <n> --squash
 ```
 
-Details: [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
+Details, project setup, and Status field updates: [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
 
 ## “Ship it” (agent)
 
 When the user says **ship** or **ship it**, follow **`feature-ship`** skill:
 
 1. Commit + push on `feature/<id>-...`
-2. Create PR if none (`Closes #<id>` in body)
+2. Create PR if none (`Closes #<id>` in body); issue / project **In Progress**
 3. **Merge** the PR into `main` (when user asked for full ship)
+4. Issue **closed**; project Status **Done**
 
 **Ready for review** / **open PR** → commit + push + active PR only; do not merge unless asked.
 
 ## Record of intent
 
-Chat and Cursor plan files are not the system of record. **GitHub Issues** plus **PR descriptions** plus **`docs/`** are.
+Chat and Cursor plan files are not the system of record. The **BuildMonitor project board (#3)**, backed by **GitHub Issues**, **PR descriptions**, and **`docs/`**, are.

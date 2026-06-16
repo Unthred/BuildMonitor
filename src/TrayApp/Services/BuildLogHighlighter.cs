@@ -54,19 +54,62 @@ public static class BuildLogHighlighter
         IReadOnlyList<Run> lineRuns,
         ref Run? highlightedRun,
         LogIssue issue,
+        string displayLogText,
         ResolvedTheme theme)
     {
         ClearHighlight(ref highlightedRun);
 
-        if (issue.LineNumber < 0 || issue.LineNumber >= lineRuns.Count)
+        var lineIndex = ResolveLineIndex(issue, lineRuns, displayLogText);
+        if (lineIndex < 0 || lineIndex >= lineRuns.Count)
         {
             return;
         }
 
-        var run = lineRuns[issue.LineNumber];
+        var run = lineRuns[lineIndex];
         run.Background = CreateLineHighlightBrush(theme);
         highlightedRun = run;
         SelectRun(box, run);
+    }
+
+    private static int ResolveLineIndex(
+        LogIssue issue,
+        IReadOnlyList<Run> lineRuns,
+        string displayLogText)
+    {
+        if (issue.LineNumber >= 0
+            && issue.LineNumber < lineRuns.Count
+            && string.Equals(lineRuns[issue.LineNumber].Text, issue.Text.Trim(), StringComparison.Ordinal))
+        {
+            return issue.LineNumber;
+        }
+
+        var issueText = issue.Text.Trim();
+        for (var i = 0; i < lineRuns.Count; i++)
+        {
+            var runText = lineRuns[i].Text;
+            if (string.Equals(runText, issueText, StringComparison.Ordinal)
+                || runText.Contains(issueText, StringComparison.Ordinal)
+                || issueText.Contains(runText, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        var normalized = StripAnsi(displayLogText.Replace("\r\n", "\n"));
+        var lines = normalized.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i].TrimEnd('\r');
+            if (string.Equals(line, issueText, StringComparison.Ordinal)
+                || line.Contains(issueText, StringComparison.Ordinal))
+            {
+                return Math.Min(i, lineRuns.Count - 1);
+            }
+        }
+
+        return issue.LineNumber >= 0 && issue.LineNumber < lineRuns.Count
+            ? issue.LineNumber
+            : -1;
     }
 
     public static void ClearHighlight(ref Run? highlightedRun)

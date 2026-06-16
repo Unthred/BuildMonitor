@@ -10,12 +10,19 @@ disable-model-invocation: true
 
 **Plan only** — no source edits unless the user asks to create the GitHub issue or branch this turn.
 
-**Authority:** `work-tracking.mdc`, `feature-delivery.mdc`, `adr.mdc`, `documentation.mdc`. Record of intent: **GitHub Issue + `docs/` + PR**, not chat.
+**Authority:** `work-tracking.mdc`, `feature-delivery.mdc`, `adr.mdc`, `documentation.mdc`. Record of intent: **project board #3** (issue + card) + `docs/` + PR, not chat.
 
 ## Steps
 
 1. **Ask** — problem, in-scope / out-of-scope (one sentence each), surfaces (TrayApp UI, orchestrator, settings). If vague: **at most three** questions. No implementation.
-2. **Issue** — use supplied `#N`, or offer `gh issue create --title "..." --body "..."`.
+2. **Issue + project board** — use supplied `#N` (confirm it is on project #3), or create **both** in one flow:
+
+```powershell
+$url = gh issue create --repo Unthred/BuildMonitor --title "..." --body "..." --assignee @me --json url -q .url
+gh project item-add 3 --owner Unthred --url $url   # mandatory — board is the primary view
+```
+
+Project **#3**: [BuildMonitor board](https://github.com/users/Unthred/projects/3) — see [.github/project.json](../../.github/project.json). Never create a repo issue without adding it to the board.
 3. **Branch** — propose `feature/<id>-<kebab>`; do not checkout until kickoff approved.
 4. **Plan table** — fill only rows that apply:
 

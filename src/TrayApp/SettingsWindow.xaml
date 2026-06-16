@@ -1,191 +1,747 @@
 <Window x:Class="BuildMonitor.TrayApp.SettingsWindow"
+
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+
         Title="Local Build Monitor Settings"
-        Width="760"
-        Height="720"
-        MinHeight="680"
-        WindowStartupLocation="CenterScreen"
+
+        Width="980"
+
+        Height="700"
+
+        MinWidth="900"
+
+        MinHeight="640"
+
+        SizeToContent="Manual"
+
+        WindowStartupLocation="Manual"
+
         Loaded="WindowLoaded">
+
     <Grid Margin="12">
+
         <Grid.RowDefinitions>
+
             <RowDefinition Height="*" />
+
             <RowDefinition Height="Auto" />
+
         </Grid.RowDefinitions>
 
+
+
         <TabControl Grid.Row="0">
+
             <TabItem Header="Projects">
+
                 <Grid Margin="4">
+
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="280" />
+
+                        <ColumnDefinition Width="248" />
+
                         <ColumnDefinition Width="*" />
+
                     </Grid.ColumnDefinitions>
 
-                    <DockPanel Grid.Column="0" Margin="0,0,8,0">
+
+
+                    <DockPanel Grid.Column="0" Margin="0,0,12,0">
+
                         <TextBlock DockPanel.Dock="Top" Text="Projects (check to monitor)" Margin="0,0,0,6" />
+
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+
                             <Button Content="Add" Width="60" Click="AddProjectClicked" />
+
                             <Button Content="Remove" Width="70" Margin="6,0,0,0" Click="RemoveProjectClicked" />
+
                         </StackPanel>
+
                         <ListBox x:Name="ProjectsList"
+
                                  SelectionChanged="ProjectsListSelectionChanged">
+
                             <ListBox.ItemTemplate>
+
                                 <DataTemplate>
+
                                     <DockPanel LastChildFill="True" Margin="0,2">
+
                                         <CheckBox DockPanel.Dock="Left"
+
                                                   IsChecked="{Binding IsActiveInSession, Mode=TwoWay}"
+
                                                   VerticalAlignment="Center"
+
                                                   Margin="0,0,8,0"
+
                                                   ToolTip="Monitor this project in the current session" />
+
                                         <TextBlock Text="{Binding ListLabel}"
+
                                                    VerticalAlignment="Center"
+
                                                    TextTrimming="CharacterEllipsis" />
+
                                     </DockPanel>
+
                                 </DataTemplate>
+
                             </ListBox.ItemTemplate>
+
                         </ListBox>
+
                     </DockPanel>
 
-                    <ScrollViewer Grid.Column="1"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="EditorPanel" IsEnabled="False">
-                            <TextBlock Text="Display name" />
-                            <TextBox x:Name="DisplayNameText"
-                                     Margin="0,4,0,8"
-                                     TextChanged="DisplayNameTextChanged" />
 
-                            <TextBlock Text="Root folder" />
-                            <DockPanel Margin="0,4,0,8">
-                                <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseFolderClicked" />
-                                <TextBox x:Name="RootFolderText" />
-                            </DockPanel>
 
-                            <TextBlock Text="Project file (.csproj / .sln)" />
-                            <DockPanel Margin="0,4,0,8">
-                                <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseProjectFileClicked" />
-                                <TextBox x:Name="ProjectFileText"
-                                         LostFocus="ProjectFileTextLostFocus" />
-                            </DockPanel>
+                    <Grid x:Name="EditorPanel" Grid.Column="1" IsEnabled="False">
 
-                            <TextBlock Text="Launch profile" />
-                            <TextBlock Text="Use https when available — it matches dotnet run / Visual Studio and controls the URL in the status panel."
-                                       TextWrapping="Wrap"
-                                       Opacity="0.75"
-                                       Margin="0,0,0,4" />
-                            <ComboBox x:Name="LaunchProfileCombo"
-                                      IsEditable="True"
-                                      Margin="0,4,0,8"
-                                      SelectionChanged="LaunchProfileComboSelectionChanged" />
+                        <Grid.RowDefinitions>
 
-                            <TextBlock Text="Extra dotnet args" />
-                            <TextBox x:Name="ExtraArgsText" Margin="0,4,0,8" />
+                            <RowDefinition Height="Auto" />
 
-                            <TextBlock Text="Run mode" FontWeight="SemiBold" Margin="0,8,0,4" />
-                            <TextBlock Text="Watch — build then dotnet watch (hot reload). Run — build then dotnet run once. None — build only. Open the URL shown in the status panel (launch profile controls the port)."
-                                       TextWrapping="Wrap"
-                                       Opacity="0.75"
-                                       Margin="0,0,0,4" />
-                            <ComboBox x:Name="RunModeCombo" Margin="0,0,0,8" />
+                            <RowDefinition Height="Auto" />
 
-                            <CheckBox x:Name="RestartOnCrashCheck" Content="Restart on crash" Margin="0,0,0,8" />
-                            <TextBlock Text="Max restart retries" />
-                            <TextBox x:Name="MaxRetriesText" Margin="0,4,0,8" />
-                            <CheckBox x:Name="AutoRestartOnWatchChangesCheck"
-                                      Content="Auto-restart on file changes (watch mode)"
-                                      ToolTip="When enabled, dotnet watch restarts the app automatically. Turn off to restart manually from the tray menu."
-                                      Margin="0,0,0,8" />
-                            <CheckBox x:Name="RestartAppAfterRebuildCheck"
-                                      Content="Restart app after rebuild"
-                                      ToolTip="When the app was running, start it again after a successful rebuild (manual or file-triggered)."
-                                      Margin="0,0,0,8" />
+                            <RowDefinition Height="Auto" />
 
-                            <TextBlock Text="Test project / solution (optional)" FontWeight="SemiBold" Margin="0,8,0,4" />
-                            <TextBlock Text="Leave blank to auto-detect a .sln/.slnx or *Tests.csproj. The main Project file is used for build/run; tests need a solution or test project."
-                                       TextWrapping="Wrap"
-                                       Opacity="0.75"
-                                       Margin="0,0,0,4" />
-                            <ComboBox x:Name="TestProjectCombo"
-                                      IsEditable="True"
-                                      Margin="0,4,0,8"
-                                      LostFocus="TestProjectComboLostFocus" />
+                        </Grid.RowDefinitions>
 
-                            <TextBlock Text="Run tests" />
-                            <ComboBox x:Name="RunTestsCombo" Margin="0,4,0,8" />
+                        <Grid.ColumnDefinitions>
 
-                    <TextBlock Text="File changes (when Run Mode is Watch, use Watch only — dotnet watch already rebuilds)"
-                               TextWrapping="Wrap"
-                               Opacity="0.75"
-                               Margin="0,0,0,4" />
-                    <ComboBox x:Name="FileChangesCombo" Margin="0,4,0,8" />
+                            <ColumnDefinition Width="*" />
 
-                            <CheckBox x:Name="ReleaseOutputLocksCheck"
-                                      Content="Stop processes locking build output before build and tests"
-                                      ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually."
-                                      Margin="0,0,0,8" />
-                        </StackPanel>
-                    </ScrollViewer>
+                            <ColumnDefinition Width="*" />
+
+                        </Grid.ColumnDefinitions>
+
+
+
+                        <!-- Project -->
+
+                        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+
+                                Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="0,0,0,10">
+
+                            <Grid>
+
+                                <Grid.ColumnDefinitions>
+
+                                    <ColumnDefinition Width="*" />
+
+                                    <ColumnDefinition Width="12" />
+
+                                    <ColumnDefinition Width="*" />
+
+                                </Grid.ColumnDefinitions>
+
+
+
+                                <StackPanel Grid.Column="0">
+
+                                    <TextBlock Text="Project" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                    <TextBlock Text="Display name" />
+
+                                    <TextBox x:Name="DisplayNameText"
+
+                                             Margin="0,4,0,10"
+
+                                             TextChanged="DisplayNameTextChanged" />
+
+                                    <TextBlock Text="Root folder" />
+
+                                    <DockPanel Margin="0,4,0,10">
+
+                                        <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseFolderClicked" />
+
+                                        <TextBox x:Name="RootFolderText" />
+
+                                    </DockPanel>
+
+                                    <TextBlock Text="Project file (.csproj / .sln)" />
+
+                                    <DockPanel Margin="0,4,0,0">
+
+                                        <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseProjectFileClicked" />
+
+                                        <TextBox x:Name="ProjectFileText"
+
+                                                 LostFocus="ProjectFileTextLostFocus" />
+
+                                    </DockPanel>
+
+                                </StackPanel>
+
+
+
+                                <StackPanel Grid.Column="2">
+
+                                    <TextBlock Text="Launch &amp; CLI" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                    <TextBlock Text="Launch profile" />
+
+                                    <TextBlock Text="Use https when available — matches dotnet run / Visual Studio."
+
+                                               TextWrapping="Wrap"
+
+                                               Opacity="0.75"
+
+                                               Margin="0,0,0,4" />
+
+                                    <ComboBox x:Name="LaunchProfileCombo"
+
+                                              IsEditable="True"
+
+                                              Margin="0,4,0,10"
+
+                                              SelectionChanged="LaunchProfileComboSelectionChanged" />
+
+                                    <TextBlock Text="Extra dotnet args" />
+
+                                    <TextBox x:Name="ExtraArgsText" Margin="0,4,0,0" />
+
+                                </StackPanel>
+
+                            </Grid>
+
+                        </Border>
+
+
+
+                        <!-- Run & restart -->
+
+                        <Border Grid.Row="1" Grid.Column="0"
+
+                                Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="0,0,6,0">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Run &amp; restart" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+                                <TextBlock Text="Watch — debounced rebuilds (default). Run — dotnet run once. None — build only."
+
+                                           TextWrapping="Wrap"
+
+                                           Opacity="0.75"
+
+                                           Margin="0,0,0,6" />
+
+                                <TextBlock Text="Run mode" />
+
+                                <ComboBox x:Name="RunModeCombo" Margin="0,4,0,10" />
+
+                                <CheckBox x:Name="RestartOnCrashCheck" Content="Restart on crash" Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="AutoRestartOnWatchChangesCheck"
+
+                                          Content="Auto-restart on file changes (dotnet watch)"
+
+                                          ToolTip="When enabled, dotnet watch restarts the app automatically. Turn off to restart manually from the tray menu."
+
+                                          Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="AutoRestartOnHotReloadRequestCheck"
+
+                                          Content="Auto-restart when output requires it"
+
+                                          ToolTip="When build or run output contains hot-reload messages such as 'requires restarting the application', restart or rebuild automatically."
+
+                                          Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="RestartAppAfterRebuildCheck"
+
+                                          Content="Restart app after rebuild"
+
+                                          ToolTip="When the app was running, start it again after a successful rebuild (manual or file-triggered)."
+
+                                          Margin="0,0,0,8" />
+
+                                <TextBlock Text="Max restart retries" />
+
+                                <TextBox x:Name="MaxRetriesText" Margin="0,4,0,0" Width="80" HorizontalAlignment="Left" />
+
+                            </StackPanel>
+
+                        </Border>
+
+
+
+                        <!-- Tests -->
+
+                        <Border Grid.Row="1" Grid.Column="1"
+
+                                Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="6,0,0,0">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Tests" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+                                <TextBlock Text="Leave test target blank to auto-detect a .sln/.slnx or *Tests.csproj."
+
+                                           TextWrapping="Wrap"
+
+                                           Opacity="0.75"
+
+                                           Margin="0,0,0,6" />
+
+                                <TextBlock Text="Test project / solution (optional)" />
+
+                                <ComboBox x:Name="TestProjectCombo"
+
+                                          IsEditable="True"
+
+                                          Margin="0,4,0,10"
+
+                                          LostFocus="TestProjectComboLostFocus" />
+
+                                <TextBlock Text="Run tests" />
+
+                                <ComboBox x:Name="RunTestsCombo" Margin="0,4,0,0" />
+
+                            </StackPanel>
+
+                        </Border>
+
+
+
+                        <!-- File watching -->
+
+                        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+
+                                Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="0,10,0,0">
+
+                            <Grid>
+
+                                <Grid.ColumnDefinitions>
+
+                                    <ColumnDefinition Width="*" />
+
+                                    <ColumnDefinition Width="12" />
+
+                                    <ColumnDefinition Width="*" />
+
+                                </Grid.ColumnDefinitions>
+
+
+
+                                <StackPanel Grid.Column="0">
+
+                                    <TextBlock Text="File watching" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+                                    <TextBlock Text="When Run mode is Watch, prefer Watch only unless using Trigger rebuild mode."
+
+                                               TextWrapping="Wrap"
+
+                                               Opacity="0.75"
+
+                                               Margin="0,0,0,6" />
+
+                                    <TextBlock Text="File changes" />
+
+                                    <ComboBox x:Name="FileChangesCombo" Margin="0,4,0,0" />
+
+                                </StackPanel>
+
+
+
+                                <StackPanel Grid.Column="2">
+
+                                    <TextBlock Text="Excludes &amp; locks" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+                                    <TextBlock Text="Watch exclude segments (semicolon-separated folder names)"
+
+                                               TextWrapping="Wrap"
+
+                                               Opacity="0.75"
+
+                                               Margin="0,0,0,4" />
+
+                                    <TextBox x:Name="WatchExcludeSegmentsText"
+
+                                             Margin="0,4,0,8"
+
+                                             ToolTip="Semicolon-separated folder names ignored by BuildMonitor file watcher. For dotnet watch, also add Watch Remove entries to your .csproj (see docs/features/health-and-logs.md)." />
+
+                                    <CheckBox x:Name="ReleaseOutputLocksCheck"
+
+                                              Content="Stop processes locking build output before build and tests"
+
+                                              ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually." />
+
+                                </StackPanel>
+
+                            </Grid>
+
+                        </Border>
+
+                    </Grid>
+
                 </Grid>
+
             </TabItem>
+
+
 
             <TabItem Header="Monitor">
-                <StackPanel Margin="8" MaxWidth="480">
-                    <TextBlock Text="How projects are monitored in this session."
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,12"
-                               Opacity="0.85" />
-                    <TextBlock Text="Max concurrent active projects" />
-                    <TextBox x:Name="MaxConcurrentText" Margin="0,4,0,12" />
-                    <TextBlock Text="File change debounce (ms)" />
-                    <TextBox x:Name="DebounceMsText" Margin="0,4,0,12" />
-                    <TextBlock Text="Health refresh interval (seconds)" />
-                    <TextBox x:Name="HealthRefreshText" Margin="0,4,0,12" />
-                    <CheckBox x:Name="AutoOpenLogCheck"
-                              Content="Auto-open build log when a project fails"
-                              Margin="0,0,0,8" />
-                    <CheckBox x:Name="PlaySoundOnErrorCheck"
-                              Content="Play sound when a build fails"
-                              Margin="0,0,0,8" />
-                    <CheckBox x:Name="PlaySoundOnSuccessCheck"
-                              Content="Play sound when a build succeeds"
-                              Margin="0,0,0,12" />
-                    <TextBlock Text="Max log display size (bytes)" />
-                    <TextBox x:Name="MaxLogBytesText" Margin="0,4,0,0" />
-                </StackPanel>
+
+                <Grid Margin="8">
+
+                    <Grid.ColumnDefinitions>
+
+                        <ColumnDefinition Width="*" />
+
+                        <ColumnDefinition Width="*" />
+
+                    </Grid.ColumnDefinitions>
+
+
+
+                    <Border Grid.Column="0"
+
+                            Background="{DynamicResource ThemeCardBrush}"
+
+                            BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                            BorderThickness="1"
+
+                            CornerRadius="4"
+
+                            Padding="12"
+
+                            Margin="0,0,6,0">
+
+                        <StackPanel>
+
+                            <TextBlock Text="Session" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                            <TextBlock Text="How projects are monitored in this session."
+
+                                       TextWrapping="Wrap"
+
+                                       Opacity="0.85"
+
+                                       Margin="0,0,0,12" />
+
+                            <TextBlock Text="Max concurrent active projects" />
+
+                            <TextBox x:Name="MaxConcurrentText" Margin="0,4,0,12" Width="120" HorizontalAlignment="Left" />
+
+                            <TextBlock Text="Health refresh interval (seconds)" />
+
+                            <TextBox x:Name="HealthRefreshText" Margin="0,4,0,12" Width="120" HorizontalAlignment="Left" />
+
+                            <TextBlock Text="Max log display size (bytes)" />
+
+                            <TextBox x:Name="MaxLogBytesText" Margin="0,4,0,0" Width="160" HorizontalAlignment="Left" />
+
+                        </StackPanel>
+
+                    </Border>
+
+
+
+                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+
+                        <Border Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="0,0,0,10">
+
+                            <StackPanel>
+
+                                <TextBlock Text="File change batching" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                <TextBlock Text="File change debounce (ms)"
+
+                                           ToolTip="Quiet period after the last save before a coalesced rebuild starts. Increase (e.g. 5000) when an AI agent edits many files in a row." />
+
+                                <TextBox x:Name="DebounceMsText" Margin="0,4,0,10" Width="120" HorizontalAlignment="Left" />
+
+                                <CheckBox x:Name="CoalesceWatchRebuildsCheck"
+
+                                          Content="Batch watch-mode rebuilds (wait for edits to settle)"
+
+                                          ToolTip="When enabled, watch mode uses a debounced file watcher and rebuilds once after edits stop instead of dotnet watch rebuilding on every save. Turn off for dotnet watch hot reload." />
+
+                            </StackPanel>
+
+                        </Border>
+
+
+
+                        <Border Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Feedback" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                <CheckBox x:Name="AutoOpenLogCheck"
+
+                                          Content="Auto-open build log when a project fails"
+
+                                          Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="PlaySoundOnErrorCheck"
+
+                                          Content="Play sound when a build fails"
+
+                                          Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="PlaySoundOnSuccessCheck"
+
+                                          Content="Play sound when a build succeeds" />
+
+                            </StackPanel>
+
+                        </Border>
+
+                    </StackPanel>
+
+                </Grid>
+
             </TabItem>
+
+
 
             <TabItem Header="App">
-                <StackPanel Margin="8" MaxWidth="480">
-                    <TextBlock Text="Application appearance and startup."
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,12"
-                               Opacity="0.85" />
-                    <TextBlock Text="Theme" />
-                    <ComboBox x:Name="ThemeCombo" Margin="0,4,0,12" SelectionChanged="ThemeComboSelectionChanged" />
-                    <CheckBox x:Name="RunOnLogonCheck" Content="Run when Windows starts" Margin="0,0,0,8" />
-                    <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray" Margin="0,0,0,12" />
 
-                    <TextBlock Text="Toast notifications" FontWeight="SemiBold" Margin="0,4,0,4" />
-                    <TextBlock Text="Position" />
-                    <ComboBox x:Name="ToastPositionCombo" Margin="0,4,0,8" />
-                    <TextBlock Text="Duration (seconds, 2–120)" />
-                    <TextBox x:Name="ToastDurationText" Margin="0,4,0,12" />
+                <Grid Margin="8">
 
-                    <TextBlock Text="Show toasts for" FontWeight="SemiBold" Margin="0,4,0,4" />
-                    <CheckBox x:Name="ToastOnBuildStartCheck" Content="Build start (manual / initial)" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnFileChangeCheck" Content="File change detected (rebuild triggered)" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnBuildSuccessCheck" Content="Build success" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnBuildFailureCheck" Content="Build failure" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnWarningsCheck" Content="Warnings (lock release, file watcher, etc.)" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnErrorsCheck" Content="Errors (failed to start, save errors, etc.)" Margin="0,0,0,4" />
-                    <CheckBox x:Name="ToastOnInfoCheck" Content="Info (locks released, settings saved, etc.)" Margin="0,0,0,0" />
-                </StackPanel>
+                    <Grid.ColumnDefinitions>
+
+                        <ColumnDefinition Width="*" />
+
+                        <ColumnDefinition Width="*" />
+
+                    </Grid.ColumnDefinitions>
+
+
+
+                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+
+                        <Border Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12"
+
+                                Margin="0,0,0,10">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Appearance &amp; startup" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                <TextBlock Text="Application appearance and startup."
+
+                                           TextWrapping="Wrap"
+
+                                           Opacity="0.85"
+
+                                           Margin="0,0,0,12" />
+
+                                <TextBlock Text="Theme" />
+
+                                <ComboBox x:Name="ThemeCombo" Margin="0,4,0,12" SelectionChanged="ThemeComboSelectionChanged" />
+
+                                <CheckBox x:Name="RunOnLogonCheck" Content="Run when Windows starts" Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray" />
+
+                            </StackPanel>
+
+                        </Border>
+
+
+
+                        <Border Background="{DynamicResource ThemeCardBrush}"
+
+                                BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                                BorderThickness="1"
+
+                                CornerRadius="4"
+
+                                Padding="12">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Toast display" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                                <Grid>
+
+                                    <Grid.ColumnDefinitions>
+
+                                        <ColumnDefinition Width="*" />
+
+                                        <ColumnDefinition Width="12" />
+
+                                        <ColumnDefinition Width="*" />
+
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+
+                                        <TextBlock Text="Position" />
+
+                                        <ComboBox x:Name="ToastPositionCombo" Margin="0,4,0,0" />
+
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+
+                                        <TextBlock Text="Duration (seconds, 2–120)" />
+
+                                        <TextBox x:Name="ToastDurationText" Margin="0,4,0,0" Width="80" HorizontalAlignment="Left" />
+
+                                    </StackPanel>
+
+                                </Grid>
+
+                            </StackPanel>
+
+                        </Border>
+
+                    </StackPanel>
+
+
+
+                    <Border Grid.Column="1"
+
+                            Background="{DynamicResource ThemeCardBrush}"
+
+                            BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                            BorderThickness="1"
+
+                            CornerRadius="4"
+
+                            Padding="12"
+
+                            Margin="6,0,0,0">
+
+                        <StackPanel>
+
+                            <TextBlock Text="Show toasts for" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+
+                            <Grid>
+
+                                <Grid.ColumnDefinitions>
+
+                                    <ColumnDefinition Width="*" />
+
+                                    <ColumnDefinition Width="*" />
+
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+
+                                    <CheckBox x:Name="ToastOnBuildStartCheck" Content="Build start (manual / initial)" Margin="0,0,0,6" />
+
+                                    <CheckBox x:Name="ToastOnFileChangeCheck" Content="File change detected" Margin="0,0,0,6" />
+
+                                    <CheckBox x:Name="ToastOnBuildSuccessCheck" Content="Build success" Margin="0,0,0,6" />
+
+                                    <CheckBox x:Name="ToastOnBuildFailureCheck" Content="Build failure" />
+
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1">
+
+                                    <CheckBox x:Name="ToastOnWarningsCheck" Content="Warnings" Margin="0,0,0,6" />
+
+                                    <CheckBox x:Name="ToastOnErrorsCheck" Content="Errors" Margin="0,0,0,6" />
+
+                                    <CheckBox x:Name="ToastOnInfoCheck" Content="Info" />
+
+                                </StackPanel>
+
+                            </Grid>
+
+                        </StackPanel>
+
+                    </Border>
+
+                </Grid>
+
             </TabItem>
+
         </TabControl>
 
+
+
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+
             <Button Width="90" Margin="0,0,8,0" IsDefault="True" Click="SaveClicked">Save</Button>
+
             <Button Width="90" IsCancel="True">Cancel</Button>
+
         </StackPanel>
+
     </Grid>
+
 </Window>
+
+

@@ -22,7 +22,7 @@ public partial class BuildLogViewerWindow : Window
     }
 
     private readonly BuildLogStore logStore;
-    private readonly BuildLogViewerWindowStateStore windowStateStore;
+    private readonly AppWindowsLayoutStore windowsLayoutStore;
     private readonly Func<string, BuildLogKind, LiveBuildLogView?>? getLiveBuildLog;
     private readonly DispatcherTimer liveRefreshTimer;
     private readonly string projectId;
@@ -34,7 +34,7 @@ public partial class BuildLogViewerWindow : Window
     private IReadOnlyList<Run> logLineRuns = [];
     private Run? highlightedLogRun;
     private bool suppressIssueSelectionSync;
-    private BuildLogViewerWindowState windowState = new();
+    private BuildLogViewerLayoutState windowState = new();
     private BuildLogKind currentLogKind = BuildLogKind.Build;
     private bool splitterRatioApplied;
     private bool wasLive;
@@ -44,7 +44,7 @@ public partial class BuildLogViewerWindow : Window
 
     public BuildLogViewerWindow(
         BuildLogStore logStore,
-        BuildLogViewerWindowStateStore windowStateStore,
+        AppWindowsLayoutStore windowsLayoutStore,
         string projectId,
         string projectName,
         int maxDisplayBytes,
@@ -59,7 +59,7 @@ public partial class BuildLogViewerWindow : Window
         Loaded += OnWindowLoaded;
         Closing += OnWindowClosing;
         this.logStore = logStore;
-        this.windowStateStore = windowStateStore;
+        this.windowsLayoutStore = windowsLayoutStore;
         this.getLiveBuildLog = getLiveBuildLog;
         this.projectId = projectId;
         this.maxDisplayBytes = maxDisplayBytes;
@@ -77,35 +77,21 @@ public partial class BuildLogViewerWindow : Window
 
     private async void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
-        windowState = await windowStateStore.LoadOrDefaultAsync();
+        windowState = windowsLayoutStore.Layout.BuildLog;
         ApplyWindowState(windowState);
+        if (double.IsNaN(windowState.Left) || double.IsNaN(windowState.Top))
+        {
+            TrayScreenPlacement.PlaceWindowCentered(this);
+        }
+
         ThemeService.ApplyToWindow(this, ThemeService.CurrentResolved);
         await LoadSelectedLogAsync();
         liveRefreshTimer.Start();
     }
 
-    private void ApplyWindowState(BuildLogViewerWindowState state)
+    private void ApplyWindowState(BuildLogViewerLayoutState state)
     {
-        if (!double.IsNaN(state.Left) && !double.IsNaN(state.Top))
-        {
-            WindowStartupLocation = WindowStartupLocation.Manual;
-            Left = state.Left;
-            Top = state.Top;
-        }
-        else
-        {
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        }
-
-        if (state.Width >= MinWidth)
-        {
-            Width = state.Width;
-        }
-
-        if (state.Height >= MinHeight)
-        {
-            Height = state.Height;
-        }
+        WindowLayoutService.Apply(this, state, 960, 720);
 
         FollowOutputCheckBox.IsChecked = state.FollowOutput;
 
@@ -129,7 +115,7 @@ public partial class BuildLogViewerWindow : Window
     {
         liveRefreshTimer.Stop();
         CaptureWindowState();
-        await windowStateStore.SaveAsync(windowState);
+        await windowsLayoutStore.SaveAsync();
     }
 
     private void CaptureWindowState()
@@ -152,6 +138,30 @@ public partial class BuildLogViewerWindow : Window
     public void SelectLogKind(BuildLogKind kind)
     {
         LogKindCombo.SelectedItem = kind;
+    }
+
+    public void SelectErrorsFilter()
+    {
+        void Apply()
+        {
+            FilterErrorsRadio.IsChecked = true;
+            ApplyIssueFilter(selectFirstIssue: true);
+        }
+
+        if (!IsLoaded)
+        {
+            Loaded += OnLoadedSelectErrors;
+
+            void OnLoadedSelectErrors(object? sender, RoutedEventArgs e)
+            {
+                Loaded -= OnLoadedSelectErrors;
+                Apply();
+            }
+
+            return;
+        }
+
+        Apply();
     }
 
     private async void LogKindChanged(object sender, SelectionChangedEventArgs e)
@@ -365,6 +375,8 @@ public partial class BuildLogViewerWindow : Window
 
         var errorCount = allIssues.Count(i => i.IsError);
         var warningCount = allIssues.Count(i => !i.IsError);
+        UpdateErrorBanner(errorCount);
+
         IssueSummaryText.Text = filter switch
         {
             IssueFilter.Errors => currentLogKind == BuildLogKind.Test
@@ -396,9 +408,12 @@ public partial class BuildLogViewerWindow : Window
     }
 
     private IReadOnlyList<LogIssue> ParseIssuesForCurrentLog() =>
-        currentLogKind == BuildLogKind.Test
-            ? DotNetTestOutputParser.ParseIssues(currentLogText)
-            : BuildLogParser.ParseIssues(currentLogText);
+        currentLogKind switch
+        {
+            BuildLogKind.Test => DotNetTestOutputParser.ParseIssues(currentLogText),
+            BuildLogKind.Run => DotNetRunOutputParser.ParseIssues(currentLogText),
+            _ => BuildLogParser.ParseIssues(currentLogText)
+        };
 
     private string FormatFooterText(int errorCount, int warningCount, bool isLive)
     {
@@ -458,6 +473,27 @@ public partial class BuildLogViewerWindow : Window
         UpdateNavigationButtons();
     }
 
+    private void UpdateErrorBanner(int errorCount)
+    {
+        if (ErrorBannerText is null)
+        {
+            return;
+        }
+
+        if (errorCount > 0)
+        {
+            var label = currentLogKind == BuildLogKind.Test ? "failures" : "errors";
+            ErrorBannerText.Text = errorCount == 1
+                ? $"1 {label.TrimEnd('s')} in this log — see list below"
+                : $"{errorCount} {label} in this log — see list below";
+            ErrorBannerText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ErrorBannerText.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private void HighlightIssueInLog(LogIssue issue)
     {
         try
@@ -467,6 +503,7 @@ public partial class BuildLogViewerWindow : Window
                 logLineRuns,
                 ref highlightedLogRun,
                 issue,
+                currentLogText,
                 ThemeService.CurrentResolved);
         }
         catch (Exception ex)
@@ -548,12 +585,13 @@ public partial class BuildLogViewerWindow : Window
 
     private void CopyErrorsClicked(object sender, RoutedEventArgs e)
     {
-        if (visibleIssues.Count == 0)
+        var errors = allIssues.Where(i => i.IsError).Select(i => i.Text).ToList();
+        if (errors.Count == 0)
         {
             return;
         }
 
-        WpfClipboard.SetText(string.Join(Environment.NewLine, visibleIssues.Select(i => i.Text)));
+        WpfClipboard.SetText(string.Join(Environment.NewLine, errors));
     }
 
     private void OpenLogFileClicked(object sender, RoutedEventArgs e)

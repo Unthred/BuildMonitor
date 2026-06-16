@@ -30,7 +30,14 @@ public static class LocalTrayIconRollupEvaluator
     }
 
     public static bool IsBuilding(IReadOnlyList<ProjectHealthSnapshot> activeProjects) =>
-        activeProjects.Any(p => p.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing);
+        activeProjects.Any(p => p.IsRestarting
+            || p.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing);
+
+    public static bool IsWebReady(ProjectHealthSnapshot? headline) =>
+        headline is not null
+        && headline.ListenUrlReady
+        && !string.IsNullOrWhiteSpace(headline.ListenUrl)
+        && headline.State is ProjectLifecycleState.Running or ProjectLifecycleState.Watching;
 
     public static ProjectHealthSnapshot? ChooseHeadline(IReadOnlyList<ProjectHealthSnapshot> activeProjects)
     {

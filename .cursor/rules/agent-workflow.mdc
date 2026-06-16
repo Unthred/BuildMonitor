@@ -21,4 +21,4 @@ Skills under `.cursor/skills/` are **opt-in** (`disable-model-invocation: true`)
 
 **Schema / tests / build:** `testing.mdc`, `no-unapproved-runtime-execution.mdc` — not skill files.
 
-**Issues before commit (moderate):** see `work-tracking.mdc` — link GitHub Issue for features/bugs; chores can opt out.
+**Board before commit (mandatory):** see `work-tracking.mdc` — resolve or create `#N`, **always `gh project item-add 3`**, PR to `main`; chores can opt out only when the user says so.

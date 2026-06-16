@@ -1,0 +1,42 @@
+name: Feature or change
+description: Track a feature, bug fix, or other change for BuildMonitor
+title: "[Feature]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every change must appear on the [BuildMonitor project board (#3)](https://github.com/users/Unthred/projects/3).
+        After creating an issue, always add it to the board:
+        `gh project item-add 3 --owner Unthred --url <issue-url>`
+        Or use the issue sidebar: **Projects** → **BuildMonitor**.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable outcomes
+      placeholder: |
+        - [ ] …
+    validations:
+      required: true
+  - type: checkboxes
+    id: surfaces
+    attributes:
+      label: Surfaces
+      options:
+        - label: TrayApp (WPF UI)
+        - label: Orchestrator / Infrastructure
+        - label: Settings schema
+        - label: Documentation only
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      placeholder: Explicit non-goals

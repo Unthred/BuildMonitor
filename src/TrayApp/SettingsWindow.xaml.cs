@@ -17,10 +17,13 @@ public partial class SettingsWindow : Window
     private bool isLoadingEditor;
     private readonly AppThemePreference themeAtOpen;
 
+    private readonly AppWindowsLayoutStore windowsLayoutStore;
+
     public AppSettings Settings { get; }
 
-    public SettingsWindow(AppSettings settings)
+    public SettingsWindow(AppSettings settings, AppWindowsLayoutStore windowsLayoutStore)
     {
+        this.windowsLayoutStore = windowsLayoutStore;
         InitializeComponent();
         Settings = settings;
         themeAtOpen = Settings.AppBehavior.Theme;
@@ -43,6 +46,7 @@ public partial class SettingsWindow : Window
 
         MaxConcurrentText.Text = Settings.Monitor.MaxConcurrentActiveProjects.ToString();
         DebounceMsText.Text = Settings.Monitor.FileChangeDebounceMs.ToString();
+        CoalesceWatchRebuildsCheck.IsChecked = Settings.Monitor.CoalesceWatchRebuilds;
         HealthRefreshText.Text = Settings.Monitor.HealthRefreshSeconds.ToString();
         AutoOpenLogCheck.IsChecked = Settings.Monitor.AutoOpenLogOnFailure;
         PlaySoundOnErrorCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildError;
@@ -65,6 +69,9 @@ public partial class SettingsWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        WindowLayoutService.Capture(this, windowsLayoutStore.Layout.Settings);
+        _ = windowsLayoutStore.SaveAsync();
+
         if (DialogResult != true)
         {
             ThemeService.ApplyTheme(themeAtOpen);
@@ -75,6 +82,12 @@ public partial class SettingsWindow : Window
 
     private void WindowLoaded(object sender, RoutedEventArgs e)
     {
+        WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Settings, 980, 700);
+        if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
+        {
+            TrayScreenPlacement.PlaceWindowCentered(this);
+        }
+
         var theme = ThemeService.Resolve(Settings.AppBehavior.Theme);
         ThemeService.ApplyToWindow(this, theme);
     }
@@ -116,9 +129,11 @@ public partial class SettingsWindow : Window
             RestartOnCrashCheck.IsChecked = project.RunOptions.RestartOnCrash;
             MaxRetriesText.Text = project.RunOptions.MaxRestartRetries.ToString();
             AutoRestartOnWatchChangesCheck.IsChecked = project.RunOptions.AutoRestartOnWatchChanges;
+            AutoRestartOnHotReloadRequestCheck.IsChecked = project.RunOptions.AutoRestartOnHotReloadRequest;
             RestartAppAfterRebuildCheck.IsChecked = project.RunOptions.RestartAppAfterRebuild;
             RunTestsCombo.SelectedItem = project.RunOptions.RunTests;
             FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
+            WatchExcludeSegmentsText.Text = project.RunOptions.WatchExcludeSegments;
             ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
@@ -278,10 +293,12 @@ public partial class SettingsWindow : Window
         }
 
         selectedProject.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
+        selectedProject.RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
         selectedProject.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
 
         selectedProject.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
         selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
+        selectedProject.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
         selectedProject.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
     }
 
@@ -377,6 +394,7 @@ public partial class SettingsWindow : Window
             Settings.Monitor.HealthRefreshSeconds = refresh;
         }
 
+        Settings.Monitor.CoalesceWatchRebuilds = CoalesceWatchRebuildsCheck.IsChecked == true;
         Settings.Monitor.AutoOpenLogOnFailure = AutoOpenLogCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildError = PlaySoundOnErrorCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildSuccess = PlaySoundOnSuccessCheck.IsChecked == true;

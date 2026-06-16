@@ -19,6 +19,12 @@
 
         <StackPanel Grid.Row="0">
             <TextBlock x:Name="HeaderText" FontWeight="Bold" FontSize="14" />
+            <TextBlock x:Name="ErrorBannerText"
+                       Margin="0,4,0,0"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource LogIssueErrorBrush}"
+                       Visibility="Collapsed"
+                       TextWrapping="Wrap" />
             <TextBlock x:Name="BuildTimeText" Margin="0,2,0,0" Opacity="0.85" />
         </StackPanel>
 
@@ -50,7 +56,7 @@
                         VerticalAlignment="Center">
                 <Button Content="Copy all" Padding="8,4" Click="CopyAllClicked" />
                 <Button Content="Copy selection" Padding="8,4" Margin="6,0,0,0" Click="CopySelectionClicked" />
-                <Button Content="Copy issues" Padding="8,4" Margin="6,0,0,0" Click="CopyErrorsClicked" />
+                <Button Content="Copy errors" Padding="8,4" Margin="6,0,0,0" Click="CopyErrorsClicked" />
                 <Button Content="Open log file" Padding="8,4" Margin="6,0,0,0" Click="OpenLogFileClicked" />
             </StackPanel>
         </Grid>

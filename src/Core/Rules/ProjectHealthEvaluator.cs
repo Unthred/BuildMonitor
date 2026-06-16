@@ -8,8 +8,24 @@ public static class ProjectHealthEvaluator
         ProjectLifecycleState state,
         int lastBuildExitCode,
         int errorCount,
-        int warningCount)
+        int warningCount,
+        bool inProgress = false)
     {
+        if (inProgress || state is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
+        {
+            if (errorCount > 0)
+            {
+                return MonitorHealth.Red;
+            }
+
+            if (warningCount > 0)
+            {
+                return MonitorHealth.Amber;
+            }
+
+            return MonitorHealth.Green;
+        }
+
         if (state is ProjectLifecycleState.Idle && lastBuildExitCode < 0)
         {
             return MonitorHealth.Unknown;
@@ -22,6 +38,21 @@ public static class ProjectHealthEvaluator
             return MonitorHealth.Red;
         }
 
+        if (state is ProjectLifecycleState.Running or ProjectLifecycleState.Watching)
+        {
+            if (errorCount > 0)
+            {
+                return MonitorHealth.Red;
+            }
+
+            if (warningCount > 0)
+            {
+                return MonitorHealth.Amber;
+            }
+
+            return MonitorHealth.Green;
+        }
+
         if (lastBuildExitCode >= 0 && lastBuildExitCode != 0)
         {
             return MonitorHealth.Red;
@@ -30,16 +61,6 @@ public static class ProjectHealthEvaluator
         if (errorCount > 0)
         {
             return MonitorHealth.Red;
-        }
-
-        if (state is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
-        {
-            if (warningCount > 0)
-            {
-                return MonitorHealth.Amber;
-            }
-
-            return MonitorHealth.Green;
         }
 
         if (warningCount > 0)

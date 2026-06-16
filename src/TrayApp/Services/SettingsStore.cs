@@ -33,12 +33,28 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 2;
         }
 
+        if (settings.SchemaVersion < 3)
+        {
+            settings.Monitor.CoalesceWatchRebuilds = true;
+            settings.SchemaVersion = 3;
+        }
+
+        if (settings.SchemaVersion < 4)
+        {
+            foreach (var project in settings.Projects)
+            {
+                project.RunOptions.AutoRestartOnHotReloadRequest = true;
+            }
+
+            settings.SchemaVersion = 4;
+        }
+
         return settings;
     }
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 2;
+        settings.SchemaVersion = 4;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

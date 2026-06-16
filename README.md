@@ -23,4 +23,4 @@ User settings: `%LocalAppData%/BuildMonitor/settings.json` (not committed). See 
 - [docs/README.md](docs/README.md) — full index
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — projects and flow
 - [docs/LOGS.md](docs/LOGS.md) — log storage
-- [docs/ops/github-workflow.md](docs/ops/github-workflow.md) — Issues and PRs
+- [docs/ops/github-workflow.md](docs/ops/github-workflow.md) — Issues, Projects board, and PRs

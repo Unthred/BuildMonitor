@@ -54,6 +54,46 @@ public class LaunchProfileEnvironmentApplierTests : IDisposable
         Assert.StartsWith("https://", urls[0], StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ResolvePrimaryListenUrl_uses_https_profile_when_configured_profile_empty()
+    {
+        var url = LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
+            root,
+            "SampleApp/SampleApp.csproj",
+            null);
+
+        Assert.Equal("https://localhost:44333", url);
+    }
+
+    [Fact]
+    public void ResolveListenUrls_reads_ASPNETCORE_URLS_from_profile_environment()
+    {
+        var envOnlyDir = Path.Combine(root, "EnvApp");
+        Directory.CreateDirectory(Path.Combine(envOnlyDir, "Properties"));
+        File.WriteAllText(
+            Path.Combine(envOnlyDir, "Properties", "launchSettings.json"),
+            """
+            {
+              "profiles": {
+                "Dev": {
+                  "commandName": "Project",
+                  "environmentVariables": {
+                    "ASPNETCORE_URLS": "https://localhost:7001;http://localhost:5001"
+                  }
+                }
+              }
+            }
+            """);
+
+        var urls = LaunchProfileEnvironmentApplier.ResolveListenUrls(
+            root,
+            "EnvApp/EnvApp.csproj",
+            "Dev");
+
+        Assert.Equal(2, urls.Count);
+        Assert.StartsWith("https://", urls[0], StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         try
