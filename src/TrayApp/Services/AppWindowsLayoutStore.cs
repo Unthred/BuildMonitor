@@ -1,16 +1,11 @@
 using System.IO;
 using System.Text.Json;
-using System.Windows;
 
 namespace BuildMonitor.TrayApp.Services;
 
 public sealed class AppWindowsLayoutStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private static readonly JsonSerializerOptions JsonOptions = LayoutJsonSerializerOptions.Create();
 
     private readonly string layoutPath;
     private readonly string? legacyBuildLogPath;
@@ -50,8 +45,15 @@ public sealed class AppWindowsLayoutStore
             Directory.CreateDirectory(directory);
         }
 
-        var json = JsonSerializer.Serialize(Layout, JsonOptions);
-        return File.WriteAllTextAsync(layoutPath, json);
+        try
+        {
+            var json = JsonSerializer.Serialize(Layout, JsonOptions);
+            return File.WriteAllTextAsync(layoutPath, json);
+        }
+        catch
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private async Task MigrateLegacyBuildLogStateAsync()

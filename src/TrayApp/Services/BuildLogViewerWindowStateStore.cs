@@ -15,11 +15,7 @@ public sealed class BuildLogViewerWindowState
 
 public sealed class BuildLogViewerWindowStateStore(string statePath)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private static readonly JsonSerializerOptions JsonOptions = LayoutJsonSerializerOptions.Create();
 
     public async Task<BuildLogViewerWindowState> LoadOrDefaultAsync()
     {

@@ -120,16 +120,16 @@ public partial class BuildLogViewerWindow : Window
 
     private void CaptureWindowState()
     {
-        var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
-        windowState.Left = bounds.Left;
-        windowState.Top = bounds.Top;
-        windowState.Width = bounds.Width;
-        windowState.Height = bounds.Height;
+        WindowLayoutService.Capture(this, windowState);
 
         var totalHeight = LogRow.ActualHeight + IssuesRow.ActualHeight;
         if (totalHeight > 0)
         {
-            windowState.LogPanelRatio = LogRow.ActualHeight / totalHeight;
+            var ratio = LogRow.ActualHeight / totalHeight;
+            if (double.IsFinite(ratio))
+            {
+                windowState.LogPanelRatio = Math.Clamp(ratio, 0.2, 0.85);
+            }
         }
 
         windowState.FollowOutput = FollowOutputCheckBox.IsChecked == true;

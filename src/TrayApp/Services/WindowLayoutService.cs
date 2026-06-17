@@ -7,7 +7,7 @@ public static class WindowLayoutService
 {
     public static void Apply(Window window, WindowLayoutState state, double defaultWidth, double defaultHeight)
     {
-        if (state.Width >= window.MinWidth && !double.IsNaN(state.Width))
+        if (double.IsFinite(state.Width) && state.Width >= window.MinWidth)
         {
             window.Width = state.Width;
         }
@@ -16,7 +16,7 @@ public static class WindowLayoutService
             window.Width = defaultWidth;
         }
 
-        if (state.Height >= window.MinHeight && !double.IsNaN(state.Height))
+        if (double.IsFinite(state.Height) && state.Height >= window.MinHeight)
         {
             window.Height = state.Height;
         }
@@ -25,7 +25,8 @@ public static class WindowLayoutService
             window.Height = defaultHeight;
         }
 
-        if (!double.IsNaN(state.Left) && !double.IsNaN(state.Top) && IsOnScreen(state.Left, state.Top, window.Width, window.Height))
+        if (double.IsFinite(state.Left) && double.IsFinite(state.Top)
+            && IsOnScreen(state.Left, state.Top, window.Width, window.Height))
         {
             window.WindowStartupLocation = WindowStartupLocation.Manual;
             window.Left = state.Left;
@@ -46,13 +47,21 @@ public static class WindowLayoutService
 
         if (!sizeOnly)
         {
-            state.Left = bounds.Left;
-            state.Top = bounds.Top;
+            AssignIfFinite(bounds.Left, v => state.Left = v);
+            AssignIfFinite(bounds.Top, v => state.Top = v);
         }
 
-        state.Width = bounds.Width;
-        state.Height = bounds.Height;
+        AssignIfFinite(bounds.Width, v => state.Width = v);
+        AssignIfFinite(bounds.Height, v => state.Height = v);
         state.WindowState = (int)window.WindowState;
+    }
+
+    private static void AssignIfFinite(double value, Action<double> assign)
+    {
+        if (double.IsFinite(value))
+        {
+            assign(value);
+        }
     }
 
     private static bool IsOnScreen(double left, double top, double width, double height)

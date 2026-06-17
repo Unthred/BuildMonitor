@@ -319,12 +319,12 @@ public partial class HoverStatusPanel : Window
 
     public void ApplyLayout(WindowLayoutState layout)
     {
-        if (layout.Width >= MinWidth && !double.IsNaN(layout.Width))
+        if (double.IsFinite(layout.Width) && layout.Width >= MinWidth)
         {
             Width = layout.Width;
         }
 
-        if (layout.Height >= MinHeight && !double.IsNaN(layout.Height))
+        if (double.IsFinite(layout.Height) && layout.Height >= MinHeight)
         {
             Height = layout.Height;
         }

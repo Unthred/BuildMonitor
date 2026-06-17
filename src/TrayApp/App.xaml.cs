@@ -28,6 +28,7 @@ public partial class App : System.Windows.Application
     private AppSettings currentSettings = new();
     private string appDataDirectory = string.Empty;
     private DispatcherTimer? hideStatusPanelTimer;
+    private DispatcherTimer? statusPanelLayoutSaveTimer;
     private bool pointerOverStatusPanel;
     private readonly Dictionary<string, MonitorHealth> previousProjectHealth = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProjectLifecycleState> previousProjectState = new(StringComparer.OrdinalIgnoreCase);
@@ -345,6 +346,7 @@ public partial class App : System.Windows.Application
         if (!pointerOverStatusPanel)
         {
             hoverPanel?.Hide();
+            FlushStatusPanelLayout();
         }
     }
 
@@ -355,9 +357,14 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        if (windowsLayoutStore is null)
+        {
+            return;
+        }
+
         hoverPanel = new HoverStatusPanel();
         hoverPanel.ApplyLayout(windowsLayoutStore.Layout.StatusPanel);
-        hoverPanel.SizeChanged += (_, _) => SaveStatusPanelLayout();
+        hoverPanel.SizeChanged += (_, _) => ScheduleSaveStatusPanelLayout();
         ApplyThemeToUi();
         hoverPanel.ViewLogRequested += projectId => OpenLogViewerForProject(projectId);
         hoverPanel.CopyErrorsRequested += projectId =>
@@ -468,9 +475,35 @@ public partial class App : System.Windows.Application
             System.Windows.Clipboard.SetText(string.Join(Environment.NewLine, errors)));
     }
 
-    private void SaveStatusPanelLayout()
+    private void ScheduleSaveStatusPanelLayout()
     {
-        if (hoverPanel is null || windowsLayoutStore is null)
+        if (hoverPanel is null || windowsLayoutStore is null || !hoverPanel.IsLoaded)
+        {
+            return;
+        }
+
+        statusPanelLayoutSaveTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        statusPanelLayoutSaveTimer.Tick -= StatusPanelLayoutSaveTick;
+        statusPanelLayoutSaveTimer.Tick += StatusPanelLayoutSaveTick;
+        statusPanelLayoutSaveTimer.Stop();
+        statusPanelLayoutSaveTimer.Start();
+    }
+
+    private void StatusPanelLayoutSaveTick(object? sender, EventArgs e)
+    {
+        statusPanelLayoutSaveTimer?.Stop();
+        FlushStatusPanelLayout();
+    }
+
+    private void FlushStatusPanelLayout()
+    {
+        if (hoverPanel is null || windowsLayoutStore is null || !hoverPanel.IsLoaded)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(hoverPanel.ActualWidth) || hoverPanel.ActualWidth < hoverPanel.MinWidth
+            || !double.IsFinite(hoverPanel.ActualHeight) || hoverPanel.ActualHeight < hoverPanel.MinHeight)
         {
             return;
         }
@@ -587,12 +620,12 @@ public partial class App : System.Windows.Application
 
     private async Task ShowSettingsAsync()
     {
-        if (settingsStore is null)
+        if (settingsStore is null || windowsLayoutStore is null)
         {
             return;
         }
 
-        var window = new SettingsWindow(CloneSettings(currentSettings), windowsLayoutStore!);
+        var window = new SettingsWindow(CloneSettings(currentSettings), windowsLayoutStore);
         if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
         {
             TrayScreenPlacement.PlaceWindowCentered(window);
