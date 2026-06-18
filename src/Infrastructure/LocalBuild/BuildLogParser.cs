@@ -6,13 +6,21 @@ public sealed record LogIssue(int LineNumber, string Text, bool IsError);
 
 public static class BuildLogParser
 {
-    private static readonly Regex WarningSummaryRegex = new(
+    private static readonly Regex ClassicWarningSummaryRegex = new(
         @"(\d+)\s+Warning\(s\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static readonly Regex ErrorSummaryRegex = new(
+    private static readonly Regex ClassicErrorSummaryRegex = new(
         @"(\d+)\s+Error\(s\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex TerminalWarningCountRegex = new(
+        @"\b(\d+)\s+warning\(s\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex TerminalErrorCountRegex = new(
+        @"\b(\d+)\s+error\(s\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex CompilerErrorRegex = new(
         @"\berror\s+(CS|MSB|NU|BC|SA|IDE|CA|FS|VB|AD|SYSLIB|NETSDK|CS)\d+\b",
@@ -86,13 +94,14 @@ public static class BuildLogParser
 
     public static int ParseErrorCount(string logText)
     {
-        var summary = ParseLastSummaryCount(logText, ErrorSummaryRegex);
+        var segment = ExtractLatestBuildResultSegment(logText);
+        var summary = ParseBuildSummaryCount(segment, warnings: false);
         if (summary >= 0)
         {
             return summary;
         }
 
-        return ParseIssues(logText).Count(i => i.IsError);
+        return ParseIssues(segment).Count(i => i.IsError);
     }
 
     public static bool IsOutputLockError(string logText)
@@ -108,13 +117,32 @@ public static class BuildLogParser
 
     public static int ParseWarningCount(string logText)
     {
-        var summary = ParseLastSummaryCount(logText, WarningSummaryRegex);
+        var segment = ExtractLatestBuildResultSegment(logText);
+        var summary = ParseBuildSummaryCount(segment, warnings: true);
         if (summary >= 0)
         {
             return summary;
         }
 
-        return ParseIssues(logText).Count(i => !i.IsError);
+        return ParseIssues(segment).Count(i => !i.IsError);
+    }
+
+    /// <summary>
+    /// Limits parsing to the most recent MSBuild result in accumulated dotnet watch output.
+    /// </summary>
+    internal static string ExtractLatestBuildResultSegment(string logText)
+    {
+        if (string.IsNullOrWhiteSpace(logText))
+        {
+            return string.Empty;
+        }
+
+        var normalized = logText.Replace("\r\n", "\n");
+        var lastSucceeded = normalized.LastIndexOf("Build succeeded", StringComparison.OrdinalIgnoreCase);
+        var lastFailed = normalized.LastIndexOf("Build FAILED", StringComparison.OrdinalIgnoreCase);
+        var lastFailedSentence = normalized.LastIndexOf("The build failed", StringComparison.OrdinalIgnoreCase);
+        var start = Math.Max(Math.Max(lastSucceeded, lastFailed), lastFailedSentence);
+        return start < 0 ? normalized : normalized[start..];
     }
 
     /// <summary>
@@ -176,6 +204,52 @@ public static class BuildLogParser
         return offset;
     }
 
+    private static int ParseBuildSummaryCount(string logText, bool warnings)
+    {
+        var terminalRegex = warnings ? TerminalWarningCountRegex : TerminalErrorCountRegex;
+        var classicRegex = warnings ? ClassicWarningSummaryRegex : ClassicErrorSummaryRegex;
+
+        var fromBuildLine = TryParseCountFromBuildSummaryLine(logText, terminalRegex, classicRegex);
+        if (fromBuildLine >= 0)
+        {
+            return fromBuildLine;
+        }
+
+        return ParseLastSummaryCount(logText, classicRegex);
+    }
+
+    private static int TryParseCountFromBuildSummaryLine(
+        string segment,
+        Regex terminalRegex,
+        Regex classicRegex)
+    {
+        var lines = segment.Replace("\r\n", "\n").Split('\n');
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = StripAnsi(lines[i].Trim());
+            if (!line.StartsWith("Build ", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var terminal = ParseLastMatchCount(line, terminalRegex);
+            if (terminal >= 0)
+            {
+                return terminal;
+            }
+
+            var classic = ParseLastMatchCount(line, classicRegex);
+            if (classic >= 0)
+            {
+                return classic;
+            }
+
+            return -1;
+        }
+
+        return -1;
+    }
+
     private static int ParseLastSummaryCount(string logText, Regex regex)
     {
         var matches = regex.Matches(logText);
@@ -187,8 +261,22 @@ public static class BuildLogParser
         return int.Parse(matches[^1].Groups[1].Value);
     }
 
+    private static int ParseLastMatchCount(string text, Regex regex)
+    {
+        var matches = regex.Matches(text);
+        if (matches.Count == 0)
+        {
+            return -1;
+        }
+
+        return int.Parse(matches[^1].Groups[1].Value);
+    }
+
     private static bool IsSummaryLine(string line) =>
-        ErrorSummaryRegex.IsMatch(line) || WarningSummaryRegex.IsMatch(line);
+        ClassicErrorSummaryRegex.IsMatch(line)
+        || ClassicWarningSummaryRegex.IsMatch(line)
+        || TerminalErrorCountRegex.IsMatch(line)
+        || TerminalWarningCountRegex.IsMatch(line);
 
     private static bool IsErrorLine(string line) =>
         ErrorMarkers.Any(marker => line.Contains(marker, StringComparison.OrdinalIgnoreCase))

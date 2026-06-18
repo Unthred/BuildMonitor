@@ -18,6 +18,8 @@
     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF" />
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#3E3E42" />
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#E6E6E6" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InfoBrushKey}" Color="#2D2D30" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InfoTextBrushKey}" Color="#E6E6E6" />
 
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{StaticResource ThemeBackgroundBrush}" />
@@ -378,5 +380,31 @@
                 <Setter Property="Background" Value="{StaticResource ThemeControlHoverBrush}" />
             </Trigger>
         </Style.Triggers>
+    </Style>
+
+    <Style TargetType="{x:Type ToolTip}">
+        <Setter Property="Background" Value="{StaticResource ThemeCardBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeForegroundBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ThemeBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="HasDropShadow" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToolTip}">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="4"
+                            MaxWidth="420">
+                        <TextBlock Text="{TemplateBinding Content}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   TextWrapping="Wrap"
+                                   FontSize="12" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 </ResourceDictionary>

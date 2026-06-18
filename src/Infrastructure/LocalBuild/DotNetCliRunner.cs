@@ -60,7 +60,7 @@ public sealed class DotNetCliRunner
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         var duration = DateTimeOffset.UtcNow - started;
         var text = BuildLogTextNormalizer.Normalize(
             BuildLogParser.DeduplicateConsecutiveLines(output.ToString()));

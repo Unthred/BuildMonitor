@@ -6,10 +6,11 @@ public sealed class DebouncedFileWatcher : IDisposable
     private readonly System.Timers.Timer debounceTimer;
     private readonly HashSet<string> ignoreSegments;
 
-    public event Action<IReadOnlyList<string>>? Changed;
+    public event Action<IReadOnlyList<string>, int>? Changed;
 
     private readonly object pendingPathsSync = new();
     private readonly HashSet<string> pendingPaths = new(StringComparer.OrdinalIgnoreCase);
+    private DateTimeOffset? burstStartedUtc;
 
     public bool IsSuspended { get; private set; }
 
@@ -44,6 +45,11 @@ public sealed class DebouncedFileWatcher : IDisposable
         watcher.EnableRaisingEvents = true;
     }
 
+    public void SetDebounceMs(int debounceMs)
+    {
+        debounceTimer.Interval = Math.Max(1, debounceMs);
+    }
+
     private void OnFsEvent(object sender, FileSystemEventArgs e)
     {
         if (IsSuspended)
@@ -58,6 +64,11 @@ public sealed class DebouncedFileWatcher : IDisposable
 
         lock (pendingPathsSync)
         {
+            if (pendingPaths.Count == 0)
+            {
+                burstStartedUtc = DateTimeOffset.UtcNow;
+            }
+
             pendingPaths.Add(e.FullPath);
         }
 
@@ -68,10 +79,15 @@ public sealed class DebouncedFileWatcher : IDisposable
     private void RaiseChanged()
     {
         List<string> snapshot;
+        int burstDurationMs;
         lock (pendingPathsSync)
         {
             snapshot = pendingPaths.ToList();
             pendingPaths.Clear();
+            burstDurationMs = burstStartedUtc is { } started
+                ? (int)Math.Max(0, (DateTimeOffset.UtcNow - started).TotalMilliseconds)
+                : 0;
+            burstStartedUtc = null;
         }
 
         var meaningful = WatchIgnoreRules.FilterMeaningfulPaths(snapshot, ignoreSegments);
@@ -80,7 +96,7 @@ public sealed class DebouncedFileWatcher : IDisposable
             return;
         }
 
-        Changed?.Invoke(meaningful);
+        Changed?.Invoke(meaningful, burstDurationMs);
     }
 
     public void Suspend() => IsSuspended = true;

@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Services;
 using BuildMonitor.TrayApp.Services;
@@ -15,13 +16,10 @@ public partial class App : System.Windows.Application
 {
     private Forms.NotifyIcon? notifyIcon;
     private Forms.ContextMenuStrip? trayContextMenu;
-    private Forms.ToolStripMenuItem? rebuildSubmenu;
-    private Forms.ToolStripMenuItem? restartSubmenu;
-    private Forms.ToolStripMenuItem? runTestsSubmenu;
-    private Forms.ToolStripMenuItem? stopSubmenu;
-    private Forms.ToolStripMenuItem? viewLogsSubmenu;
     private ProjectOrchestrator? orchestrator;
     private BuildDiagnosticsWindow? diagnosticsWindow;
+    private BuildMonitorHealthWindow? buildMonitorHealthWindow;
+    private DispatcherHealthProbe? dispatcherHealthProbe;
     private HoverStatusPanel? hoverPanel;
     private SettingsStore? settingsStore;
     private AppWindowsLayoutStore? windowsLayoutStore;
@@ -44,6 +42,11 @@ public partial class App : System.Windows.Application
     private bool currentTrayWebReady;
     private ProjectHealthSnapshot? currentTrayHeadline;
     private int exitRequested;
+    private readonly object pendingHealthUiSync = new();
+    private IReadOnlyList<ProjectHealthSnapshot>? pendingHealthSnapshots;
+    private MonitorHealth pendingHealthRollup = MonitorHealth.Unknown;
+    private int healthUiUpdateScheduled;
+    private int trayMenuOpen;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -82,13 +85,35 @@ public partial class App : System.Windows.Application
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
 
+        WorkerHealthRegistry.Shared.Register(
+            "ui.health-callback",
+            "Tray health UI callback",
+            TimeSpan.FromSeconds(2),
+            "UI");
+        dispatcherHealthProbe = new DispatcherHealthProbe(Dispatcher);
+
         ThemeService.ThemeChanged += OnThemeChanged;
         EnsureHoverPanel();
         ApplyThemeToUi();
         notifyIcon = BuildNotifyIcon();
         notifyIcon.Visible = true;
 
-        await ApplySettingsAndStartAsync();
+        if (ShouldAutoOpenBuildMonitorHealth())
+        {
+            await OpenBuildMonitorHealthWhenReadyAsync();
+            await WaitForUiIdleAsync();
+        }
+
+        await Task.Run(async () => await ApplySettingsAndStartAsync().ConfigureAwait(false));
+    }
+
+    private async Task OpenBuildMonitorHealthWhenReadyAsync()
+    {
+        await Dispatcher.InvokeAsync(ShowBuildMonitorHealth, DispatcherPriority.Loaded);
+        if (buildMonitorHealthWindow is not null)
+        {
+            await buildMonitorHealthWindow.WaitForInitialLoadAsync();
+        }
     }
 
     private async Task ApplySettingsAndStartAsync()
@@ -113,13 +138,22 @@ public partial class App : System.Windows.Application
             ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
             await orchestrator.StopAllAsync();
             orchestrator.ApplySettings(currentSettings);
-            await orchestrator.StartActiveProjectsAsync(CancellationToken.None);
+
+            if (ShouldAutoStartAnyProjectsOnLaunch())
+            {
+                await orchestrator.StartActiveProjectsAsync(CancellationToken.None).ConfigureAwait(false);
+            }
         }
         finally
         {
             settingsApplyGate.Release();
         }
+
+        _ = Dispatcher.InvokeAsync(RebuildTrayMenu, DispatcherPriority.ApplicationIdle);
     }
+
+    private Task WaitForUiIdleAsync() =>
+        Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.ApplicationIdle).Task;
 
     private void OnUserNotification(
         string projectId,
@@ -163,7 +197,50 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+        lock (pendingHealthUiSync)
+        {
+            pendingHealthSnapshots = snapshots;
+            pendingHealthRollup = rollup;
+        }
+
+        if (Interlocked.CompareExchange(ref healthUiUpdateScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, ApplyPendingHealthUi);
+    }
+
+    private void ApplyPendingHealthUi()
+    {
+        Interlocked.Exchange(ref healthUiUpdateScheduled, 0);
+
+        IReadOnlyList<ProjectHealthSnapshot> snapshots;
+        MonitorHealth rollup;
+        lock (pendingHealthUiSync)
+        {
+            snapshots = pendingHealthSnapshots ?? [];
+            rollup = pendingHealthRollup;
+            pendingHealthSnapshots = null;
+        }
+
+        lock (pendingHealthUiSync)
+        {
+            if (pendingHealthSnapshots is not null
+                && Interlocked.CompareExchange(ref healthUiUpdateScheduled, 1, 0) == 0)
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, ApplyPendingHealthUi);
+            }
+        }
+
+        if (Volatile.Read(ref exitRequested) != 0)
+        {
+            return;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        WorkerHealthRegistry.Shared.SetCurrentAction("ui.health-callback", "Updating tray UI");
+        try
         {
             var activeOnly = snapshots.Where(s => s.IsActive).ToList();
             currentTrayHeadline = LocalTrayIconRollupEvaluator.ChooseHeadline(activeOnly);
@@ -171,11 +248,29 @@ public partial class App : System.Windows.Application
                 LocalTrayIconRollupEvaluator.Rollup(activeOnly),
                 LocalTrayIconRollupEvaluator.IsBuilding(activeOnly),
                 LocalTrayIconRollupEvaluator.IsWebReady(currentTrayHeadline));
-            hoverPanel?.Update(snapshots);
-            AutoOpenLogsOnFailureTransition(snapshots);
-            ShowBuildToasts(snapshots);
-            PlayBuildNotificationSounds(snapshots);
-        });
+
+            if (hoverPanel is { IsVisible: true })
+            {
+                hoverPanel.Update(snapshots);
+            }
+
+            if (Volatile.Read(ref trayMenuOpen) == 0)
+            {
+                AutoOpenLogsOnFailureTransition(snapshots);
+                ShowBuildToasts(snapshots);
+                PlayBuildNotificationSounds(snapshots);
+            }
+        }
+        finally
+        {
+            sw.Stop();
+            WorkerHealthRegistry.Shared.Heartbeat(
+                "ui.health-callback",
+                note: "tray refresh complete",
+                managedThreadId: Environment.CurrentManagedThreadId,
+                workDurationMs: sw.ElapsedMilliseconds);
+            WorkerHealthRegistry.Shared.SetCurrentAction("ui.health-callback", "Idle");
+        }
     }
 
     private void AutoOpenLogsOnFailureTransition(IReadOnlyList<ProjectHealthSnapshot> snapshots)
@@ -212,6 +307,8 @@ public partial class App : System.Windows.Application
     {
         buildIconAnimationTimer?.Stop();
         buildIconAnimationTimer = null;
+        dispatcherHealthProbe?.Dispose();
+        dispatcherHealthProbe = null;
         orchestrator?.Dispose();
         orchestrator = null;
 
@@ -237,48 +334,29 @@ public partial class App : System.Windows.Application
         };
 
         trayContextMenu = new Forms.ContextMenuStrip();
-
-        var statusItem = new Forms.ToolStripMenuItem("Status");
-        statusItem.Click += (_, _) => RunTrayMenuUiAction(ShowStatusPanel);
-        trayContextMenu.Items.Add(statusItem);
-
-        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
-
-        rebuildSubmenu = new Forms.ToolStripMenuItem("Rebuild");
-        trayContextMenu.Items.Add(rebuildSubmenu);
-
-        restartSubmenu = new Forms.ToolStripMenuItem("Restart app");
-        trayContextMenu.Items.Add(restartSubmenu);
-
-        runTestsSubmenu = new Forms.ToolStripMenuItem("Run tests");
-        trayContextMenu.Items.Add(runTestsSubmenu);
-
-        stopSubmenu = new Forms.ToolStripMenuItem("Stop");
-        trayContextMenu.Items.Add(stopSubmenu);
-
-        viewLogsSubmenu = new Forms.ToolStripMenuItem("View Log");
-        trayContextMenu.Items.Add(viewLogsSubmenu);
-
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Build diagnostics…",
-            null,
-            (_, _) => RunTrayMenuUiAction(ShowBuildDiagnostics)));
-
-        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem("Settings", null, (_, _) => RunTrayMenuUiAction(() => _ = ShowSettingsAsync())));
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem("Exit", null, (_, _) => RequestExit()));
+        RebuildTrayMenu();
 
         trayContextMenu.Opening += (_, _) =>
         {
+            Volatile.Write(ref trayMenuOpen, 1);
+            orchestrator?.SetTrayMenuOpen(true);
+            CancelStatusPanelTimers();
+            hoverPanel?.Hide();
             TrayScreenPlacement.CaptureFromCursor();
             try
             {
-                RefreshProjectSubmenus();
+                RebuildTrayMenu();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Tray menu refresh failed: {ex}");
             }
+        };
+
+        trayContextMenu.Closed += (_, _) =>
+        {
+            Volatile.Write(ref trayMenuOpen, 0);
+            orchestrator?.SetTrayMenuOpen(false);
         };
 
         TrayMenuTheme.Apply(trayContextMenu, ThemeService.CurrentResolved);
@@ -618,6 +696,35 @@ public partial class App : System.Windows.Application
         diagnosticsWindow.Show();
     }
 
+    private void ShowBuildMonitorHealth()
+    {
+        if (windowsLayoutStore is null)
+        {
+            return;
+        }
+
+        if (buildMonitorHealthWindow is { IsLoaded: true })
+        {
+            WindowLayoutService.Apply(buildMonitorHealthWindow, windowsLayoutStore.Layout.BuildMonitorHealth, 980, 520);
+            if (double.IsNaN(windowsLayoutStore.Layout.BuildMonitorHealth.Left))
+            {
+                TrayScreenPlacement.PlaceWindowCentered(buildMonitorHealthWindow);
+            }
+
+            if (!buildMonitorHealthWindow.IsVisible)
+            {
+                buildMonitorHealthWindow.Show();
+            }
+
+            buildMonitorHealthWindow.Activate();
+            return;
+        }
+
+        buildMonitorHealthWindow = new BuildMonitorHealthWindow(windowsLayoutStore);
+        buildMonitorHealthWindow.Closed += (_, _) => buildMonitorHealthWindow = null;
+        buildMonitorHealthWindow.Show();
+    }
+
     private async Task ShowSettingsAsync()
     {
         if (settingsStore is null || windowsLayoutStore is null)
@@ -656,13 +763,14 @@ public partial class App : System.Windows.Application
         ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
         WindowsStartupService.Apply(currentSettings.AppBehavior.RunOnLogon);
         ApplyThemeToUi();
+        RebuildTrayMenu();
 
         var applyVersion = Interlocked.Increment(ref settingsApplyVersion);
         _ = ApplySettingsAndStartInBackgroundAsync(applyVersion);
 
         ToastNotificationService.ShowIfEnabled(
             "Settings saved",
-            "Active projects are starting in the background.",
+            "Projects with start on launch enabled are starting in the background.",
             ToastKind.Success,
             UserNotificationCategory.Info);
     }
@@ -702,7 +810,10 @@ public partial class App : System.Windows.Application
             notifyIcon.Visible = false;
         }
 
-        trayContextMenu?.Hide();
+        if (trayContextMenu is not null)
+        {
+            trayContextMenu.Hide();
+        }
 
         // Defer until after the context menu finishes handling the click.
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => _ = ExitAsync());
@@ -739,6 +850,11 @@ public partial class App : System.Windows.Application
             openLogViewers.Clear();
             diagnosticsWindow?.Close();
             diagnosticsWindow = null;
+            buildMonitorHealthWindow?.Close();
+            buildMonitorHealthWindow = null;
+            dispatcherHealthProbe?.Dispose();
+            dispatcherHealthProbe = null;
+            WorkerHealthRegistry.Shared.Unregister("ui.health-callback");
             hoverPanel?.Close();
             hoverPanel = null;
 
@@ -832,28 +948,112 @@ public partial class App : System.Windows.Application
         trayContextMenu.Close(Forms.ToolStripDropDownCloseReason.ItemClicked);
     }
 
-    private void RefreshProjectSubmenus()
+    private void RebuildTrayMenu()
     {
+        if (trayContextMenu is null)
+        {
+            return;
+        }
+
         var active = currentSettings.Projects.Where(p => p.IsActiveInSession).ToList();
 
-        BuildRebuildSubmenu(active);
-        BuildRestartSubmenu(active);
-        BuildRunTestsSubmenu(active);
-        BuildStopSubmenu(active);
-        BuildViewLogsSubmenu(active);
+        trayContextMenu.Items.Clear();
 
-        if (trayContextMenu is not null)
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Status",
+            null,
+            (_, _) => RunTrayMenuUiAction(ShowStatusPanel)));
+        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
+
+        if (currentSettings.AppBehavior.TrayMenuLayout == TrayMenuLayout.ByProject)
         {
-            TrayMenuTheme.Apply(trayContextMenu, ThemeService.CurrentResolved);
+            AddByProjectItems(trayContextMenu.Items, active);
+        }
+        else
+        {
+            trayContextMenu.Items.Add(BuildRebuildMenu(active));
+            trayContextMenu.Items.Add(BuildRestartMenu(active));
+            trayContextMenu.Items.Add(BuildRunTestsMenu(active));
+            trayContextMenu.Items.Add(BuildStopMenu(active));
+            trayContextMenu.Items.Add(BuildViewLogsMenu(active));
+            trayContextMenu.Items.Add(BuildCleanOutputMenu(active));
+        }
+
+        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Build diagnostics…",
+            null,
+            (_, _) => RunTrayMenuUiAction(ShowBuildDiagnostics)));
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Build Monitor Health…",
+            null,
+            (_, _) => RunTrayMenuUiAction(ShowBuildMonitorHealth)));
+        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Settings",
+            null,
+            (_, _) => RunTrayMenuUiAction(() => _ = ShowSettingsAsync())));
+        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
+            "Exit",
+            null,
+            (_, _) => RequestExit()));
+
+        ApplyTrayMenuTheme();
+    }
+
+    private void ApplyTrayMenuTheme()
+    {
+        if (trayContextMenu is null)
+        {
+            return;
+        }
+
+        TrayMenuTheme.Apply(trayContextMenu, ThemeService.Resolve(currentSettings.AppBehavior.Theme));
+    }
+
+    private void AddByProjectItems(Forms.ToolStripItemCollection items, List<LocalProjectDefinition> active)
+    {
+        if (active.Count == 0)
+        {
+            items.Add(new Forms.ToolStripMenuItem("(No active projects)") { Enabled = false });
+            return;
+        }
+
+        foreach (var project in active)
+        {
+            var id = project.Id;
+            var restartable = project.RunOptions.RunMode != ProjectRunMode.None;
+            var submenu = new Forms.ToolStripMenuItem(project.DisplayName);
+
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild", null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(id, CancellationToken.None))));
+
+            if (restartable)
+            {
+                submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart app", null, (_, _) =>
+                    RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
+                submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart", null, (_, _) =>
+                    RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(id, CancellationToken.None))));
+            }
+
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Run tests", null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RunTestsAsync(id, CancellationToken.None))));
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Stop", null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.StopProjectAsync(id))));
+            submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("View log", null, (_, _) =>
+                RunTrayMenuUiAction(() => OpenLogViewerForProject(id))));
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Clean build output", null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RepairBuildOutputAsync(id, CancellationToken.None))));
+
+            items.Add(submenu);
         }
     }
 
-    private void BuildRebuildSubmenu(List<LocalProjectDefinition> active)
+    private Forms.ToolStripMenuItem BuildRebuildMenu(List<LocalProjectDefinition> active)
     {
-        if (rebuildSubmenu is null) return;
-        rebuildSubmenu.DropDownItems.Clear();
-
-        rebuildSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+        var menu = new Forms.ToolStripMenuItem("Rebuild");
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
             RunTrayMenuBackgroundAction(async () =>
             {
                 foreach (var p in active)
@@ -864,34 +1064,30 @@ public partial class App : System.Windows.Application
 
         if (active.Count > 0)
         {
-            rebuildSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            menu.DropDownItems.Add(new Forms.ToolStripSeparator());
             foreach (var project in active)
             {
                 var id = project.Id;
-                var name = project.DisplayName;
-                rebuildSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+                menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
                     RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(id, CancellationToken.None))));
             }
         }
+
+        return menu;
     }
 
-    private void BuildRestartSubmenu(List<LocalProjectDefinition> active)
+    private Forms.ToolStripMenuItem BuildRestartMenu(List<LocalProjectDefinition> active)
     {
-        if (restartSubmenu is null)
-        {
-            return;
-        }
-
-        restartSubmenu.DropDownItems.Clear();
+        var menu = new Forms.ToolStripMenuItem("Restart app");
         var restartable = active.Where(p => p.RunOptions.RunMode != ProjectRunMode.None).ToList();
-        restartSubmenu.Enabled = restartable.Count > 0;
+        menu.Enabled = restartable.Count > 0;
 
         if (restartable.Count == 0)
         {
-            return;
+            return menu;
         }
 
-        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart all active", null, (_, _) =>
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart all active", null, (_, _) =>
             RunTrayMenuBackgroundAction(async () =>
             {
                 foreach (var p in restartable)
@@ -900,7 +1096,7 @@ public partial class App : System.Windows.Application
                 }
             })));
 
-        restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart all active", null, (_, _) =>
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart all active", null, (_, _) =>
             RunTrayMenuBackgroundAction(async () =>
             {
                 foreach (var p in restartable)
@@ -909,44 +1105,39 @@ public partial class App : System.Windows.Application
                 }
             })));
 
-        restartSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
         foreach (var project in restartable)
         {
             var id = project.Id;
             var name = project.DisplayName;
-            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Restart — {name}", null, (_, _) =>
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Restart — {name}", null, (_, _) =>
                 RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
-            restartSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Rebuild & restart — {name}", null, (_, _) =>
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Rebuild & restart — {name}", null, (_, _) =>
                 RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(id, CancellationToken.None))));
         }
+
+        return menu;
     }
 
-    private void BuildRunTestsSubmenu(List<LocalProjectDefinition> active)
+    private Forms.ToolStripMenuItem BuildRunTestsMenu(List<LocalProjectDefinition> active)
     {
-        if (runTestsSubmenu is null)
-        {
-            return;
-        }
-
-        runTestsSubmenu.DropDownItems.Clear();
-        runTestsSubmenu.Enabled = active.Count > 0;
-
+        var menu = new Forms.ToolStripMenuItem("Run tests") { Enabled = active.Count > 0 };
         if (active.Count == 0)
         {
-            return;
+            return menu;
         }
 
-        runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
             RunTrayMenuUiAction(() => StartRunTestsForProjects(active))));
 
-        runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
         foreach (var project in active)
         {
-            var id = project.Id;
-            var name = project.DisplayName;
-            runTestsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
                 RunTrayMenuUiAction(() => StartRunTestsForProjects([project]))));
         }
+
+        return menu;
     }
 
     private void StartRunTestsForProjects(IReadOnlyList<LocalProjectDefinition> projects)
@@ -977,46 +1168,66 @@ public partial class App : System.Windows.Application
         });
     }
 
-    private void BuildStopSubmenu(List<LocalProjectDefinition> active)
+    private Forms.ToolStripMenuItem BuildStopMenu(List<LocalProjectDefinition> active)
     {
-        if (stopSubmenu is null) return;
-        stopSubmenu.DropDownItems.Clear();
-
-        stopSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
+        var menu = new Forms.ToolStripMenuItem("Stop");
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
             RunTrayMenuBackgroundAction(() => orchestrator!.StopAllAsync())));
 
         if (active.Count > 0)
         {
-            stopSubmenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            menu.DropDownItems.Add(new Forms.ToolStripSeparator());
             foreach (var project in active)
             {
                 var id = project.Id;
-                var name = project.DisplayName;
-                stopSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+                menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
                     RunTrayMenuBackgroundAction(() => orchestrator!.StopProjectAsync(id))));
             }
         }
+
+        return menu;
     }
 
-    private void BuildViewLogsSubmenu(List<LocalProjectDefinition> active)
+    private Forms.ToolStripMenuItem BuildViewLogsMenu(List<LocalProjectDefinition> active)
     {
-        if (viewLogsSubmenu is null) return;
-        viewLogsSubmenu.DropDownItems.Clear();
-
-        if (active.Count == 0)
-        {
-            viewLogsSubmenu.Enabled = false;
-            return;
-        }
-
-        viewLogsSubmenu.Enabled = true;
+        var menu = new Forms.ToolStripMenuItem("View Log") { Enabled = active.Count > 0 };
         foreach (var project in active)
         {
             var id = project.Id;
             var name = project.DisplayName;
-            viewLogsSubmenu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
                 RunTrayMenuUiAction(() => OpenLogViewerForProject(id, name))));
         }
+
+        return menu;
+    }
+
+    private Forms.ToolStripMenuItem BuildCleanOutputMenu(List<LocalProjectDefinition> active)
+    {
+        var menu = new Forms.ToolStripMenuItem("Clean build output") { Enabled = active.Count > 0 };
+        if (active.Count == 0)
+        {
+            return menu;
+        }
+
+        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All active", null, (_, _) =>
+            RunTrayMenuBackgroundAction(async () =>
+            {
+                foreach (var project in active)
+                {
+                    await orchestrator!.RepairBuildOutputAsync(project.Id, CancellationToken.None);
+                }
+            })));
+
+        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        foreach (var project in active)
+        {
+            var id = project.Id;
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
+                RunTrayMenuBackgroundAction(() => orchestrator!.RepairBuildOutputAsync(id, CancellationToken.None))));
+        }
+
+        return menu;
     }
 
     private async Task RebuildAllActiveAsync()
@@ -1160,10 +1371,8 @@ public partial class App : System.Windows.Application
         var theme = ThemeService.Resolve(currentSettings.AppBehavior.Theme);
         hoverPanel?.ApplyTheme(theme);
         ApplyThemeToDiagnosticsWindow(theme);
-        if (trayContextMenu is not null)
-        {
-            TrayMenuTheme.Apply(trayContextMenu, theme);
-        }
+        ApplyThemeToBuildMonitorHealthWindow(theme);
+        ApplyTrayMenuTheme();
     }
 
     private void OnThemeChanged(ResolvedTheme theme) =>
@@ -1171,10 +1380,8 @@ public partial class App : System.Windows.Application
         {
             hoverPanel?.ApplyTheme(theme);
             ApplyThemeToDiagnosticsWindow(theme);
-            if (trayContextMenu is not null)
-            {
-                TrayMenuTheme.Apply(trayContextMenu, theme);
-            }
+            ApplyThemeToBuildMonitorHealthWindow(theme);
+            ApplyTrayMenuTheme();
         });
 
     private void ApplyThemeToDiagnosticsWindow(ResolvedTheme theme)
@@ -1186,6 +1393,17 @@ public partial class App : System.Windows.Application
 
         ThemeService.ApplyToWindow(diagnosticsWindow, theme);
         ThemeService.ApplyChrome(diagnosticsWindow, theme == ResolvedTheme.Dark);
+    }
+
+    private void ApplyThemeToBuildMonitorHealthWindow(ResolvedTheme theme)
+    {
+        if (buildMonitorHealthWindow is not { IsLoaded: true })
+        {
+            return;
+        }
+
+        ThemeService.ApplyToWindow(buildMonitorHealthWindow, theme);
+        ThemeService.ApplyChrome(buildMonitorHealthWindow, theme == ResolvedTheme.Dark);
     }
 
     private void UpdateTrayIcon(MonitorHealth health, bool isBuilding, bool webReady)
@@ -1325,6 +1543,43 @@ public partial class App : System.Windows.Application
         {
             System.Diagnostics.Debug.WriteLine($"Legacy app data migration failed: {ex.Message}");
         }
+    }
+
+    private static bool ShouldSkipProjectStart()
+    {
+        var value = Environment.GetEnvironmentVariable("BUILDMONITOR_SKIP_PROJECT_START");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ShouldAutoStartAnyProjectsOnLaunch() =>
+        !ShouldSkipProjectStart()
+        && currentSettings.Projects.Any(p => p.IsActiveInSession && p.StartOnLaunch);
+
+    private bool ShouldAutoOpenBuildMonitorHealth()
+    {
+        var value = Environment.GetEnvironmentVariable("BUILDMONITOR_AUTO_BUILD_MONITOR_HEALTH");
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = Environment.GetEnvironmentVariable("BUILDMONITOR_AUTO_THREAD_HEALTH");
+        }
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            if (string.Equals(value, "0", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return currentSettings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
     }
 
     private static string DescribeHealth(MonitorHealth health) =>
