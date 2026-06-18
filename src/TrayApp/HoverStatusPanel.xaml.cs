@@ -3,12 +3,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
-using WpfFontFamily = System.Windows.Media.FontFamily;
-using WpfBrush = System.Windows.Media.Brush;
-using WpfColor = System.Windows.Media.Color;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.TrayApp.Services;
+using WpfBrush = System.Windows.Media.Brush;
+using WpfColor = System.Windows.Media.Color;
+using WpfSize = System.Windows.Size;
 using WpfButton = System.Windows.Controls.Button;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfOrientation = System.Windows.Controls.Orientation;
@@ -107,7 +107,7 @@ public partial class HoverStatusPanel : Window
 
             if (snapshot.ProgressSteps.Count > 0)
             {
-                panel.Children.Add(BuildProgressPanel(snapshot.ProgressSteps, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildStepProgressChart(snapshot.ProgressSteps, palette));
             }
             else if (!string.IsNullOrWhiteSpace(snapshot.LastErrorPreview))
             {
@@ -118,6 +118,14 @@ public partial class HoverStatusPanel : Window
                     Foreground = new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
                     Margin = new Thickness(0, 4, 0, 0)
                 });
+            }
+            else if (snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildActivityIndicator(snapshot.State, palette));
+            }
+            else if (snapshot.ErrorCount > 0 || snapshot.WarningCount > 0)
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildIssueMeter(snapshot.ErrorCount, snapshot.WarningCount, palette));
             }
 
             var actions = new StackPanel
@@ -198,13 +206,46 @@ public partial class HoverStatusPanel : Window
                 TextWrapping = TextWrapping.Wrap
             });
         }
+
+        var activeCount = snapshots.Count(s => s.IsActive);
+        HeaderText.Text = activeCount switch
+        {
+            0 => "Local build status",
+            1 => "Local build status",
+            _ => $"Local build status ({activeCount} projects)"
+        };
+
+        FitHeightToContent();
+    }
+
+    private void FitHeightToContent()
+    {
+        const double chrome = 52;
+        var innerWidth = Math.Max(200, Width - 22);
+        ProjectCards.Measure(new WpfSize(innerWidth, double.PositiveInfinity));
+        var contentHeight = ProjectCards.DesiredSize.Height;
+        var maxBody = MaxHeight - chrome;
+
+        if (contentHeight <= maxBody)
+        {
+            CardsScroll.MaxHeight = double.PositiveInfinity;
+            CardsScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            Height = Math.Max(MinHeight, chrome + contentHeight);
+        }
+        else
+        {
+            CardsScroll.MaxHeight = maxBody;
+            CardsScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            Height = MaxHeight;
+        }
     }
 
     private static bool ShouldShowListenUrl(ProjectHealthSnapshot snapshot) =>
         snapshot.IsRestarting
         || snapshot.State is ProjectLifecycleState.Running
             or ProjectLifecycleState.Watching
-            or ProjectLifecycleState.Building;
+            or ProjectLifecycleState.Building
+            or ProjectLifecycleState.BuildOk;
 
     private static UIElement BuildListenUrlPendingBlock(string listenUrl, ThemePalette palette) =>
         new TextBlock
@@ -264,50 +305,6 @@ public partial class HoverStatusPanel : Window
         return isBuilding ? "Build in progress…" : "Last build: —";
     }
 
-    private static UIElement BuildProgressPanel(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
-    {
-        var container = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-        container.Children.Add(new TextBlock
-        {
-            Text = "Progress",
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(palette.Foreground),
-            Margin = new Thickness(0, 0, 0, 4)
-        });
-
-        foreach (var step in steps)
-        {
-            container.Children.Add(new TextBlock
-            {
-                Text = FormatProgressStep(step),
-                Foreground = StepBrush(step.Status, palette),
-                FontFamily = new WpfFontFamily("Segoe UI"),
-                FontSize = 11,
-                Margin = new Thickness(0, 1, 0, 0)
-            });
-        }
-
-        return container;
-    }
-
-    private static string FormatProgressStep(BuildProgressStep step) =>
-        step.Status switch
-        {
-            BuildStepStatus.Active => $"● {step.Label}",
-            BuildStepStatus.Complete => $"✓ {step.Label}",
-            BuildStepStatus.Failed => $"✗ {step.Label}",
-            _ => $"○ {step.Label}"
-        };
-
-    private static SolidColorBrush StepBrush(BuildStepStatus status, ThemePalette palette) =>
-        status switch
-        {
-            BuildStepStatus.Complete => new SolidColorBrush(WpfColor.FromRgb(40, 167, 69)),
-            BuildStepStatus.Active => new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
-            BuildStepStatus.Failed => new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
-            _ => new SolidColorBrush(palette.Foreground) { Opacity = 0.55 }
-        };
-
     private static WpfBrush HealthBrush(MonitorHealth health, ThemePalette palette) =>
         health switch
         {
@@ -323,11 +320,6 @@ public partial class HoverStatusPanel : Window
         {
             Width = layout.Width;
         }
-
-        if (double.IsFinite(layout.Height) && layout.Height >= MinHeight)
-        {
-            Height = layout.Height;
-        }
     }
 
     public void CaptureLayout(WindowLayoutState layout) =>
@@ -340,5 +332,7 @@ public partial class HoverStatusPanel : Window
         {
             Show();
         }
+
+        FitHeightToContent();
     }
 }

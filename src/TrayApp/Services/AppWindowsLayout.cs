@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BuildMonitor.TrayApp.Services;
 
 public class WindowLayoutState
@@ -20,5 +22,7 @@ public sealed class AppWindowsLayout
     public BuildLogViewerLayoutState BuildLog { get; set; } = new();
     public WindowLayoutState Settings { get; set; } = new();
     public WindowLayoutState Diagnostics { get; set; } = new();
+    [JsonPropertyName("threadHealth")]
+    public WindowLayoutState BuildMonitorHealth { get; set; } = new();
     public WindowLayoutState StatusPanel { get; set; } = new() { Width = 480, Height = 420 };
 }

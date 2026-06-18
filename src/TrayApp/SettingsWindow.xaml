@@ -8,11 +8,11 @@
 
         Width="980"
 
-        Height="700"
+        Height="820"
 
         MinWidth="900"
 
-        MinHeight="640"
+        MinHeight="760"
 
         SizeToContent="Manual"
 
@@ -50,7 +50,10 @@
 
                     <DockPanel Grid.Column="0" Margin="0,0,12,0">
 
-                        <TextBlock DockPanel.Dock="Top" Text="Projects (check to monitor)" Margin="0,0,0,6" />
+                        <TextBlock DockPanel.Dock="Top" Text="Projects — check to monitor this session" Margin="0,0,0,4" />
+
+                        <TextBlock DockPanel.Dock="Top" Text="Unchecked projects stay in the list but do not build or run until checked."
+                                   TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,8" />
 
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
 
@@ -99,6 +102,10 @@
 
 
                     <Grid x:Name="EditorPanel" Grid.Column="1" IsEnabled="False">
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+
+                        <Grid>
 
                         <Grid.RowDefinitions>
 
@@ -253,6 +260,11 @@
                                 <TextBlock Text="Run mode" />
 
                                 <ComboBox x:Name="RunModeCombo" Margin="0,4,0,10" />
+
+                                <CheckBox x:Name="StartOnLaunchCheck"
+                                          Content="Start build when app launches"
+                                          ToolTip="When checked, this project builds and runs automatically on app startup and after saving settings. Requires Active in session (left list)."
+                                          Margin="0,0,0,10" />
 
                                 <CheckBox x:Name="RestartOnCrashCheck" Content="Restart on crash" Margin="0,0,0,6" />
 
@@ -412,11 +424,20 @@
 
                                               ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually." />
 
+                                    <CheckBox x:Name="AutoRepairCorruptedOutputCheck"
+                                              Content="Auto-repair corrupted build output (artifacts/bin/obj)"
+                                              Margin="0,8,0,0"
+                                              ToolTip="When build output indicates a poisoned MSBuild output tree, stop watch/run, delete artifacts/, bin/, and obj/ under the project root, then retry the build." />
+
                                 </StackPanel>
 
                             </Grid>
 
                         </Border>
+
+                        </Grid>
+
+                        </ScrollViewer>
 
                     </Grid>
 
@@ -476,7 +497,13 @@
 
                             <TextBlock Text="Max log display size (bytes)" />
 
-                            <TextBox x:Name="MaxLogBytesText" Margin="0,4,0,0" Width="160" HorizontalAlignment="Left" />
+                            <TextBox x:Name="MaxLogBytesText" Margin="0,4,0,12" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock x:Name="ProjectStartBlockedHint"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource ThemeAccentBrush}"
+                                       Visibility="Collapsed"
+                                       Text="Project monitoring is disabled for this app session because BUILDMONITOR_SKIP_PROJECT_START is set in the environment. Remove that variable and restart BuildMonitor to start builds. This is not a saved setting." />
 
                         </StackPanel>
 
@@ -506,7 +533,15 @@
 
                                            ToolTip="Quiet period after the last save before a coalesced rebuild starts. Increase (e.g. 5000) when an AI agent edits many files in a row." />
 
-                                <TextBox x:Name="DebounceMsText" Margin="0,4,0,10" Width="120" HorizontalAlignment="Left" />
+                                <TextBox x:Name="DebounceMsText" Margin="0,4,0,6" Width="120" HorizontalAlignment="Left" />
+
+                                <TextBlock Text="Debounce mode"
+                                           ToolTip="Manual uses the ms value above. Auto learns per project from save burst length." />
+
+                                <ComboBox x:Name="DebounceModeCombo" Margin="0,4,0,6" Width="180" HorizontalAlignment="Left"
+                                          SelectionChanged="DebounceModeComboSelectionChanged" />
+
+                                <TextBlock x:Name="LearnedDebounceHintText" TextWrapping="Wrap" Opacity="0.85" Margin="0,0,0,10" />
 
                                 <CheckBox x:Name="CoalesceWatchRebuildsCheck"
 
@@ -537,6 +572,12 @@
                                 <CheckBox x:Name="AutoOpenLogCheck"
 
                                           Content="Auto-open build log when a project fails"
+
+                                          Margin="0,0,0,6" />
+
+                                <CheckBox x:Name="AutoOpenBuildMonitorHealthCheck"
+
+                                          Content="Auto-open Build Monitor Health on startup"
 
                                           Margin="0,0,0,6" />
 
@@ -609,6 +650,10 @@
                                 <CheckBox x:Name="RunOnLogonCheck" Content="Run when Windows starts" Margin="0,0,0,6" />
 
                                 <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray" />
+
+                                <TextBlock Text="Tray menu layout" Margin="0,12,0,0" />
+
+                                <ComboBox x:Name="TrayMenuLayoutCombo" Margin="0,4,0,0" />
 
                             </StackPanel>
 

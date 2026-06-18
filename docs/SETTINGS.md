@@ -15,6 +15,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
       "testProjectFile": "",
       "extraDotNetArgs": "",
       "isActiveInSession": true,
+      "startOnLaunch": true,
       "runOptions": {
         "runMode": "Watch",
         "restartOnCrash": true,
@@ -44,8 +45,8 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
 ## Settings UI tabs
 
-- **Projects** — per-project folder, csproj/sln, launch profile, run/watch options, and **active in session** checkbox.
-- **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, auto-open log on failure, max log bytes.
+- **Projects** — per-project folder, csproj/sln, launch profile, run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
+- **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, auto-open log on failure, **auto-open Build Monitor Health on startup**, max log bytes.
 - **App** — theme (`System`, `Light`, `Dark`) and startup behavior. **Run when Windows starts** adds/removes an entry under `HKCU\...\Run` named `LocalBuildMonitor`.
 
 ## Health colors
@@ -65,6 +66,7 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 ## Monitor — file change batching
 
 - **`fileChangeDebounceMs`** (default **3000**) — quiet period after the last detected save before a coalesced rebuild starts. Increase (e.g. **5000–8000**) when an AI agent edits many files over several seconds.
+- **`fileChangeDebounceMode`**: `Manual` (default) or `Auto`. **Auto** learns per project from save burst length (time from first to last file change before rebuild), using p90 × 1.25 smoothed into **1500–12000 ms**. The manual ms value is used until **five** bursts are recorded. Stats persist in `%LOCALAPPDATA%/BuildMonitor/debounce-stats.json`.
 - **`coalesceWatchRebuilds`** (default **true**) — in **Watch** run mode, BuildMonitor watches the project folder, waits for edits to settle, then runs one `dotnet build` and restarts the app. This replaces per-save `dotnet watch` rebuilds during agent sessions. Turn off to use `dotnet watch` hot reload instead (more rebuilds, faster feedback on single-file edits).
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
@@ -89,6 +91,16 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 
 **Stop processes locking build output** applies before builds and when a full test rebuild is needed (or on lock-error retry). It is not used for the normal `--no-build` test path while the site stays up. Enable it when the app is started outside Build Monitor and locks `bin` output during rebuilds.
 
+## Build output repair
+
+- **`autoRepairCorruptedOutput`** (default **true**) — when build output indicates a poisoned MSBuild tree (nested `artifacts\build\...\artifacts\build`, copy failures under phantom paths), BuildMonitor stops watch/run, deletes **`artifacts/`**, **`bin/`**, and **`obj/`** under the project root only, then retries the build once.
+- **Tray → Clean build output** (operation menu) or per-project submenu (project-centric menu) runs the same cleanup manually and restarts watch/run if it was running.
+- Avoid **`BaseOutputPath`** in **extra dotnet args** while **Watch** mode is enabled — BuildMonitor warns at watch start. Never combine custom output paths with an active watch (common cause of corrupted trees when external tools build the same repo).
+
+## Tray menu layout
+
+- **`appBehavior.trayMenuLayout`**: `ByOperation` (default) — Rebuild / Restart / … each with a project list; `ByProject` — one submenu per active project with all actions underneath. Toggle in **Settings → App → Tray menu layout**. Both layouts include **Clean build output**.
+
 ## File changes
 
 - `Off`
@@ -110,7 +122,7 @@ Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (las
 
 **Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds.
 
-Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics, and status panel size).
+Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics, and status panel width — height auto-fits content up to 520 px).
 
 ## Watch / file-watcher excludes
 
@@ -118,11 +130,24 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 - Noisy file types (`.log`, `.dll`, `.pdb`, `.tmp`, etc.) are also ignored so build output and tooling writes are less likely to trigger rebuilds.
 - For **dotnet watch**, also add `<Watch Remove="**/.cursor/**" />` (and similar) to the monitored `.csproj`. Defaults and behaviour: [features/health-and-logs.md](features/health-and-logs.md).
 
+## Developer environment (not in settings UI)
+
+- **`BUILDMONITOR_SKIP_PROJECT_START=1`** (or `true`) — skips starting active projects when the tray app launches. Used for idle tray/menu testing; not saved in `settings.json`. Remove the variable and restart the app. Settings → **Monitor** shows a notice when this is set.
+- **`BUILDMONITOR_AUTO_BUILD_MONITOR_HEALTH=0`** (or `false`) — suppresses Build Monitor Health even when `monitor.autoOpenBuildMonitorHealthOnStartup` is true. Set to `1` / `true` to force it on. **`BUILDMONITOR_AUTO_THREAD_HEALTH`** is accepted as a legacy alias.
+
+## Monitor — Build Monitor Health
+
+- **`autoOpenBuildMonitorHealthOnStartup`** (default **true** after schema v7) — opens **Build Monitor Health** when the tray app starts. Turn off under Settings → **Monitor** → *Auto-open Build Monitor Health on startup* when you no longer need the diagnostics window.
+
+## Projects — start on launch
+
+- **`startOnLaunch`** (default **true** for new projects; migrated from global `monitor.autoStartActiveProjectsOnLaunch` in schema v10) — per project. When **true** and **active in session**, the project builds and runs automatically when the app starts or after you save settings. When **false**, the project stays monitored but idle until you use **Rebuild** / **Restart** from the tray. Settings → **Projects** → select project → *Start build when app launches*.
+
 ## App restart
 
 - **Restart on crash** — retry run/watch after a non-zero exit (up to max retries).
 - **Auto-restart on file changes (watch mode)** — `dotnet watch --non-interactive` when enabled; turn off to restart manually from the tray or status panel.
 - **Auto-restart when output requires it** (default on) — scans build and run logs for hot-reload messages such as `requires restarting the application`, `unable to apply hot reload`, or `requires a rebuild`, then runs **Restart app** or **Rebuild & restart** automatically. Skips rude-edit lines when `dotnet watch` non-interactive auto-restart is already enabled.
-- **Restart app after rebuild** — when run/watch was active, start it again after a successful rebuild.
+- **Restart app after rebuild** — when run mode is Watch or Run, start (or restart) the app after a successful rebuild, including the first successful build after a prior failure.
 - **Restart app** — stop and start run/watch with `--no-build` (no full rebuild).
 - **Rebuild & restart** — full `dotnet build`, then start run/watch (shows build progress in status panel).

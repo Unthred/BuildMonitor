@@ -35,6 +35,8 @@ public partial class SettingsWindow : Window
         ThemeCombo.SelectedItem = Settings.AppBehavior.Theme;
         ToastPositionCombo.ItemsSource = Enum.GetValues<ToastPosition>();
         ToastPositionCombo.SelectedItem = Settings.AppBehavior.ToastPosition;
+        TrayMenuLayoutCombo.ItemsSource = Enum.GetValues<TrayMenuLayout>();
+        TrayMenuLayoutCombo.SelectedItem = Settings.AppBehavior.TrayMenuLayout;
         ToastDurationText.Text = Settings.AppBehavior.ToastDurationSeconds.ToString();
         ToastOnBuildStartCheck.IsChecked = Settings.AppBehavior.Toasts.BuildStart;
         ToastOnFileChangeCheck.IsChecked = Settings.AppBehavior.Toasts.FileChangeDetected;
@@ -46,9 +48,13 @@ public partial class SettingsWindow : Window
 
         MaxConcurrentText.Text = Settings.Monitor.MaxConcurrentActiveProjects.ToString();
         DebounceMsText.Text = Settings.Monitor.FileChangeDebounceMs.ToString();
+        DebounceModeCombo.ItemsSource = Enum.GetValues<FileChangeDebounceMode>();
+        DebounceModeCombo.SelectedItem = Settings.Monitor.FileChangeDebounceMode;
+        UpdateDebounceModeUi();
         CoalesceWatchRebuildsCheck.IsChecked = Settings.Monitor.CoalesceWatchRebuilds;
         HealthRefreshText.Text = Settings.Monitor.HealthRefreshSeconds.ToString();
         AutoOpenLogCheck.IsChecked = Settings.Monitor.AutoOpenLogOnFailure;
+        AutoOpenBuildMonitorHealthCheck.IsChecked = Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
         PlaySoundOnErrorCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildError;
         PlaySoundOnSuccessCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildSuccess;
         MaxLogBytesText.Text = Settings.Monitor.MaxLogDisplayBytes.ToString();
@@ -82,14 +88,24 @@ public partial class SettingsWindow : Window
 
     private void WindowLoaded(object sender, RoutedEventArgs e)
     {
-        WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Settings, 980, 700);
+        WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Settings, 980, 820);
         if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
         {
             TrayScreenPlacement.PlaceWindowCentered(this);
         }
 
+        UpdateProjectStartBlockedHint();
+
         var theme = ThemeService.Resolve(Settings.AppBehavior.Theme);
         ThemeService.ApplyToWindow(this, theme);
+    }
+
+    private void UpdateProjectStartBlockedHint()
+    {
+        var value = Environment.GetEnvironmentVariable("BUILDMONITOR_SKIP_PROJECT_START");
+        var blocked = string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        ProjectStartBlockedHint.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ThemeComboSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -126,6 +142,7 @@ public partial class SettingsWindow : Window
             ProjectFileText.Text = project.ProjectFile;
             ExtraArgsText.Text = project.ExtraDotNetArgs;
             RunModeCombo.SelectedItem = project.RunOptions.RunMode;
+            StartOnLaunchCheck.IsChecked = project.StartOnLaunch;
             RestartOnCrashCheck.IsChecked = project.RunOptions.RestartOnCrash;
             MaxRetriesText.Text = project.RunOptions.MaxRestartRetries.ToString();
             AutoRestartOnWatchChangesCheck.IsChecked = project.RunOptions.AutoRestartOnWatchChanges;
@@ -135,6 +152,7 @@ public partial class SettingsWindow : Window
             FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
             WatchExcludeSegmentsText.Text = project.RunOptions.WatchExcludeSegments;
             ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
+            AutoRepairCorruptedOutputCheck.IsChecked = project.RunOptions.AutoRepairCorruptedOutput;
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
         }
@@ -286,6 +304,7 @@ public partial class SettingsWindow : Window
         selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
         selectedProject.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
         selectedProject.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
+        selectedProject.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
         selectedProject.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
         if (int.TryParse(MaxRetriesText.Text, out var retries))
         {
@@ -300,6 +319,7 @@ public partial class SettingsWindow : Window
         selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
         selectedProject.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
         selectedProject.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
+        selectedProject.RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
     }
 
     private void AddProjectClicked(object sender, RoutedEventArgs e)
@@ -389,6 +409,11 @@ public partial class SettingsWindow : Window
             Settings.Monitor.FileChangeDebounceMs = debounce;
         }
 
+        if (DebounceModeCombo.SelectedItem is FileChangeDebounceMode debounceMode)
+        {
+            Settings.Monitor.FileChangeDebounceMode = debounceMode;
+        }
+
         if (int.TryParse(HealthRefreshText.Text, out var refresh))
         {
             Settings.Monitor.HealthRefreshSeconds = refresh;
@@ -396,6 +421,7 @@ public partial class SettingsWindow : Window
 
         Settings.Monitor.CoalesceWatchRebuilds = CoalesceWatchRebuildsCheck.IsChecked == true;
         Settings.Monitor.AutoOpenLogOnFailure = AutoOpenLogCheck.IsChecked == true;
+        Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = AutoOpenBuildMonitorHealthCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildError = PlaySoundOnErrorCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildSuccess = PlaySoundOnSuccessCheck.IsChecked == true;
 
@@ -411,6 +437,11 @@ public partial class SettingsWindow : Window
 
         Settings.AppBehavior.StartMinimizedToTray = StartMinimizedCheck.IsChecked == true;
         Settings.AppBehavior.RunOnLogon = RunOnLogonCheck.IsChecked == true;
+
+        if (TrayMenuLayoutCombo.SelectedItem is TrayMenuLayout trayMenuLayout)
+        {
+            Settings.AppBehavior.TrayMenuLayout = trayMenuLayout;
+        }
 
         if (ToastPositionCombo.SelectedItem is ToastPosition toastPosition)
         {
@@ -431,6 +462,23 @@ public partial class SettingsWindow : Window
         Settings.AppBehavior.Toasts.Info = ToastOnInfoCheck.IsChecked == true;
 
         WindowsStartupService.Apply(Settings.AppBehavior.RunOnLogon);
+    }
+
+    private void DebounceModeComboSelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateDebounceModeUi();
+
+    private void UpdateDebounceModeUi()
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var auto = DebounceModeCombo.SelectedItem is FileChangeDebounceMode.Auto;
+        DebounceMsText.IsEnabled = !auto;
+        LearnedDebounceHintText.Text = auto
+            ? "Auto learns per project from save burst length (p90 × 1.25, smoothed, 1500–12000 ms). The ms value above is used until five bursts are recorded."
+            : string.Empty;
     }
 
     private void SaveClicked(object sender, RoutedEventArgs e)

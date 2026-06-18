@@ -6,7 +6,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 4;
+    public int SchemaVersion { get; set; } = 10;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -21,6 +21,7 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
     private string extraDotNetArgs = string.Empty;
     private string testProjectFile = string.Empty;
     private bool isActiveInSession;
+    private bool startOnLaunch = true;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -79,6 +80,13 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
         set => SetField(ref isActiveInSession, value);
     }
 
+    /// <summary>When true and active in session, build/run starts automatically when the app launches or settings are saved.</summary>
+    public bool StartOnLaunch
+    {
+        get => startOnLaunch;
+        set => SetField(ref startOnLaunch, value);
+    }
+
     public ProjectRunOptions RunOptions { get; set; } = new();
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -112,9 +120,17 @@ public sealed class ProjectRunOptions
     public TestRunTrigger RunTests { get; set; } = TestRunTrigger.Off;
     public FileChangeMode FileChanges { get; set; } = FileChangeMode.WatchOnly;
     public bool ReleaseOutputLocksBeforeBuild { get; set; }
+    /// <summary>When build output indicates a poisoned artifacts/bin/obj tree, stop, clean output folders, and retry.</summary>
+    public bool AutoRepairCorruptedOutput { get; set; } = true;
     /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>
     public string WatchExcludeSegments { get; set; } =
         ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode";
+}
+
+public enum FileChangeDebounceMode
+{
+    Manual = 0,
+    Auto = 1
 }
 
 public sealed class GlobalMonitorSettings
@@ -122,10 +138,13 @@ public sealed class GlobalMonitorSettings
     public int HealthRefreshSeconds { get; set; } = 5;
     /// <summary>Quiet period after the last file change before a coalesced rebuild starts.</summary>
     public int FileChangeDebounceMs { get; set; } = 3000;
+    public FileChangeDebounceMode FileChangeDebounceMode { get; set; } = FileChangeDebounceMode.Manual;
     /// <summary>When watch mode is enabled, batch file changes and rebuild once edits settle (instead of dotnet watch per-save rebuilds).</summary>
     public bool CoalesceWatchRebuilds { get; set; } = true;
     public int MaxConcurrentActiveProjects { get; set; } = 3;
     public bool AutoOpenLogOnFailure { get; set; }
+    /// <summary>Open the Build Monitor Health window when the app starts.</summary>
+    public bool AutoOpenBuildMonitorHealthOnStartup { get; set; } = true;
     public bool PlaySoundOnBuildError { get; set; } = true;
     public bool PlaySoundOnBuildSuccess { get; set; }
     public int MaxLogDisplayBytes { get; set; } = 2_097_152;
@@ -157,6 +176,12 @@ public sealed class ToastNotificationSettings
     public bool Info { get; set; }
 }
 
+public enum TrayMenuLayout
+{
+    ByOperation = 0,
+    ByProject = 1
+}
+
 public sealed class AppBehaviorSettings
 {
     public bool RunOnLogon { get; set; }
@@ -164,5 +189,6 @@ public sealed class AppBehaviorSettings
     public AppThemePreference Theme { get; set; } = AppThemePreference.System;
     public ToastPosition ToastPosition { get; set; } = ToastPosition.BottomRight;
     public int ToastDurationSeconds { get; set; } = 7;
+    public TrayMenuLayout TrayMenuLayout { get; set; } = TrayMenuLayout.ByOperation;
     public ToastNotificationSettings Toasts { get; set; } = new();
 }

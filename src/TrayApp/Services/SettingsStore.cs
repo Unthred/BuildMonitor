@@ -49,12 +49,101 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 4;
         }
 
+        if (settings.SchemaVersion < 5)
+        {
+            foreach (var project in settings.Projects)
+            {
+                project.RunOptions.AutoRepairCorruptedOutput = true;
+            }
+
+            settings.AppBehavior.TrayMenuLayout = TrayMenuLayout.ByOperation;
+            settings.SchemaVersion = 5;
+        }
+
+        if (settings.SchemaVersion < 6)
+        {
+            settings.Monitor.FileChangeDebounceMode = FileChangeDebounceMode.Manual;
+            settings.SchemaVersion = 6;
+        }
+
+        if (settings.SchemaVersion < 7)
+        {
+            settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = true;
+            settings.SchemaVersion = 7;
+        }
+
+        if (settings.SchemaVersion < 8)
+        {
+            MigrateAutoOpenBuildMonitorHealth(json, settings);
+            settings.SchemaVersion = 8;
+        }
+
+        if (settings.SchemaVersion < 9)
+        {
+            settings.SchemaVersion = 9;
+        }
+
+        if (settings.SchemaVersion < 10)
+        {
+            MigrateStartOnLaunch(json, settings);
+            settings.SchemaVersion = 10;
+        }
+
         return settings;
+    }
+
+    private static void MigrateStartOnLaunch(string json, AppSettings settings)
+    {
+        var autoStart = true;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("monitor", out var monitor)
+                && monitor.TryGetProperty("autoStartActiveProjectsOnLaunch", out var legacy))
+            {
+                autoStart = legacy.GetBoolean();
+            }
+        }
+        catch (JsonException)
+        {
+            // keep default true
+        }
+
+        foreach (var project in settings.Projects)
+        {
+            project.StartOnLaunch = autoStart;
+        }
+    }
+
+    private static void MigrateAutoOpenBuildMonitorHealth(string json, AppSettings settings)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("monitor", out var monitor))
+            {
+                return;
+            }
+
+            if (monitor.TryGetProperty("autoOpenBuildMonitorHealthOnStartup", out _))
+            {
+                return;
+            }
+
+            if (monitor.TryGetProperty("autoOpenThreadHealthOnStartup", out var legacy))
+            {
+                settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = legacy.GetBoolean();
+            }
+        }
+        catch (JsonException)
+        {
+            // keep deserialized defaults
+        }
     }
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 4;
+        settings.SchemaVersion = 10;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }
