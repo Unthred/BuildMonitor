@@ -57,4 +57,22 @@ public sealed class AdaptiveFileChangeDebounceTests
 
         Assert.Equal(AdaptiveFileChangeDebounce.MaxDebounceMs, target);
     }
+
+    [Fact]
+    public void ApplySessionPressure_increases_debounce_after_repeated_file_builds()
+    {
+        Assert.Equal(3000, AdaptiveFileChangeDebounce.ApplySessionPressure(3000, 1));
+        Assert.Equal(3750, AdaptiveFileChangeDebounce.ApplySessionPressure(3000, 2));
+        Assert.Equal(6000, AdaptiveFileChangeDebounce.ApplySessionPressure(3000, 5));
+        Assert.Equal(AdaptiveFileChangeDebounce.MaxDebounceMs,
+            AdaptiveFileChangeDebounce.ApplySessionPressure(9000, 6));
+    }
+
+    [Fact]
+    public void ComputeQuietUntilUtc_adds_debounce_to_last_change()
+    {
+        var last = new DateTimeOffset(2026, 6, 18, 10, 0, 0, TimeSpan.Zero);
+        var quiet = AdaptiveFileChangeDebounce.ComputeQuietUntilUtc(last, 5000);
+        Assert.Equal(last.AddSeconds(5), quiet);
+    }
 }

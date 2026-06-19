@@ -3,8 +3,12 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.Diagnostics;
+using BuildMonitor.Infrastructure.LocalBuild;
+using BuildMonitor.Infrastructure.Services;
 using BuildMonitor.TrayApp.Services;
 using WpfButton = System.Windows.Controls.Button;
 using WpfTextBox = System.Windows.Controls.TextBox;
@@ -14,34 +18,62 @@ namespace BuildMonitor.TrayApp;
 public partial class BuildDiagnosticsWindow : Window
 {
     private readonly BuildTriggerJournal journal;
+    private readonly ProjectOrchestrator orchestrator;
     private readonly AppWindowsLayoutStore windowsLayoutStore;
-    private readonly ObservableCollection<BuildTriggerRowViewModel> rows = [];
+    private readonly ObservableCollection<ProjectDiagnosticsTabViewModel> projectTabs = [];
+    private readonly DispatcherTimer intelligenceRefreshTimer;
+    private string? selectedProjectId;
+    private bool suppressSelectionTracking;
 
-    public BuildDiagnosticsWindow(BuildTriggerJournal journal, AppWindowsLayoutStore windowsLayoutStore)
+    public BuildDiagnosticsWindow(
+        BuildTriggerJournal journal,
+        ProjectOrchestrator orchestrator,
+        AppWindowsLayoutStore windowsLayoutStore)
     {
         this.journal = journal;
+        this.orchestrator = orchestrator;
         this.windowsLayoutStore = windowsLayoutStore;
         InitializeComponent();
-        TriggersGrid.ItemsSource = rows;
-        journal.Changed += OnJournalChanged;
-        Closed += OnClosed;
-        Loaded += (_, _) =>
+        ProjectTabs.ItemsSource = projectTabs;
+        ProjectTabs.SelectionChanged += (_, _) =>
         {
-            ApplyTheme(ThemeService.CurrentResolved);
-            WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Diagnostics, 1100, 640);
-            if (double.IsNaN(windowsLayoutStore.Layout.Diagnostics.Left))
+            if (suppressSelectionTracking)
             {
-                TrayScreenPlacement.PlaceWindowCentered(this);
+                return;
+            }
+
+            if (ProjectTabs.SelectedItem is ProjectDiagnosticsTabViewModel tab)
+            {
+                selectedProjectId = tab.ProjectId;
             }
         };
+
+        intelligenceRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        intelligenceRefreshTimer.Tick += (_, _) => RefreshAll();
+
+        journal.Changed += OnJournalChanged;
+        Closed += OnClosed;
+        Loaded += OnLoaded;
         ThemeService.ThemeChanged += OnThemeChanged;
+        RefreshAll();
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        ApplyTheme(ThemeService.CurrentResolved);
+        WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Diagnostics, 1100, 720);
+        if (double.IsNaN(windowsLayoutStore.Layout.Diagnostics.Left))
+        {
+            TrayScreenPlacement.PlaceWindowCentered(this);
+        }
+
         AppIconService.ApplyToWindow(this);
-        ReloadProjectFilter();
-        RefreshRows();
+        intelligenceRefreshTimer.Start();
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        intelligenceRefreshTimer.Stop();
         journal.Changed -= OnJournalChanged;
         ThemeService.ThemeChanged -= OnThemeChanged;
         WindowLayoutService.Capture(this, windowsLayoutStore.Layout.Diagnostics);
@@ -56,44 +88,99 @@ public partial class BuildDiagnosticsWindow : Window
         ThemeService.ApplyChrome(this, theme == ResolvedTheme.Dark);
     }
 
-    private void OnJournalChanged() =>
-        Dispatcher.BeginInvoke(RefreshRows);
+    private void OnJournalChanged() => Dispatcher.BeginInvoke(RefreshAll);
 
-    private void ReloadProjectFilter()
+    private void RefreshAll()
     {
-        var selected = ProjectFilterCombo.SelectedItem as string;
-        var projects = journal.GetEntries()
-            .Select(e => e.ProjectDisplayName)
+        var preserveProjectId = selectedProjectId
+            ?? (ProjectTabs.SelectedItem as ProjectDiagnosticsTabViewModel)?.ProjectId;
+
+        var snapshots = orchestrator.GetBuildIntelligenceSnapshots();
+        var unexpectedOnly = UnexpectedOnlyCheck.IsChecked == true;
+        var entries = journal.GetEntries();
+        var projectIds = snapshots.Select(s => s.ProjectId)
+            .Concat(entries.Select(e => e.ProjectId))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        ProjectFilterCombo.ItemsSource = new[] { "(All projects)" }.Concat(projects).ToList();
-        ProjectFilterCombo.SelectedItem = projects.Contains(selected ?? string.Empty) ? selected : "(All projects)";
-    }
+        var order = snapshots
+            .OrderBy(s => s.ProjectDisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(s => s.ProjectId)
+            .Concat(projectIds.Where(id => snapshots.All(s => !s.ProjectId.Equals(id, StringComparison.OrdinalIgnoreCase))))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-    private void RefreshRows()
-    {
-        ReloadProjectFilter();
-        var projectFilter = ProjectFilterCombo.SelectedItem as string;
-        var unexpectedOnly = UnexpectedOnlyCheck.IsChecked == true;
-
-        rows.Clear();
-        foreach (var entry in journal.GetEntries())
+        suppressSelectionTracking = true;
+        try
         {
-            if (unexpectedOnly && entry.Verdict != BuildTriggerVerdict.Unexpected)
+            foreach (var stale in projectTabs.Where(t => !order.Contains(t.ProjectId, StringComparer.OrdinalIgnoreCase)).ToList())
             {
-                continue;
+                projectTabs.Remove(stale);
             }
 
-            if (!string.IsNullOrWhiteSpace(projectFilter)
-                && projectFilter != "(All projects)"
-                && !entry.ProjectDisplayName.Equals(projectFilter, StringComparison.OrdinalIgnoreCase))
+            for (var index = 0; index < order.Count; index++)
             {
-                continue;
+                var projectId = order[index];
+                var snapshot = snapshots.FirstOrDefault(s =>
+                    s.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase));
+                var displayName = snapshot?.ProjectDisplayName
+                    ?? entries.FirstOrDefault(e => e.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase))?.ProjectDisplayName
+                    ?? projectId;
+
+                var tab = projectTabs.FirstOrDefault(t =>
+                    t.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase));
+                if (tab is null)
+                {
+                    tab = new ProjectDiagnosticsTabViewModel(projectId, displayName);
+                    projectTabs.Insert(Math.Min(index, projectTabs.Count), tab);
+                }
+                else
+                {
+                    tab.DisplayName = displayName;
+                    var currentIndex = projectTabs.IndexOf(tab);
+                    if (currentIndex != index)
+                    {
+                        projectTabs.Move(currentIndex, index);
+                    }
+                }
+
+                tab.Intelligence = snapshot ?? BuildIntelligenceSnapshot.FromStoredStats(
+                    new LocalProjectDefinition
+                    {
+                        Id = projectId,
+                        DisplayName = displayName,
+                        IsActiveInSession = false
+                    },
+                    new GlobalMonitorSettings(),
+                    new FileChangeBurstStats());
+
+                tab.RefreshTriggers(entries, unexpectedOnly, journal);
             }
 
-            rows.Add(new BuildTriggerRowViewModel(entry, journal));
+            var hasProjects = projectTabs.Count > 0;
+            ProjectTabs.Visibility = hasProjects ? Visibility.Visible : Visibility.Collapsed;
+            EmptyProjectsText.Visibility = hasProjects ? Visibility.Collapsed : Visibility.Visible;
+            IntelligenceUpdatedText.Text = $"Updated {DateTime.Now:t}";
+
+            if (hasProjects)
+            {
+                var target = !string.IsNullOrWhiteSpace(preserveProjectId)
+                    ? projectTabs.FirstOrDefault(t =>
+                        t.ProjectId.Equals(preserveProjectId, StringComparison.OrdinalIgnoreCase))
+                    : null;
+                target ??= ProjectTabs.SelectedItem as ProjectDiagnosticsTabViewModel ?? projectTabs.FirstOrDefault();
+
+                if (target is not null && !ReferenceEquals(ProjectTabs.SelectedItem, target))
+                {
+                    ProjectTabs.SelectedItem = target;
+                }
+
+                selectedProjectId = target?.ProjectId;
+            }
+        }
+        finally
+        {
+            suppressSelectionTracking = false;
         }
     }
 
@@ -129,11 +216,80 @@ public partial class BuildDiagnosticsWindow : Window
         }
     }
 
-    private void FilterChanged(object sender, RoutedEventArgs e) => RefreshRows();
+    private void FilterChanged(object sender, RoutedEventArgs e) => RefreshAll();
 
-    private void RefreshClicked(object sender, RoutedEventArgs e) => RefreshRows();
+    private void RefreshClicked(object sender, RoutedEventArgs e) => RefreshAll();
 
     private void CloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private sealed class ProjectDiagnosticsTabViewModel : INotifyPropertyChanged
+    {
+        private string displayName;
+        private BuildIntelligenceSnapshot? intelligence;
+
+        public ProjectDiagnosticsTabViewModel(string projectId, string displayName)
+        {
+            ProjectId = projectId;
+            this.displayName = displayName;
+            Triggers = [];
+        }
+
+        public string ProjectId { get; }
+
+        public string DisplayName
+        {
+            get => displayName;
+            set
+            {
+                if (displayName == value)
+                {
+                    return;
+                }
+
+                displayName = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(TabTitle));
+            }
+        }
+
+        public string TabTitle => intelligence?.TabTitle ?? DisplayName;
+
+        public BuildIntelligenceSnapshot? Intelligence
+        {
+            get => intelligence;
+            set
+            {
+                intelligence = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(TabTitle));
+            }
+        }
+
+        public ObservableCollection<BuildTriggerRowViewModel> Triggers { get; }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void RefreshTriggers(
+            IReadOnlyList<BuildTriggerRecord> entries,
+            bool unexpectedOnly,
+            BuildTriggerJournal triggerJournal)
+        {
+            Triggers.Clear();
+            foreach (var entry in entries.Where(e =>
+                         e.ProjectId.Equals(ProjectId, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (unexpectedOnly && entry.Verdict != BuildTriggerVerdict.Unexpected)
+                {
+                    continue;
+                }
+
+                Triggers.Add(new BuildTriggerRowViewModel(entry, triggerJournal));
+            }
+        }
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 
     private sealed class BuildTriggerRowViewModel : INotifyPropertyChanged
     {
@@ -152,8 +308,6 @@ public partial class BuildDiagnosticsWindow : Window
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public string WhenLocal => BuildTimestampFormatter.FormatLocalShort(Record.OccurredAtUtc);
-
-        public string ProjectDisplayName => Record.ProjectDisplayName;
 
         public string KindLabel => BuildTriggerKindFormatter.ToLabel(Record.Kind);
 

@@ -67,6 +67,33 @@ public sealed class ProjectOrchestrator : IDisposable
 
     public BuildTriggerJournal TriggerJournal => triggerJournal;
 
+    public IReadOnlyList<BuildIntelligenceSnapshot> GetBuildIntelligenceSnapshots()
+    {
+        lock (sync)
+        {
+            var monitor = settings.Monitor;
+            var snapshots = new List<BuildIntelligenceSnapshot>();
+            var activeIds = new HashSet<string>(runtimes.Keys, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var runtime in runtimes.Values)
+            {
+                snapshots.Add(runtime.GetIntelligenceSnapshot(monitor));
+            }
+
+            foreach (var project in settings.Projects.Where(p => !activeIds.Contains(p.Id)))
+            {
+                snapshots.Add(BuildIntelligenceSnapshot.FromStoredStats(
+                    project,
+                    monitor,
+                    burstStatsStore.GetOrDefault(project.Id)));
+            }
+
+            return snapshots
+                .OrderBy(s => s.ProjectDisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
     public LiveBuildLogView? GetLiveBuildLog(string projectId, BuildLogKind kind)
     {
         lock (sync)
@@ -414,6 +441,9 @@ internal sealed class ProjectRuntime : IDisposable
     private int pendingHotReloadRestartRequest;
     private int buildNumber;
     private string pendingBuildReason = "startup";
+    private DateTimeOffset lastMeaningfulFileChangeUtc = DateTimeOffset.MinValue;
+    private int fileChangeRebuildScheduleGeneration;
+    private readonly Queue<DateTimeOffset> recentFileChangeBuildStarts = new();
     private IReadOnlyList<string> lastFileChangePaths = [];
     private int runProcessGeneration;
     private Action<string, int>? runProcessExitedHandler;
@@ -549,6 +579,81 @@ internal sealed class ProjectRuntime : IDisposable
             debounceMode,
             manualFileChangeDebounceMs,
             burstStatsStore.GetOrDefault(definition.Id));
+
+    private int GetSessionAdjustedFileChangeDebounceMs()
+    {
+        PruneRecentFileChangeBuildStarts();
+        return AdaptiveFileChangeDebounce.ApplySessionPressure(
+            ResolveFileChangeDebounceMs(),
+            recentFileChangeBuildStarts.Count);
+    }
+
+    private void SyncFileWatcherDebounceMs()
+    {
+        var effective = GetSessionAdjustedFileChangeDebounceMs();
+        if (effective != fileChangeDebounceMs)
+        {
+            fileChangeDebounceMs = effective;
+            fileWatcher?.SetDebounceMs(effective);
+        }
+    }
+
+    private DateTimeOffset GetFileChangeQuietUntilUtc() =>
+        lastMeaningfulFileChangeUtc == DateTimeOffset.MinValue
+            ? DateTimeOffset.UtcNow
+            : AdaptiveFileChangeDebounce.ComputeQuietUntilUtc(
+                lastMeaningfulFileChangeUtc,
+                GetSessionAdjustedFileChangeDebounceMs());
+
+    private void NoteFileChangeBuildStarted()
+    {
+        recentFileChangeBuildStarts.Enqueue(DateTimeOffset.UtcNow);
+        PruneRecentFileChangeBuildStarts();
+        SyncFileWatcherDebounceMs();
+    }
+
+    private void PruneRecentFileChangeBuildStarts()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddSeconds(-90);
+        while (recentFileChangeBuildStarts.Count > 0
+               && recentFileChangeBuildStarts.Peek() < cutoff)
+        {
+            recentFileChangeBuildStarts.Dequeue();
+        }
+    }
+
+    private bool IsAgentEditSessionActive()
+    {
+        PruneRecentFileChangeBuildStarts();
+        return recentFileChangeBuildStarts.Count >= 1;
+    }
+
+    public BuildIntelligenceSnapshot GetIntelligenceSnapshot(GlobalMonitorSettings monitor)
+    {
+        PruneRecentFileChangeBuildStarts();
+        var stats = burstStatsStore.GetOrDefault(definition.Id);
+        var liveDebounceMs = GetSessionAdjustedFileChangeDebounceMs();
+        DateTimeOffset? rebuildQuietUntilUtc = pendingFileChangeRebuild
+                                               && lastMeaningfulFileChangeUtc != DateTimeOffset.MinValue
+            ? AdaptiveFileChangeDebounce.ComputeQuietUntilUtc(
+                lastMeaningfulFileChangeUtc,
+                liveDebounceMs)
+            : null;
+
+        return BuildIntelligenceSnapshot.Create(
+            definition,
+            monitor,
+            stats,
+            manualFileChangeDebounceMs,
+            debounceMode,
+            ResolveFileChangeDebounceMs(),
+            liveDebounceMs,
+            recentFileChangeBuildStarts.Count,
+            coalesceWatchRebuilds,
+            lastMeaningfulFileChangeUtc == DateTimeOffset.MinValue ? null : lastMeaningfulFileChangeUtc,
+            pendingFileChangeRebuild,
+            rebuildQuietUntilUtc);
+    }
 
     private bool UsesCoalescedWatchRebuilds() =>
         definition.RunOptions.RunMode == ProjectRunMode.Watch && coalesceWatchRebuilds;
@@ -707,6 +812,11 @@ internal sealed class ProjectRuntime : IDisposable
         }
 
         var triggeredByFileChange = Volatile.Read(ref buildTriggeredByFileChange) != 0;
+        if (triggeredByFileChange)
+        {
+            NoteFileChangeBuildStarted();
+        }
+
         var buildReason = triggeredByFileChange
             ? pendingBuildReason switch
             {
@@ -892,7 +1002,8 @@ internal sealed class ProjectRuntime : IDisposable
 
             if (triggeredByFileChange)
             {
-                fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddSeconds(3);
+                fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddMilliseconds(
+                    GetSessionAdjustedFileChangeDebounceMs());
             }
             else
             {
@@ -913,10 +1024,40 @@ internal sealed class ProjectRuntime : IDisposable
 
     private async Task ScheduleCoalescedFileChangeRebuildAsync()
     {
-        var delay = fileChangeBuildCooldownUntil - DateTimeOffset.UtcNow;
-        if (delay > TimeSpan.Zero)
+        var generation = Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+
+        while (generation == Volatile.Read(ref fileChangeRebuildScheduleGeneration))
         {
-            await Task.Delay(delay);
+            var waitUntil = GetFileChangeQuietUntilUtc();
+            if (fileChangeBuildCooldownUntil > waitUntil)
+            {
+                waitUntil = fileChangeBuildCooldownUntil;
+            }
+
+            var delay = waitUntil - DateTimeOffset.UtcNow;
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay);
+                continue;
+            }
+
+            if (Volatile.Read(ref buildInProgress) != 0)
+            {
+                pendingFileChangeRebuild = true;
+                return;
+            }
+
+            if (DateTimeOffset.UtcNow < GetFileChangeQuietUntilUtc())
+            {
+                continue;
+            }
+
+            break;
+        }
+
+        if (generation != Volatile.Read(ref fileChangeRebuildScheduleGeneration))
+        {
+            return;
         }
 
         if (Volatile.Read(ref buildInProgress) != 0)
@@ -925,13 +1066,7 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
-        if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
-        {
-            pendingFileChangeRebuild = true;
-            _ = ScheduleCoalescedFileChangeRebuildAsync();
-            return;
-        }
-
+        pendingFileChangeRebuild = false;
         Interlocked.Exchange(ref buildTriggeredByFileChange, 1);
         pendingBuildReason = "file change (queued)";
 
@@ -1053,19 +1188,7 @@ internal sealed class ProjectRuntime : IDisposable
     {
         if (burstDurationMs > 0)
         {
-            var stats = burstStatsStore.RecordBurst(definition.Id, burstDurationMs);
-            if (debounceMode == FileChangeDebounceMode.Auto)
-            {
-                var effective = AdaptiveFileChangeDebounce.ResolveEffectiveDebounce(
-                    debounceMode,
-                    manualFileChangeDebounceMs,
-                    stats);
-                if (effective != fileChangeDebounceMs)
-                {
-                    fileChangeDebounceMs = effective;
-                    fileWatcher?.SetDebounceMs(effective);
-                }
-            }
+            burstStatsStore.RecordBurst(definition.Id, burstDurationMs);
         }
 
         var meaningful = WatchIgnoreRules.FilterMeaningfulPaths(
@@ -1076,10 +1199,12 @@ internal sealed class ProjectRuntime : IDisposable
             return;
         }
 
+        lastMeaningfulFileChangeUtc = DateTimeOffset.UtcNow;
         HeartbeatProjectWorker("file-watcher", $"{meaningful.Count} file(s)");
         SetProjectCurrentAction($"File change — rebuild pending ({meaningful.Count} file(s))");
 
         lastFileChangePaths = RelativizePaths(meaningful);
+        SyncFileWatcherDebounceMs();
 
         if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
@@ -1096,6 +1221,13 @@ internal sealed class ProjectRuntime : IDisposable
         if (Volatile.Read(ref buildInProgress) != 0)
         {
             pendingFileChangeRebuild = true;
+            return;
+        }
+
+        if (IsAgentEditSessionActive())
+        {
+            pendingFileChangeRebuild = true;
+            _ = ScheduleCoalescedFileChangeRebuildAsync();
             return;
         }
 

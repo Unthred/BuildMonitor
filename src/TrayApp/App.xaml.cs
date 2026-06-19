@@ -691,7 +691,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        diagnosticsWindow = new BuildDiagnosticsWindow(orchestrator.TriggerJournal, windowsLayoutStore!);
+        diagnosticsWindow = new BuildDiagnosticsWindow(orchestrator.TriggerJournal, orchestrator, windowsLayoutStore!);
         diagnosticsWindow.Closed += (_, _) => diagnosticsWindow = null;
         diagnosticsWindow.Show();
     }
