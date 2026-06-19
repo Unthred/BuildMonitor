@@ -67,6 +67,7 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 
 - **`fileChangeDebounceMs`** (default **3000**) — quiet period after the last detected save before a coalesced rebuild starts. Increase (e.g. **5000–8000**) when an AI agent edits many files over several seconds.
 - **`fileChangeDebounceMode`**: `Manual` (default) or `Auto`. **Auto** learns per project from save burst length (time from first to last file change before rebuild), using p90 × 1.25 smoothed into **1500–12000 ms**. The manual ms value is used until **five** bursts are recorded. Stats persist in `%LOCALAPPDATA%/BuildMonitor/debounce-stats.json`.
+- **Agent session coalescing** — after the first file-triggered build in a 90-second window, further saves wait for a full quiet period since the **last** change (not a fixed 3 s post-build cooldown). Debounce increases up to **2×** when multiple file-triggered builds happen in that window. Turn on **Auto** debounce mode for longer agent sessions.
 - **`coalesceWatchRebuilds`** (default **true**) — in **Watch** run mode, BuildMonitor watches the project folder, waits for edits to settle, then runs one `dotnet build` and restarts the app. This replaces per-save `dotnet watch` rebuilds during agent sessions. Turn off to use `dotnet watch` hot reload instead (more rebuilds, faster feedback on single-file edits).
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
@@ -109,7 +110,7 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 
 ## Build diagnostics
 
-Tray → **Build diagnostics…** shows a log of what started each build or `dotnet watch` compile.
+Tray → **Build diagnostics…** opens **one tab per project**: a compact **rebuild timing** panel (wait bar, learning progress, save-burst chart) and today's build triggers for that project.
 
 | Column | Meaning |
 |--------|---------|
@@ -118,7 +119,9 @@ Tray → **Build diagnostics…** shows a log of what started each build or `dot
 | **Detail** | Extra context (e.g. a `dotnet watch` output line) |
 | **Verdict** | Mark **Expected** or **Unexpected** to track spurious rebuilds |
 
-Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (last 500 entries).
+Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (**today's entries only**, local calendar day; up to 500 per day). Mark **Unexpected** triggers to spot spurious rebuilds during agent sessions.
+
+**Learning over time:** with **File change debounce → Auto**, BuildMonitor records save-burst lengths per project in `debounce-stats.json` and raises the quiet period (1500–12000 ms) after five bursts. **Agent session coalescing** (in memory) backs off further when several file-triggered builds happen within 90 seconds. Verdicts and notes in this window are **not** fed back into debounce yet — they are for your review.
 
 **Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds.
 

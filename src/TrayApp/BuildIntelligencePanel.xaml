@@ -1,0 +1,173 @@
+<UserControl x:Class="BuildMonitor.TrayApp.BuildIntelligencePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:diag="clr-namespace:BuildMonitor.Infrastructure.Diagnostics;assembly=BuildMonitor.Infrastructure"
+             Focusable="False"
+             IsTabStop="False"
+             KeyboardNavigation.TabNavigation="None"
+             MinHeight="88">
+    <UserControl.Resources>
+        <Style x:Key="MetricTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Opacity" Value="0.65" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style x:Key="MetricValueStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="MetricDetailStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Opacity" Value="0.75" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,3,0,0" />
+        </Style>
+    </UserControl.Resources>
+
+    <Border Padding="10,8"
+            CornerRadius="6"
+            BorderThickness="1"
+            Focusable="False"
+            Background="{DynamicResource ThemeCardBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}">
+        <StackPanel DataContext="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=Snapshot}">
+            <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                <Border DockPanel.Dock="Right"
+                        Margin="8,0,0,0"
+                        Padding="8,2"
+                        CornerRadius="10"
+                        Focusable="False"
+                        Background="{DynamicResource LogIssueWarningBrush}"
+                        VerticalAlignment="Center">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowStatusChip}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding StatusChipText}"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Focusable="False"
+                               Foreground="White" />
+                </Border>
+                <TextBlock Text="{Binding StatusHeadline}"
+                           FontSize="11"
+                           FontStyle="Italic"
+                           Focusable="False"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+            </DockPanel>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.6*" MinWidth="220" />
+                    <ColumnDefinition Width="*" MinWidth="180" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Style="{StaticResource MetricTitleStyle}"
+                               Text="Recent save bursts"
+                               ToolTip="Each bar is how long a multi-file save burst lasted (time from first to last change in the batch)." />
+                    <Grid Height="52" Margin="0,0,0,4">
+                        <ItemsControl ItemsSource="{Binding BurstBars}"
+                                      Focusable="False"
+                                      IsTabStop="False"
+                                      KeyboardNavigation.TabNavigation="None">
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasBurstChartData}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"
+                                                VerticalAlignment="Bottom"
+                                                IsItemsHost="True" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type diag:BurstBarVisual}">
+                                    <Border Width="24"
+                                            Height="{Binding BarHeight, Mode=OneWay}"
+                                            Margin="0,0,6,0"
+                                            VerticalAlignment="Bottom"
+                                            CornerRadius="2"
+                                            Focusable="False"
+                                            Background="{DynamicResource ThemeAccentBrush}"
+                                            ToolTip="{Binding Label}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="No save bursts recorded yet"
+                                   FontSize="10"
+                                   Opacity="0.55"
+                                   Focusable="False"
+                                   VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasBurstChartData}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock Style="{StaticResource MetricDetailStyle}"
+                               Focusable="False"
+                               Text="{Binding BurstChartCaption}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Next rebuild" />
+                    <TextBlock Style="{StaticResource MetricValueStyle}"
+                               Focusable="False"
+                               Text="{Binding NextRebuildText}" />
+                    <ProgressBar Height="8"
+                                 Margin="0,6,0,0"
+                                 Maximum="100"
+                                 Focusable="False"
+                                 IsTabStop="False"
+                                 Value="{Binding RebuildCountdownPercent, Mode=OneWay}">
+                        <ProgressBar.Style>
+                            <Style TargetType="ProgressBar">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowRebuildCountdown}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ProgressBar.Style>
+                    </ProgressBar>
+
+                    <TextBlock Style="{StaticResource MetricDetailStyle}"
+                               Focusable="False"
+                               Text="{Binding RecentRebuildsText}" />
+                    <TextBlock Style="{StaticResource MetricDetailStyle}"
+                               Focusable="False"
+                               Text="{Binding StrategyText}" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Margin="0,8,0,0"
+                       FontSize="10"
+                       Opacity="0.7"
+                       Focusable="False"
+                       Text="{Binding ActivityText}" />
+        </StackPanel>
+    </Border>
+</UserControl>

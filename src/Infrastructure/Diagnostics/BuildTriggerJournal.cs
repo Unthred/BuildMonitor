@@ -5,7 +5,7 @@ namespace BuildMonitor.Infrastructure.Diagnostics;
 
 public sealed class BuildTriggerJournal
 {
-    private const int MaxEntries = 500;
+    private const int MaxEntriesPerDay = 500;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -15,6 +15,7 @@ public sealed class BuildTriggerJournal
     private readonly object sync = new();
     private readonly List<BuildTriggerRecord> entries = [];
     private readonly string journalPath;
+    private DateTime retainedLocalDate = DateTime.MinValue;
 
     public BuildTriggerJournal(string appDataDirectory)
     {
@@ -30,13 +31,21 @@ public sealed class BuildTriggerJournal
     {
         lock (sync)
         {
+            var compacted = PruneEntriesNotFromToday();
             entries.Insert(0, entry);
-            if (entries.Count > MaxEntries)
+            if (entries.Count > MaxEntriesPerDay)
             {
-                entries.RemoveRange(MaxEntries, entries.Count - MaxEntries);
+                entries.RemoveRange(MaxEntriesPerDay, entries.Count - MaxEntriesPerDay);
             }
 
-            AppendLine(entry);
+            if (compacted)
+            {
+                RewriteJournal();
+            }
+            else
+            {
+                AppendLine(entry);
+            }
         }
 
         Changed?.Invoke();
@@ -82,20 +91,27 @@ public sealed class BuildTriggerJournal
     {
         lock (sync)
         {
+            PruneEntriesNotFromToday();
             return entries.ToList();
         }
     }
+
+    internal static bool IsTodayLocal(DateTimeOffset occurredAtUtc) =>
+        occurredAtUtc.ToLocalTime().Date == DateTime.Today;
 
     private void LoadRecent()
     {
         if (!File.Exists(journalPath))
         {
+            retainedLocalDate = DateTime.Today;
             return;
         }
 
         try
         {
-            foreach (var line in File.ReadLines(journalPath).TakeLast(MaxEntries))
+            var loaded = new List<BuildTriggerRecord>();
+            var droppedOlder = false;
+            foreach (var line in File.ReadLines(journalPath))
             {
                 if (string.IsNullOrWhiteSpace(line))
                 {
@@ -103,16 +119,46 @@ public sealed class BuildTriggerJournal
                 }
 
                 var record = JsonSerializer.Deserialize<BuildTriggerRecord>(line, JsonOptions);
-                if (record is not null)
+                if (record is null)
                 {
-                    entries.Insert(0, record);
+                    continue;
                 }
+
+                if (IsTodayLocal(record.OccurredAtUtc))
+                {
+                    loaded.Add(record);
+                }
+                else
+                {
+                    droppedOlder = true;
+                }
+            }
+
+            entries.Clear();
+            entries.AddRange(loaded.OrderByDescending(e => e.OccurredAtUtc));
+            retainedLocalDate = DateTime.Today;
+
+            if (droppedOlder)
+            {
+                RewriteJournal();
             }
         }
         catch
         {
             entries.Clear();
+            retainedLocalDate = DateTime.Today;
         }
+    }
+
+    private bool PruneEntriesNotFromToday()
+    {
+        var today = DateTime.Today;
+        var dayChanged = retainedLocalDate != today;
+        retainedLocalDate = today;
+
+        var before = entries.Count;
+        entries.RemoveAll(e => !IsTodayLocal(e.OccurredAtUtc));
+        return dayChanged || entries.Count != before;
     }
 
     private void AppendLine(BuildTriggerRecord entry)

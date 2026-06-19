@@ -40,6 +40,23 @@ public static class AdaptiveFileChangeDebounce
         return Math.Clamp((int)Math.Round(p90 * 1.25), MinDebounceMs, MaxDebounceMs);
     }
 
+    public static int ApplySessionPressure(int baseDebounceMs, int fileChangeBuildsInWindow)
+    {
+        var debounce = Math.Clamp(baseDebounceMs, MinDebounceMs, MaxDebounceMs);
+        if (fileChangeBuildsInWindow < 2)
+        {
+            return debounce;
+        }
+
+        // Agent-style bursts: each extra recent file-triggered build adds 25% quiet time (cap 2×).
+        var extraBuilds = Math.Min(fileChangeBuildsInWindow - 1, 4);
+        var multiplier = 1.0 + 0.25 * extraBuilds;
+        return Math.Clamp((int)Math.Round(debounce * multiplier), MinDebounceMs, MaxDebounceMs);
+    }
+
+    public static DateTimeOffset ComputeQuietUntilUtc(DateTimeOffset lastChangeUtc, int debounceMs) =>
+        lastChangeUtc.AddMilliseconds(Math.Clamp(debounceMs, MinDebounceMs, MaxDebounceMs));
+
     public static int Smooth(int currentDebounceMs, int targetDebounceMs) =>
         (int)Math.Round(currentDebounceMs * 0.7 + targetDebounceMs * 0.3);
 

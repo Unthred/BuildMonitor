@@ -48,6 +48,41 @@ public class BuildTriggerJournalTests : IDisposable
     }
 
     [Fact]
+    public void LoadRecent_drops_entries_from_previous_local_day()
+    {
+        var journal = new BuildTriggerJournal(root);
+        var yesterdayLocal = DateTime.Today.AddDays(-1).AddHours(12);
+        var yesterday = new DateTimeOffset(yesterdayLocal, TimeZoneInfo.Local.GetUtcOffset(yesterdayLocal));
+        journal.Record(new BuildTriggerRecord(
+            "old",
+            "proj",
+            "My App",
+            yesterday,
+            BuildTriggerKind.SessionStart,
+            "startup"));
+        journal.Record(new BuildTriggerRecord(
+            "today",
+            "proj",
+            "My App",
+            DateTimeOffset.UtcNow,
+            BuildTriggerKind.FileWatcher,
+            "file change"));
+
+        var reloaded = new BuildTriggerJournal(root);
+        var entries = reloaded.GetEntries();
+
+        Assert.Single(entries);
+        Assert.Equal("today", entries[0].Id);
+    }
+
+    [Fact]
+    public void IsTodayLocal_uses_local_calendar_day()
+    {
+        var localMorning = new DateTimeOffset(DateTime.Today.AddHours(9), TimeZoneInfo.Local.GetUtcOffset(DateTime.Today.AddHours(9)));
+        Assert.True(BuildTriggerJournal.IsTodayLocal(localMorning.ToUniversalTime()));
+    }
+
+    [Fact]
     public void SetVerdict_updates_entry()
     {
         var journal = new BuildTriggerJournal(root);
