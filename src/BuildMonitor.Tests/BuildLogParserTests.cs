@@ -20,7 +20,7 @@ public class BuildLogParserTests
     {
         const string log = """
             Pages\Bar.cs(2,1): warning CS0168: unused variable
-            Build succeeded.
+            Build succeeded with 1 warning(s) in 1.0s
             """;
 
         Assert.Equal(1, BuildLogParser.ParseWarningCount(log));

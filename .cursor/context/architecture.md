@@ -20,6 +20,12 @@ Human-facing detail: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 | **BuildMonitor.Infrastructure** | `src/Infrastructure/` | Orchestrator, process config, log store, port probe |
 | **BuildMonitor.Tests** | `src/BuildMonitor.Tests/` | Unit tests for Core + Infrastructure |
 
+## Engineering rules
+
+- **No god-classes:** `.cursor/rules/code-structure.mdc` — extract from `ProjectOrchestrator` / `App.xaml.cs`; line limits.
+- **Orchestration tests:** `.cursor/rules/testing.mdc` Tier 2 — orchestrator/runtime changes require tests in the same PR.
+- **CI:** `.github/workflows/ci.yml` — build + test on every PR to `main`.
+
 ## Goals
 
 - Monitor multiple local dotnet projects from the system tray

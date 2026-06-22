@@ -12,5 +12,7 @@ alwaysApply: true
 - Use async/await with `CancellationToken` for I/O in Infrastructure; do not block on asynchronous work.
 - Never hardcode secrets; user settings live under `%LocalAppData%/BuildMonitor/` — document keys in `docs/SETTINGS.md`, never commit real settings files.
 - **Layering:** **Core** (models, rules) ← **Infrastructure** (processes, logs, orchestration) ← **TrayApp** (WPF UI only). Keep business logic out of XAML code-behind where possible.
+- **Structure:** See `code-structure.mdc` — line limits, no god-classes, extract from `App.xaml.cs` / `ProjectOrchestrator.cs`.
+- **Tests:** See `testing.mdc` — orchestration changes require Tier 2 tests in the same PR; CI enforces build + test on every PR.
 - Follow existing solution layout and naming unless a change is explicitly requested.
 - **Document as you build.** When adding a feature, config key, or behaviour change, update the matching `docs/` page in the same change. See `documentation.mdc`, `adr.mdc`, and `feature-delivery.mdc`.

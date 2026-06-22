@@ -29,10 +29,10 @@ public partial class App : System.Windows.Application
     private DispatcherTimer? statusPanelLayoutSaveTimer;
     private bool pointerOverStatusPanel;
     private readonly Dictionary<string, MonitorHealth> previousProjectHealth = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ProjectLifecycleState> previousProjectState = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BuildLogViewerWindow> openLogViewers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> autoOpenedLogForFailure = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> fileChangeBuildStarts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly BuildLifecycleToastNotifier buildLifecycleToastNotifier = new();
     private int settingsApplyVersion;
     private readonly SemaphoreSlim settingsApplyGate = new(1, 1);
     private DispatcherTimer? buildIconAnimationTimer;
@@ -132,7 +132,7 @@ public partial class App : System.Windows.Application
             }
 
             previousProjectHealth.Clear();
-            previousProjectState.Clear();
+            buildLifecycleToastNotifier.Reset();
             autoOpenedLogForFailure.Clear();
             fileChangeBuildStarts.Clear();
             ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
@@ -257,7 +257,7 @@ public partial class App : System.Windows.Application
             if (Volatile.Read(ref trayMenuOpen) == 0)
             {
                 AutoOpenLogsOnFailureTransition(snapshots);
-                ShowBuildToasts(snapshots);
+                buildLifecycleToastNotifier.Process(snapshots, fileChangeBuildStarts);
                 PlayBuildNotificationSounds(snapshots);
             }
         }
@@ -1238,98 +1238,6 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void ShowBuildToasts(IReadOnlyList<ProjectHealthSnapshot> snapshots)
-    {
-        foreach (var snapshot in snapshots.Where(s => s.IsActive))
-        {
-            previousProjectState.TryGetValue(snapshot.ProjectId, out var previousState);
-            var currentState = snapshot.State;
-
-            if (currentState == ProjectLifecycleState.Building && previousState != ProjectLifecycleState.Building)
-            {
-                if (!fileChangeBuildStarts.Remove(snapshot.ProjectId))
-                {
-                    ToastNotificationService.ShowIfEnabled(
-                        $"Building — {snapshot.DisplayName}",
-                        "Build started.",
-                        ToastKind.Info,
-                        UserNotificationCategory.BuildStart);
-                }
-            }
-
-            if (previousState == ProjectLifecycleState.Building
-                && IsSuccessfulBuildEndState(currentState))
-            {
-                var message = snapshot.LastDuration is { } duration
-                    ? $"Completed in {FormatBuildDuration(duration)}."
-                    : "Build completed successfully.";
-                ToastNotificationService.ShowIfEnabled(
-                    $"Build succeeded — {snapshot.DisplayName}",
-                    message,
-                    ToastKind.Success,
-                    UserNotificationCategory.BuildSuccess);
-            }
-            else if (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestOk)
-            {
-                ToastNotificationService.ShowIfEnabled(
-                    $"Tests passed — {snapshot.DisplayName}",
-                    "Tests completed successfully.",
-                    ToastKind.Success,
-                    UserNotificationCategory.BuildSuccess);
-            }
-
-            if ((previousState == ProjectLifecycleState.Building
-                    || previousState == ProjectLifecycleState.Watching)
-                && currentState == ProjectLifecycleState.BuildFailed)
-            {
-                var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
-                    ? "See build log for details."
-                    : snapshot.LastErrorPreview;
-                ToastNotificationService.ShowIfEnabled(
-                    $"Build failed — {snapshot.DisplayName}",
-                    message,
-                    ToastKind.Error,
-                    UserNotificationCategory.BuildFailure);
-            }
-            else if (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestFailed)
-            {
-                var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
-                    ? "See test log for details."
-                    : snapshot.LastErrorPreview;
-                ToastNotificationService.ShowIfEnabled(
-                    $"Tests failed — {snapshot.DisplayName}",
-                    message,
-                    ToastKind.Error,
-                    UserNotificationCategory.BuildFailure);
-            }
-
-            previousProjectState[snapshot.ProjectId] = currentState;
-        }
-
-        var activeIds = snapshots.Where(s => s.IsActive).Select(s => s.ProjectId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var staleId in previousProjectState.Keys.Where(id => !activeIds.Contains(id)).ToList())
-        {
-            previousProjectState.Remove(staleId);
-        }
-    }
-
-    private static bool IsSuccessfulBuildEndState(ProjectLifecycleState state) =>
-        state is ProjectLifecycleState.BuildOk
-            or ProjectLifecycleState.Watching
-            or ProjectLifecycleState.Running;
-
-    private static string FormatBuildDuration(TimeSpan duration)
-    {
-        if (duration.TotalHours >= 1)
-        {
-            return duration.ToString(@"h\:mm\:ss");
-        }
-
-        return duration.TotalMinutes >= 1
-            ? duration.ToString(@"m\:ss")
-            : $"{duration.TotalSeconds:F1}s";
-    }
-
     private void PlayBuildNotificationSounds(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
         foreach (var snapshot in snapshots.Where(s => s.IsActive))
@@ -1472,53 +1380,8 @@ public partial class App : System.Windows.Application
             currentTrayBuilding,
             buildIconAnimationFrame,
             currentTrayWebReady);
-        notifyIcon.Text = FormatTrayTooltip(currentTrayHeadline, currentTrayHealth, currentTrayBuilding);
+        notifyIcon.Text = TrayTooltipFormatter.Format(currentTrayHeadline, currentTrayHealth, currentTrayBuilding);
     }
-
-    private static string FormatTrayTooltip(
-        ProjectHealthSnapshot? headline,
-        MonitorHealth health,
-        bool isBuilding)
-    {
-        if (isBuilding)
-        {
-            var name = headline?.DisplayName ?? "project";
-            return TruncateTrayText($"Building — {name}");
-        }
-
-        if (headline is null)
-        {
-            return DescribeHealthTooltip(health);
-        }
-
-        if (headline.Health == MonitorHealth.Red)
-        {
-            var phase = string.IsNullOrWhiteSpace(headline.FailurePhase)
-                ? "Failed"
-                : headline.FailurePhase;
-            if (!string.IsNullOrWhiteSpace(headline.LastErrorPreview))
-            {
-                return TruncateTrayText($"{headline.DisplayName} — {phase}: {headline.LastErrorPreview}");
-            }
-
-            return TruncateTrayText($"{headline.DisplayName} — {phase}");
-        }
-
-        if (headline.Health == MonitorHealth.Amber)
-        {
-            return TruncateTrayText($"{headline.DisplayName} — Warnings");
-        }
-
-        if (headline.ListenUrlReady && !string.IsNullOrWhiteSpace(headline.ListenUrl))
-        {
-            return TruncateTrayText($"{headline.DisplayName} — Site up · {headline.ListenUrl}");
-        }
-
-        return TruncateTrayText($"{headline.DisplayName} — OK");
-    }
-
-    private static string TruncateTrayText(string text, int maxLength = 63) =>
-        text.Length <= maxLength ? text : text[..(maxLength - 1)] + "…";
 
     private static void MigrateLegacyAppDataIfNeeded(string newAppDataDirectory)
     {
@@ -1581,22 +1444,4 @@ public partial class App : System.Windows.Application
 
         return currentSettings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
     }
-
-    private static string DescribeHealth(MonitorHealth health) =>
-        health switch
-        {
-            MonitorHealth.Green => "OK",
-            MonitorHealth.Amber => "Warnings",
-            MonitorHealth.Red => "Errors",
-            _ => "Unknown"
-        };
-
-    private static string DescribeHealthTooltip(MonitorHealth health) =>
-        health switch
-        {
-            MonitorHealth.Green => "Build monitor - Success",
-            MonitorHealth.Amber => "Build monitor - Warnings",
-            MonitorHealth.Red => "Build monitor - Failed",
-            _ => "Build Monitor"
-        };
 }

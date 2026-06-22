@@ -16,12 +16,14 @@ Use this checklist before declaring a feature complete. It complements `core.mdc
 1. **Code**
    - Build succeeds; **no new compiler warnings** in files this change adds or modifies (`build-warnings.mdc`).
    - Async with `CancellationToken` on I/O in Infrastructure.
-   - Keep orchestration and parsing in Infrastructure/Core; TrayApp stays thin.
+   - Keep orchestration and parsing in Infrastructure/Core; TrayApp stays thin (`code-structure.mdc`).
+   - **No god-class growth** — extract before adding logic to oversized files.
 
-2. **Tests** (default: include in the same change — see `testing.mdc`)
-   - New or changed logic in Core/Infrastructure has unit tests in `BuildMonitor.Tests`.
-   - UI-only XAML: document manual checks in the feature doc when tests are N/A.
-   - Existing tests still pass.
+2. **Tests** (mandatory — see `testing.mdc`)
+   - Tier 1: parsers, rules, formatters in Core/Infrastructure.
+   - **Tier 2: any orchestrator/runtime/coalescer change includes new or updated tests in the same PR** — thin parser-only coverage alone is insufficient.
+   - UI-only XAML: manual checks in the feature doc when tests are N/A.
+   - CI build + test must pass on the PR (`.github/workflows/ci.yml`).
 
 3. **Documentation**
    - `docs/features/<file>.md` added or updated for user-facing changes.
