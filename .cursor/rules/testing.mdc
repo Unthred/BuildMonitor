@@ -1,5 +1,5 @@
 ---
-description: Unit tests for Core and Infrastructure logic
+description: Unit and orchestration tests for Core and Infrastructure
 globs:
   - "src/**/*.cs"
   - "src/BuildMonitor.Tests/**/*.cs"
@@ -8,19 +8,67 @@ alwaysApply: false
 
 # Testing rules
 
-- Use xUnit in [`src/BuildMonitor.Tests/`](../../src/BuildMonitor.Tests/).
-- Test Core rules and Infrastructure parsers/helpers — not WPF rendering.
-- New or changed logic in Core/Infrastructure should have unit tests in the same PR unless genuinely UI-only.
+**Thin integration coverage is not acceptable** for orchestration code. Parsers-only tests while `ProjectOrchestrator` grows untested is a defect, not a shortcut.
 
-## Commands (user runs)
+## Test project
+
+xUnit in [`src/BuildMonitor.Tests/`](../../src/BuildMonitor.Tests/).
+
+## Three tiers (all required where applicable)
+
+### Tier 1 — Pure logic (mandatory)
+
+Always unit-test when you add or change:
+
+- Core rules and evaluators
+- Static parsers (`BuildLogParser`, `DotNetRunOutputParser`, `DotNetTestOutputParser`, …)
+- Formatters, planners, detectors with no I/O
+
+### Tier 2 — Orchestration (mandatory — no exceptions)
+
+Any PR that changes behaviour in these areas **must** add or update tests in the same PR:
+
+| Area | Examples |
+|------|----------|
+| `ProjectOrchestrator.cs` | start/stop, rebuild, settings apply, health publish |
+| `ProjectRuntime` (nested or extracted) | build/run/test lifecycle, output lines, state transitions |
+| `HealthCoalescer` | coalesce timing, dirty flags, pause while menu open |
+| `DotNetCliRunner` / `SupervisedProcess` | command construction, env sanitization (via test doubles) |
+| `BuildLogStore` | persist/load/truncate semantics |
+| New `Infrastructure/Services/*` or `LocalBuild/*` coordinators | lock release, repair, debounce application |
+
+**What “orchestration test” means here:** not a full UI or real `dotnet` E2E. Use:
+
+- Extracted pure functions (preferred)
+- In-memory fakes (`FakeLogStore`, recording callbacks, stub `I*` interfaces)
+- Table-driven tests over inputs → expected state / commands / events
+
+**Minimum bar per PR:** at least one new or updated test method that would **fail** if the orchestration change were reverted.
+
+### Tier 3 — TrayApp
+
+- Do **not** test WPF rendering or window layout in xUnit.
+- New non-trivial logic in code-behind → **extract** to `TrayApp/Services/*` and test there (Tier 1/2).
+- Pure XAML-only changes → manual test plan in the PR and feature doc.
+
+## Anti-patterns (reject the PR)
+
+| Anti-pattern | Fix |
+|--------------|-----|
+| Orchestrator change + only parser tests | Add orchestration tests for the changed path |
+| “Too hard to test” without extraction | Extract a testable unit first (`code-structure.mdc`) |
+| Manual-only verification for Infrastructure behaviour | Add Tier 2 tests or split the PR |
+
+## Commands (user runs locally; CI runs on PR)
 
 ```powershell
+dotnet build BuildMonitor.slnx
 dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj
 ```
 
-## When tests are N/A
+## When tests are genuinely N/A
 
-- Pure XAML layout with no new logic — document manual tray/status checks in `docs/features/`.
-- Comment-only or docs-only changes.
+- Comment-only, docs-only, or `.cursor` rules-only changes.
+- Pure XAML with no new logic — document manual tray checks in `docs/features/`.
 
-See `feature-delivery.mdc` and `feature-ship` skill for checklist enforcement.
+See `feature-delivery.mdc`, `code-structure.mdc`, and CI workflow [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).

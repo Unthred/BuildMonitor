@@ -15,4 +15,6 @@ alwaysApply: false
 - Infrastructure must not depend on TrayApp.
 - TrayApp references Infrastructure and Core only.
 - Prefer small, testable helpers in Infrastructure/LocalBuild over logic in code-behind.
+- **Class size:** see `code-structure.mdc` — no new god-classes; legacy files shrink on touch.
+- **Orchestration tests:** see `testing.mdc` Tier 2 — orchestrator changes require tests in the same PR.
 - Stack detail: `.cursor/context/architecture.md` and `docs/ARCHITECTURE.md`.

@@ -1,0 +1,59 @@
+---
+description: Class size limits and god-class prevention
+globs:
+  - "src/**/*.cs"
+alwaysApply: false
+---
+
+# Code structure — no god-classes
+
+Large monolith files are how regressions hide. **Do not grow them.** Extract first, then add behaviour.
+
+## Line limits
+
+| Threshold | Rule |
+|-----------|------|
+| **≤ 400 lines** | Target maximum for any `.cs` file |
+| **≤ 500 lines** | Hard cap for **new** files |
+| **> 500 lines (legacy)** | Files already over limit (e.g. `ProjectOrchestrator.cs`, `App.xaml.cs`) — **no net line increase** in a feature PR unless the same PR extracts code to a smaller type and overall line count in those files **decreases** |
+
+Check before commit:
+
+```powershell
+(Get-Content path\to\File.cs).Count
+```
+
+## Where logic belongs
+
+| Layer | Allowed in file | Move elsewhere |
+|-------|-----------------|----------------|
+| **TrayApp** (`App.xaml.cs`, `*Window.xaml.cs`) | UI wiring, `Dispatcher` calls, event handlers that delegate | Business rules, parsing, process orchestration → `TrayApp/Services/*` or Infrastructure |
+| **Infrastructure** (`ProjectOrchestrator.cs`) | Start/stop coordination, subscribing runtimes, applying settings | Build/test/watch steps, output handling, lock release, debounce → `ProjectRuntime`, `LocalBuild/*`, `Infrastructure/Services/*` |
+| **Core** | Models, pure rules, settings shapes | I/O, processes, file system |
+
+## Extraction triggers (mandatory)
+
+Before adding **~30+ lines** of non-trivial logic to any file already **> 400 lines**:
+
+1. Identify a cohesive unit (parser, policy, planner, health publisher, menu builder).
+2. Add a new type in the correct project (prefer `Infrastructure/LocalBuild` or `TrayApp/Services`).
+3. Add unit tests for the extracted type (`testing.mdc`).
+4. Wire the thin caller from the original file.
+
+## Naming and shape
+
+- One primary type per file when practical.
+- Prefer `sealed` helpers and static parsers over private regions hundreds of lines long.
+- New orchestration types: `*Coordinator`, `*Planner`, `*Handler`, `*Publisher` — not more methods on an existing 2k-line class.
+
+## PR rejection (agent)
+
+Reject or split a PR that:
+
+- Adds feature logic only inside `App.xaml.cs` or `ProjectOrchestrator.cs` without extraction.
+- Increases line count in a legacy god-class without a paired extraction in the same PR.
+- Introduces a new file expected to exceed **500 lines**.
+
+## Legacy debt
+
+Existing oversized files are **not** fixed in one go. Every touch should **shrink or stabilise** them: extract at least one helper when you change behaviour, and add orchestration tests (`testing.mdc`).

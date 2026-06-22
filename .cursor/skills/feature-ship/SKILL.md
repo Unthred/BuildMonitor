@@ -27,7 +27,8 @@ No commit, push, or merge unless the user triggered one of the phrases above.
    - **Performance (inline):** if diff touches orchestrator output handling, log saves, port probe — no obvious hot-path blocking. Else N/A.
 3. **User gates** — agent does **not** run `dotnet build` or `dotnet test`. Print commands; require user confirmation or pasted output before PR/merge.
 4. **Git + GitHub** — per `work-tracking.mdc`: resolve `#<id>`; confirm issue is on **project #3** (add with `gh project item-add 3` if missing); commit `#<id>: …`; push; PR body `Closes #<id>`.
-5. **Merge + Done** — only for full **ship it**: `gh pr merge --squash` after user confirms build/test; issue closes via `Closes #N`; project Status **Done** (automation or manual per [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md)).
+5. **CI** — PR should pass [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (build + test on `windows-latest`). User confirms green checks before merge.
+6. **Merge + Done** — only for full **ship it**: `gh pr merge --squash` after user confirms build/test; issue closes via `Closes #N`; project Status **Done** (automation or manual per [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md)).
 
 ```powershell
 gh pr create --title "#42: Short title" --body "Closes #42`n`n## Summary`n- ...`n`n## Test plan`n- [x] dotnet build`n- [x] dotnet test"
