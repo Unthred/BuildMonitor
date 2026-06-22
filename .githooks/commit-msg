@@ -1,0 +1,27 @@
+#!/bin/sh
+# Require a GitHub issue reference in every commit (enforces work-tracking.mdc).
+# Install: .\scripts\install-githooks.ps1
+
+MSG_FILE="$1"
+MSG=$(cat "$MSG_FILE")
+
+# Allow merge/revert/fixup commits
+case "$MSG" in
+  Merge*|Revert*|fixup!*|squash!*) exit 0 ;;
+esac
+
+# Commit message contains #N
+if printf '%s' "$MSG" | grep -qE '#[0-9]+'; then
+  exit 0
+fi
+
+# Branch feature/N-... without message ref (branch still ties to issue)
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || true)
+case "$BRANCH" in
+  feature/[0-9]*-*) exit 0 ;;
+esac
+
+echo "commit-msg hook: commit must reference a GitHub issue (#N) in the message," >&2
+echo "or use branch feature/<id>-short-name." >&2
+echo "Create an issue, add it to project board #3, then commit with: #<id>: summary" >&2
+exit 1

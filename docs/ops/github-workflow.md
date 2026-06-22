@@ -123,6 +123,42 @@ Full ship: commit → push → PR → squash merge → issue closed → project 
 
 Load `.cursor/skills/feature-ship/SKILL.md` when the user says **ship** or **ship it**.
 
+## Board sync (backlog)
+
+The board must list **all shipped work (Done)** and **planned work (Todo)**. Run after creating retrospective issues or when the board drifts:
+
+```powershell
+.\scripts\github\Sync-ProjectBoard.ps1
+```
+
+Dry run: `.\scripts\github\Sync-ProjectBoard.ps1 -WhatIf`
+
+The script is idempotent (skips issues whose titles already exist) and ensures closed issues **#2**, **#4**, **#6**–**#8**, **#10** are on project #3 with Status **Done**.
+
+### Planned work (Todo on board)
+
+| Theme | Issue title (created by sync script if missing) |
+|-------|--------------------------------------------------|
+| Tests | Run tests on file change (`OnFileChange` mode) |
+| Tray UX | Open log viewer from tray context menu |
+| Tray UX | WPF tray context menu (Phase 2, if #8 insufficient) |
+| Optional module | Wire Azure DevOps polling module |
+| Diagnostics | Verdict feedback loop for adaptive debounce |
+
+Update this table when adding new planned issues.
+
+## Enforce issue on every commit
+
+**Local (required for agents and developers):**
+
+```powershell
+.\scripts\install-githooks.ps1
+```
+
+The `commit-msg` hook rejects commits whose message lacks `#<issue>` unless the branch is `feature/<id>-...` (merge/revert commits are exempt).
+
+**CI:** [`.github/workflows/pr-issue-link.yml`](../../.github/workflows/pr-issue-link.yml) fails PRs that do not reference an issue (`Closes #N` or `#N` in title/body).
+
 ## Record of intent
 
 Chat and Cursor plans are not the system of record. The **project board (#3)**, **Issues**, **PR descriptions**, and **`docs/`** are.

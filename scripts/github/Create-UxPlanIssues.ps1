@@ -1,3 +1,4 @@
+# DEPRECATED — use Sync-ProjectBoard.ps1 (creates UX plan items as Done + planned Todo).
 # Creates UX plan GitHub issues and adds them to BuildMonitor project #3.
 # Run: .\scripts\github\Create-UxPlanIssues.ps1
 

@@ -1,0 +1,32 @@
+name: PR issue link
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  require-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR links a GitHub issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          body="$PR_BODY"
+          title="$PR_TITLE"
+          combined="${title}
+          ${body}"
+          if echo "$combined" | grep -qiE '(closes|fixes|resolves)\s+#[0-9]+'; then
+            echo "PR links an issue."
+            exit 0
+          fi
+          if echo "$combined" | grep -qE '#[0-9]+'; then
+            echo "PR references an issue number."
+            exit 0
+          fi
+          echo "::error::Pull request must reference a GitHub issue (Closes #N or #N in title/body)."
+          exit 1

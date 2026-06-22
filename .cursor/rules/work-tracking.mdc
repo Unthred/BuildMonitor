@@ -44,6 +44,10 @@ Before `git commit`, `git push`, **ship it**, or **check in** when the user did 
 
 **After linking:** set project Status to **In Progress** when starting substantial work; **Done** only when the user says ship/merge or work is complete on `main` (issue closed).
 
+**Board backlog:** run `.\scripts\github\Sync-ProjectBoard.ps1` when retrospective or planned cards are missing; see [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
+
+**Hooks (mandatory locally):** run `.\scripts\install-githooks.ps1` once per clone — `commit-msg` rejects commits without `#<issue>` (or `feature/<id>-...` branch). PRs must reference an issue (CI workflow).
+
 **Exception:** user explicitly says “no issue”, “chore only”, or “docs/rules only, skip issue”.
 
 ## Agent automation (`gh`)
