@@ -33,6 +33,7 @@ public partial class App : System.Windows.Application
     private readonly HashSet<string> autoOpenedLogForFailure = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> fileChangeBuildStarts = new(StringComparer.OrdinalIgnoreCase);
     private readonly BuildLifecycleToastNotifier buildLifecycleToastNotifier = new();
+    private readonly TrayContextMenuBuilder trayMenuBuilder = new();
     private int settingsApplyVersion;
     private readonly SemaphoreSlim settingsApplyGate = new(1, 1);
     private DispatcherTimer? buildIconAnimationTimer;
@@ -950,56 +951,27 @@ public partial class App : System.Windows.Application
 
     private void RebuildTrayMenu()
     {
-        if (trayContextMenu is null)
+        if (trayContextMenu is null || orchestrator is null)
         {
             return;
         }
 
-        var active = currentSettings.Projects.Where(p => p.IsActiveInSession).ToList();
-
-        trayContextMenu.Items.Clear();
-
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Status",
-            null,
-            (_, _) => RunTrayMenuUiAction(ShowStatusPanel)));
-        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
-
-        if (currentSettings.AppBehavior.TrayMenuLayout == TrayMenuLayout.ByProject)
-        {
-            AddByProjectItems(trayContextMenu.Items, active);
-        }
-        else
-        {
-            trayContextMenu.Items.Add(BuildRebuildMenu(active));
-            trayContextMenu.Items.Add(BuildRestartMenu(active));
-            trayContextMenu.Items.Add(BuildRunTestsMenu(active));
-            trayContextMenu.Items.Add(BuildStopMenu(active));
-            trayContextMenu.Items.Add(BuildViewLogsMenu(active));
-            trayContextMenu.Items.Add(BuildCleanOutputMenu(active));
-        }
-
-        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Build diagnostics…",
-            null,
-            (_, _) => RunTrayMenuUiAction(ShowBuildDiagnostics)));
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Build Monitor Health…",
-            null,
-            (_, _) => RunTrayMenuUiAction(ShowBuildMonitorHealth)));
-        trayContextMenu.Items.Add(new Forms.ToolStripSeparator());
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Settings",
-            null,
-            (_, _) => RunTrayMenuUiAction(() => _ = ShowSettingsAsync())));
-        trayContextMenu.Items.Add(new Forms.ToolStripMenuItem(
-            "Exit",
-            null,
-            (_, _) => RequestExit()));
-
+        trayMenuBuilder.Rebuild(trayContextMenu, currentSettings, orchestrator, TrayMenuHost);
         ApplyTrayMenuTheme();
     }
+
+    private TrayContextMenuBuilder.Host TrayMenuHost => new()
+    {
+        RunUi = RunTrayMenuUiAction,
+        RunBackground = RunTrayMenuBackgroundAction,
+        ShowStatus = ShowStatusPanel,
+        ShowBuildDiagnostics = ShowBuildDiagnostics,
+        ShowBuildMonitorHealth = ShowBuildMonitorHealth,
+        ShowSettings = () => _ = ShowSettingsAsync(),
+        RequestExit = RequestExit,
+        OpenLogViewerForProject = OpenLogViewerForProject,
+        StartRunTestsForProjects = StartRunTestsForProjects
+    };
 
     private void ApplyTrayMenuTheme()
     {
@@ -1009,135 +981,6 @@ public partial class App : System.Windows.Application
         }
 
         TrayMenuTheme.Apply(trayContextMenu, ThemeService.Resolve(currentSettings.AppBehavior.Theme));
-    }
-
-    private void AddByProjectItems(Forms.ToolStripItemCollection items, List<LocalProjectDefinition> active)
-    {
-        if (active.Count == 0)
-        {
-            items.Add(new Forms.ToolStripMenuItem("(No active projects)") { Enabled = false });
-            return;
-        }
-
-        foreach (var project in active)
-        {
-            var id = project.Id;
-            var restartable = project.RunOptions.RunMode != ProjectRunMode.None;
-            var submenu = new Forms.ToolStripMenuItem(project.DisplayName);
-
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(id, CancellationToken.None))));
-
-            if (restartable)
-            {
-                submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart app", null, (_, _) =>
-                    RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
-                submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart", null, (_, _) =>
-                    RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(id, CancellationToken.None))));
-            }
-
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Run tests", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RunTestsAsync(id, CancellationToken.None))));
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Stop", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.StopProjectAsync(id))));
-            submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("View log", null, (_, _) =>
-                RunTrayMenuUiAction(() => OpenLogViewerForProject(id))));
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Clean build output", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RepairBuildOutputAsync(id, CancellationToken.None))));
-
-            items.Add(submenu);
-        }
-    }
-
-    private Forms.ToolStripMenuItem BuildRebuildMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("Rebuild");
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
-            RunTrayMenuBackgroundAction(async () =>
-            {
-                foreach (var p in active)
-                {
-                    await orchestrator!.RebuildAsync(p.Id, CancellationToken.None);
-                }
-            })));
-
-        if (active.Count > 0)
-        {
-            menu.DropDownItems.Add(new Forms.ToolStripSeparator());
-            foreach (var project in active)
-            {
-                var id = project.Id;
-                menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
-                    RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(id, CancellationToken.None))));
-            }
-        }
-
-        return menu;
-    }
-
-    private Forms.ToolStripMenuItem BuildRestartMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("Restart app");
-        var restartable = active.Where(p => p.RunOptions.RunMode != ProjectRunMode.None).ToList();
-        menu.Enabled = restartable.Count > 0;
-
-        if (restartable.Count == 0)
-        {
-            return menu;
-        }
-
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("Restart all active", null, (_, _) =>
-            RunTrayMenuBackgroundAction(async () =>
-            {
-                foreach (var p in restartable)
-                {
-                    await orchestrator!.RestartAppAsync(p.Id, CancellationToken.None);
-                }
-            })));
-
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild & restart all active", null, (_, _) =>
-            RunTrayMenuBackgroundAction(async () =>
-            {
-                foreach (var p in restartable)
-                {
-                    await orchestrator!.RebuildAndRestartAsync(p.Id, CancellationToken.None);
-                }
-            })));
-
-        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
-        foreach (var project in restartable)
-        {
-            var id = project.Id;
-            var name = project.DisplayName;
-            menu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Restart — {name}", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(id, CancellationToken.None))));
-            menu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Rebuild & restart — {name}", null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(id, CancellationToken.None))));
-        }
-
-        return menu;
-    }
-
-    private Forms.ToolStripMenuItem BuildRunTestsMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("Run tests") { Enabled = active.Count > 0 };
-        if (active.Count == 0)
-        {
-            return menu;
-        }
-
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
-            RunTrayMenuUiAction(() => StartRunTestsForProjects(active))));
-
-        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
-        foreach (var project in active)
-        {
-            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
-                RunTrayMenuUiAction(() => StartRunTestsForProjects([project]))));
-        }
-
-        return menu;
     }
 
     private void StartRunTestsForProjects(IReadOnlyList<LocalProjectDefinition> projects)
@@ -1166,68 +1009,6 @@ public partial class App : System.Windows.Application
                         UserNotificationCategory.Error));
             }
         });
-    }
-
-    private Forms.ToolStripMenuItem BuildStopMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("Stop");
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All Active", null, (_, _) =>
-            RunTrayMenuBackgroundAction(() => orchestrator!.StopAllAsync())));
-
-        if (active.Count > 0)
-        {
-            menu.DropDownItems.Add(new Forms.ToolStripSeparator());
-            foreach (var project in active)
-            {
-                var id = project.Id;
-                menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
-                    RunTrayMenuBackgroundAction(() => orchestrator!.StopProjectAsync(id))));
-            }
-        }
-
-        return menu;
-    }
-
-    private Forms.ToolStripMenuItem BuildViewLogsMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("View Log") { Enabled = active.Count > 0 };
-        foreach (var project in active)
-        {
-            var id = project.Id;
-            var name = project.DisplayName;
-            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
-                RunTrayMenuUiAction(() => OpenLogViewerForProject(id, name))));
-        }
-
-        return menu;
-    }
-
-    private Forms.ToolStripMenuItem BuildCleanOutputMenu(List<LocalProjectDefinition> active)
-    {
-        var menu = new Forms.ToolStripMenuItem("Clean build output") { Enabled = active.Count > 0 };
-        if (active.Count == 0)
-        {
-            return menu;
-        }
-
-        menu.DropDownItems.Add(new Forms.ToolStripMenuItem("All active", null, (_, _) =>
-            RunTrayMenuBackgroundAction(async () =>
-            {
-                foreach (var project in active)
-                {
-                    await orchestrator!.RepairBuildOutputAsync(project.Id, CancellationToken.None);
-                }
-            })));
-
-        menu.DropDownItems.Add(new Forms.ToolStripSeparator());
-        foreach (var project in active)
-        {
-            var id = project.Id;
-            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
-                RunTrayMenuBackgroundAction(() => orchestrator!.RepairBuildOutputAsync(id, CancellationToken.None))));
-        }
-
-        return menu;
     }
 
     private async Task RebuildAllActiveAsync()
