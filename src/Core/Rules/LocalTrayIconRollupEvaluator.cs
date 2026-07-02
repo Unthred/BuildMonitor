@@ -16,7 +16,7 @@ public static class LocalTrayIconRollupEvaluator
             return MonitorHealth.Red;
         }
 
-        if (activeProjects.Any(p => p.Health == MonitorHealth.Amber))
+        if (activeProjects.Any(p => p.Health == MonitorHealth.Amber || p.WarningCount > 0))
         {
             return MonitorHealth.Amber;
         }
@@ -31,7 +31,9 @@ public static class LocalTrayIconRollupEvaluator
 
     public static bool IsBuilding(IReadOnlyList<ProjectHealthSnapshot> activeProjects) =>
         activeProjects.Any(p => p.IsRestarting
-            || p.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing);
+            || p.State is ProjectLifecycleState.Building
+                or ProjectLifecycleState.Testing
+                or ProjectLifecycleState.WaitingForEdits);
 
     public static bool IsWebReady(ProjectHealthSnapshot? headline) =>
         headline is not null
@@ -50,7 +52,8 @@ public static class LocalTrayIconRollupEvaluator
             .Where(p => p.State is ProjectLifecycleState.Building
                 or ProjectLifecycleState.Running
                 or ProjectLifecycleState.Watching
-                or ProjectLifecycleState.Testing)
+                or ProjectLifecycleState.Testing
+                or ProjectLifecycleState.WaitingForEdits)
             .OrderByDescending(p => p.LastChangedUtc)
             .FirstOrDefault();
 

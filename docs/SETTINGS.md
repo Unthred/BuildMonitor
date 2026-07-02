@@ -46,8 +46,12 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 ## Settings UI tabs
 
 - **Projects** — per-project folder, csproj/sln, launch profile, run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
-- **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, auto-open log on failure, **auto-open Build Monitor Health on startup**, max log bytes.
+- **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, **auto-open Build Monitor Health on startup**, max log bytes.
 - **App** — theme (`System`, `Light`, `Dark`) and startup behavior. **Run when Windows starts** adds/removes an entry under `HKCU\...\Run` named `LocalBuildMonitor`.
+
+Per project (**Projects** tab → **File watching**):
+
+- **`autoOpenLog`**: `Never` (default), `Errors`, `Warnings`, or `Always` — when to open the log viewer automatically after a build or test. `Warnings` opens on amber health (build succeeded with warnings) as well as failures. `Always` opens after every build or test completes. Replaces the old global `monitor.autoOpenLogOnFailure` flag (schema v11).
 
 ## Health colors
 
@@ -69,6 +73,9 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 - **`fileChangeDebounceMode`**: `Manual` (default) or `Auto`. **Auto** learns per project from save burst length (time from first to last file change before rebuild), using p90 × 1.25 smoothed into **1500–12000 ms**. The manual ms value is used until **five** bursts are recorded. Stats persist in `%LOCALAPPDATA%/BuildMonitor/debounce-stats.json`.
 - **Agent session coalescing** — after the first file-triggered build in a 90-second window, further saves wait for a full quiet period since the **last** change (not a fixed 3 s post-build cooldown). Debounce increases up to **2×** when multiple file-triggered builds happen in that window. Turn on **Auto** debounce mode for longer agent sessions.
 - **`coalesceWatchRebuilds`** (default **true**) — in **Watch** run mode, BuildMonitor watches the project folder, waits for edits to settle, then runs one `dotnet build` and restarts the app. This replaces per-save `dotnet watch` rebuilds during agent sessions. Turn off to use `dotnet watch` hot reload instead (more rebuilds, faster feedback on single-file edits).
+- **`deferStartupBuildUntilQuiet`** (default **true**) — when starting Build Monitor while an agent is still saving, wait for the quiet period before the first `dotnet build`.
+- **`cancelSupersededBuilds`** (default **true**) — cancel in-flight **startup** or **file-change** builds when newer saves arrive; coalesce into one rebuild after edits settle. Manual tray rebuilds are never cancelled.
+- **`useAgentTranscriptActivity`** (default **true**) — treat writes under `agent-transcripts` / `.cursor` as “agent still active” for gating (signal only; does not trigger rebuilds).
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
 
@@ -110,13 +117,13 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 
 ## Build diagnostics
 
-Tray → **Build diagnostics…** opens **one tab per project**: a compact **rebuild timing** panel (wait bar, learning progress, save-burst chart) and today's build triggers for that project.
+Tray → **Build diagnostics…** opens **one tab per active project**: a compact **rebuild timing** panel (metric tiles, save-burst and build-duration charts, rebuild countdown) and today's build triggers for that project.
 
 | Column | Meaning |
 |--------|---------|
 | **Kind** | Session start, file watcher, manual rebuild, hot reload, `dotnet watch`, etc. |
 | **Files** | Paths that triggered a debounced file-watcher rebuild (relative to project root) |
-| **Detail** | Extra context (e.g. a `dotnet watch` output line) |
+| **Detail** | Extra context — file-watcher debounce/hold timing, or a `dotnet watch` / hot-reload output line |
 | **Verdict** | Mark **Expected** or **Unexpected** to track spurious rebuilds |
 
 Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (**today's entries only**, local calendar day; up to 500 per day). Mark **Unexpected** triggers to spot spurious rebuilds during agent sessions.
@@ -125,12 +132,13 @@ Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (**t
 
 **Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds.
 
-Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics, and status panel width — height auto-fits content up to 520 px).
+Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics — including trigger grid column widths — and status panel width — height auto-fits content up to 460 px).
 
 ## Watch / file-watcher excludes
 
 - **`watchExcludeSegments`** — semicolon-separated folder names ignored by BuildMonitor’s debounced file watcher (`TriggerRebuild` mode). Defaults include `.cursor`, `agent-transcripts`, `logs`, `bin`, `obj`, and similar tooling/output folders.
-- Noisy file types (`.log`, `.dll`, `.pdb`, `.tmp`, etc.) are also ignored so build output and tooling writes are less likely to trigger rebuilds.
+- Noisy file types (`.log`, `.dll`, `.pdb`, `.tmp`, common image formats under `wwwroot`, etc.) are also ignored so build output and static assets are less likely to trigger rebuilds.
+- **`wwwroot/Images`** — image saves are ignored by default (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.ico`, …). **`wwwroot/Files`** (PDFs, Office docs, etc.) still trigger rebuilds unless you add `Files` or `wwwroot` to **`watchExcludeSegments`**.
 - For **dotnet watch**, also add `<Watch Remove="**/.cursor/**" />` (and similar) to the monitored `.csproj`. Defaults and behaviour: [features/health-and-logs.md](features/health-and-logs.md).
 
 ## Developer environment (not in settings UI)
@@ -154,3 +162,4 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 - **Restart app after rebuild** — when run mode is Watch or Run, start (or restart) the app after a successful rebuild, including the first successful build after a prior failure.
 - **Restart app** — stop and start run/watch with `--no-build` (no full rebuild).
 - **Rebuild & restart** — full `dotnet build`, then start run/watch (shows build progress in status panel).
+- **Show status panel while building** (default **off**) — per project. Opens the hover status panel when a build starts and hides it when the build finishes. Does not auto-hide if you already had the panel open before the build started.

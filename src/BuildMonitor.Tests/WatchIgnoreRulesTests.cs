@@ -11,6 +11,8 @@ public class WatchIgnoreRulesTests
     [InlineData(@"C:\proj\logs\last-build.log", true)]
     [InlineData(@"C:\proj\src\Page.razor", false)]
     [InlineData(@"C:\proj\Thumbs.db", true)]
+    [InlineData(@"C:\proj\wwwroot\Images\logo.png", true)]
+    [InlineData(@"C:\proj\wwwroot\Files\guide.pdf", false)]
     public void ShouldIgnorePath_classifies_noise_and_source(string path, bool expected) =>
         Assert.Equal(
             expected,

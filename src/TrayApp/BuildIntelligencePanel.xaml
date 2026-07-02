@@ -5,7 +5,7 @@
              Focusable="False"
              IsTabStop="False"
              KeyboardNavigation.TabNavigation="None"
-             MinHeight="88">
+             MinHeight="140">
     <UserControl.Resources>
         <Style x:Key="MetricTitleStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10" />
@@ -13,7 +13,7 @@
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
         <Style x:Key="MetricValueStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
@@ -22,6 +22,14 @@
             <Setter Property="Opacity" Value="0.75" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,3,0,0" />
+        </Style>
+        <Style x:Key="MetricTileStyle" TargetType="Border">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Background" Value="{DynamicResource ThemeControlBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}" />
         </Style>
     </UserControl.Resources>
 
@@ -64,21 +72,49 @@
                            VerticalAlignment="Center" />
             </DockPanel>
 
-            <Grid>
+            <Grid Margin="0,0,0,10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1.6*" MinWidth="220" />
-                    <ColumnDefinition Width="*" MinWidth="180" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource MetricTileStyle}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Quiet wait" />
+                        <TextBlock Style="{StaticResource MetricValueStyle}" Text="{Binding QuietPeriodText}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource MetricTileStyle}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Rebuilds (90 s)" />
+                        <TextBlock Style="{StaticResource MetricValueStyle}" Text="{Binding RecentFileChangeBuildsIn90s}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource MetricTileStyle}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Triggers today" />
+                        <TextBlock Style="{StaticResource MetricValueStyle}" Text="{Binding TodayTriggerCount}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Grid.Column="3" Style="{StaticResource MetricTileStyle}" Margin="0">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Typical build" />
+                        <TextBlock Style="{StaticResource MetricValueStyle}" Text="{Binding RecentBuildDurationLabel}" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,6,0">
                     <TextBlock Style="{StaticResource MetricTitleStyle}"
-                               Text="Recent save bursts"
-                               ToolTip="Each bar is how long a multi-file save burst lasted (time from first to last change in the batch)." />
-                    <Grid Height="52" Margin="0,0,0,4">
-                        <ItemsControl ItemsSource="{Binding BurstBars}"
-                                      Focusable="False"
-                                      IsTabStop="False"
-                                      KeyboardNavigation.TabNavigation="None">
+                               Text="Save burst length"
+                               ToolTip="Each bar is how long a multi-file save burst lasted." />
+                    <Grid Height="56" Margin="0,0,0,4">
+                        <ItemsControl ItemsSource="{Binding BurstBars}" Focusable="False">
                             <ItemsControl.Style>
                                 <Style TargetType="ItemsControl">
                                     <Setter Property="Visibility" Value="Visible" />
@@ -91,29 +127,23 @@
                             </ItemsControl.Style>
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal"
-                                                VerticalAlignment="Bottom"
-                                                IsItemsHost="True" />
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type diag:BurstBarVisual}">
-                                    <Border Width="24"
+                                    <Border Width="22"
                                             Height="{Binding BarHeight, Mode=OneWay}"
-                                            Margin="0,0,6,0"
+                                            Margin="0,0,5,0"
                                             VerticalAlignment="Bottom"
                                             CornerRadius="2"
-                                            Focusable="False"
                                             Background="{DynamicResource ThemeAccentBrush}"
                                             ToolTip="{Binding Label}" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock Text="No save bursts recorded yet"
-                                   FontSize="10"
-                                   Opacity="0.55"
-                                   Focusable="False"
-                                   VerticalAlignment="Center">
+                        <TextBlock Text="—" FontSize="10" Opacity="0.45" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed" />
@@ -126,41 +156,119 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
-                    <TextBlock Style="{StaticResource MetricDetailStyle}"
-                               Focusable="False"
-                               Text="{Binding BurstChartCaption}" />
+                    <TextBlock Style="{StaticResource MetricDetailStyle}" Text="{Binding BurstChartCaption}" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1">
-                    <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Next rebuild" />
-                    <TextBlock Style="{StaticResource MetricValueStyle}"
-                               Focusable="False"
-                               Text="{Binding NextRebuildText}" />
-                    <ProgressBar Height="8"
-                                 Margin="0,6,0,0"
-                                 Maximum="100"
-                                 Focusable="False"
-                                 IsTabStop="False"
-                                 Value="{Binding RebuildCountdownPercent, Mode=OneWay}">
-                        <ProgressBar.Style>
-                            <Style TargetType="ProgressBar">
-                                <Setter Property="Visibility" Value="Visible" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ShowRebuildCountdown}" Value="False">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ProgressBar.Style>
-                    </ProgressBar>
-
-                    <TextBlock Style="{StaticResource MetricDetailStyle}"
-                               Focusable="False"
-                               Text="{Binding RecentRebuildsText}" />
-                    <TextBlock Style="{StaticResource MetricDetailStyle}"
-                               Focusable="False"
-                               Text="{Binding StrategyText}" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,10,6,0">
+                    <TextBlock Style="{StaticResource MetricTitleStyle}"
+                               Text="Build duration"
+                               ToolTip="Recent file-triggered build times." />
+                    <Grid Height="56" Margin="0,0,0,4">
+                        <ItemsControl ItemsSource="{Binding BuildDurationBars}" Focusable="False">
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasBuildDurationChartData}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type diag:BurstBarVisual}">
+                                    <Border Width="22"
+                                            Height="{Binding BarHeight, Mode=OneWay}"
+                                            Margin="0,0,5,0"
+                                            VerticalAlignment="Bottom"
+                                            CornerRadius="2"
+                                            Background="{DynamicResource LogIssueWarningBrush}"
+                                            Opacity="0.85"
+                                            ToolTip="{Binding Label}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="—" FontSize="10" Opacity="0.45" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasBuildDurationChartData}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock Style="{StaticResource MetricDetailStyle}" Text="{Binding BuildDurationChartCaption}" />
                 </StackPanel>
+
+                <Border Grid.Row="1"
+                        Grid.Column="3"
+                        Margin="0,10,0,0"
+                        Style="{StaticResource MetricTileStyle}">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource MetricTitleStyle}" Text="Next rebuild" />
+                        <TextBlock Margin="0,0,0,4"
+                                   Text="{Binding NextRebuildReasonText}"
+                                   TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource MetricDetailStyle}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding NextRebuildReasonText}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding CountdownRemainingText}"
+                                   FontSize="22"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,2,0,4">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShowRebuildCountdown}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Style="{StaticResource MetricValueStyle}"
+                                   Text="{Binding NextRebuildText}"
+                                   TextAlignment="Center" />
+                        <ProgressBar Height="10"
+                                     Margin="0,8,0,0"
+                                     Maximum="100"
+                                     Value="{Binding RebuildCountdownPercent, Mode=OneWay}">
+                            <ProgressBar.Style>
+                                <Style TargetType="ProgressBar">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShowRebuildCountdown}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ProgressBar.Style>
+                        </ProgressBar>
+                        <TextBlock Style="{StaticResource MetricDetailStyle}"
+                                   Margin="0,6,0,0"
+                                   Text="{Binding StrategyText}" />
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <TextBlock Margin="0,8,0,0"

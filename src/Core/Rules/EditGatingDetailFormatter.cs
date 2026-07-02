@@ -1,0 +1,93 @@
+using BuildMonitor.Core.Models;
+
+namespace BuildMonitor.Core.Rules;
+
+/// <summary>Shared hold-reason text for status panel and build intelligence.</summary>
+public static class EditGatingDetailFormatter
+{
+    public static string FormatHoldReason(
+        PendingRebuildHoldReason holdReason,
+        int pendingFileCount,
+        IReadOnlyList<string>? samplePaths,
+        int timerResetCount,
+        int liveDebounceMs,
+        bool agentSessionBackoff)
+    {
+        if (holdReason == PendingRebuildHoldReason.None)
+        {
+            return string.Empty;
+        }
+
+        var files = FormatPendingFileSample(samplePaths, pendingFileCount);
+
+        return holdReason switch
+        {
+            PendingRebuildHoldReason.EditsStillArriving when timerResetCount > 1 =>
+                $"Wait timer reset ({timerResetCount}×) — {pendingFileCount} file(s) just saved{files}. Quiet period restarted.",
+            PendingRebuildHoldReason.EditsStillArriving =>
+                $"Wait timer reset — {pendingFileCount} file(s) just saved{files}. Quiet period restarted.",
+            PendingRebuildHoldReason.EditsSettling => agentSessionBackoff
+                ? $"Agent session — waiting {FormatDuration(liveDebounceMs)} after the last save{files}."
+                : $"Waiting {FormatDuration(liveDebounceMs)} after the last save{files}.",
+            PendingRebuildHoldReason.BuildInProgress =>
+                "Rebuild queued — waiting for the current build to finish.",
+            PendingRebuildHoldReason.TestsInProgress =>
+                "Rebuild queued — waiting for tests to finish.",
+            PendingRebuildHoldReason.PostBuildCooldown =>
+                $"Rebuild queued — post-build cooldown; {pendingFileCount} file(s) arrived{files}.",
+            PendingRebuildHoldReason.StartupDeferred =>
+                $"Startup build deferred — waiting {FormatDuration(liveDebounceMs)} for edits to settle{files}.",
+            PendingRebuildHoldReason.SupersededByNewEdits =>
+                $"Build cancelled — newer changes detected; rebuilding when edits settle{files}.",
+            _ => string.Empty
+        };
+    }
+
+    public static string FormatCountdownRemaining(DateTimeOffset? quietUntilUtc, DateTimeOffset utcNow)
+    {
+        if (quietUntilUtc is not { } quietUntil)
+        {
+            return string.Empty;
+        }
+
+        var remainingMs = (int)Math.Max(0, (quietUntil - utcNow).TotalMilliseconds);
+        if (remainingMs <= 0)
+        {
+            return "Rebuild starting…";
+        }
+
+        var remainingSeconds = (remainingMs + 999) / 1000;
+        return remainingSeconds == 1
+            ? "Rebuild in 1 s"
+            : $"Rebuild in {remainingSeconds} s";
+    }
+
+    public static string FormatPendingFileSample(IReadOnlyList<string>? paths, int totalCount)
+    {
+        if (paths is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        var shown = string.Join(", ", paths.Take(2));
+        if (totalCount > paths.Count)
+        {
+            return $" ({shown} +{totalCount - paths.Count} more)";
+        }
+
+        return $" ({shown})";
+    }
+
+    private static string FormatDuration(int milliseconds)
+    {
+        if (milliseconds < 1000)
+        {
+            return $"{milliseconds} ms";
+        }
+
+        var seconds = milliseconds / 1000.0;
+        return seconds < 60
+            ? $"{seconds:0.#} s"
+            : $"{(int)Math.Round(seconds / 60)} min";
+    }
+}

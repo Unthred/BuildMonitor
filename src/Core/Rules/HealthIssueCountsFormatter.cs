@@ -39,13 +39,19 @@ public static class HealthIssueCountsFormatter
         int buildErrors,
         int buildWarnings,
         int runErrors,
-        int runWarnings) =>
-        state is ProjectLifecycleState.Crashed
+        int runWarnings)
+    {
+        var isRunPhase = state is ProjectLifecycleState.Crashed
             or ProjectLifecycleState.Running
-            or ProjectLifecycleState.Watching
-            && (runErrors > 0 || runWarnings > 0 || state == ProjectLifecycleState.Crashed)
-            ? (runErrors, runWarnings)
-            : (buildErrors, buildWarnings);
+            or ProjectLifecycleState.Watching;
+
+        if (isRunPhase && (runErrors > 0 || runWarnings > 0 || state == ProjectLifecycleState.Crashed))
+        {
+            return (runErrors, runWarnings);
+        }
+
+        return (buildErrors, buildWarnings);
+    }
 
     public static string FormatFailurePhase(ProjectLifecycleState state) =>
         state switch

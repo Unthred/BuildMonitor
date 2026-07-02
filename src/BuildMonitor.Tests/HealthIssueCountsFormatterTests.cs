@@ -33,6 +33,20 @@ public class HealthIssueCountsFormatterTests
     }
 
     [Fact]
+    public void SelectPrimaryCounts_uses_build_warnings_when_running_with_clean_run_output()
+    {
+        var (errors, warnings) = HealthIssueCountsFormatter.SelectPrimaryCounts(
+            ProjectLifecycleState.Running,
+            0,
+            1067,
+            0,
+            0);
+
+        Assert.Equal(0, errors);
+        Assert.Equal(1067, warnings);
+    }
+
+    [Fact]
     public void FormatFailurePhase_maps_crashed_to_run_failed()
     {
         Assert.Equal("Run failed", HealthIssueCountsFormatter.FormatFailurePhase(ProjectLifecycleState.Crashed));

@@ -12,6 +12,7 @@ internal sealed class BuildLogMetadataDto
     public DateTimeOffset FinishedAtUtc { get; set; }
     public string LogFilePath { get; set; } = string.Empty;
     public int ErrorCount { get; set; }
+    public int WarningCount { get; set; }
     public List<string> ErrorLines { get; set; } = [];
 
     public BuildLogRecord ToRecord() => new(
@@ -23,5 +24,6 @@ internal sealed class BuildLogMetadataDto
         FinishedAtUtc,
         LogFilePath,
         ErrorCount,
-        ErrorLines);
+        ErrorLines,
+        WarningCount);
 }

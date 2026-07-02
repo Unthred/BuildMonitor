@@ -58,4 +58,63 @@ public class BuildLogParserTests
         Assert.Equal(2, BuildLogParser.ParseErrorCount(log));
         Assert.Equal(17, BuildLogParser.ParseWarningCount(log));
     }
+
+    [Fact]
+    public void ParseWarningCount_reads_incremental_health_note()
+    {
+        const string log = """
+            Build succeeded.
+                0 Warning(s)
+                0 Error(s)
+
+            [BuildMonitor] Incremental build — compiler skipped (outputs up-to-date). Tray health uses 1065 warning(s) from the previous full build log.
+            """;
+
+        Assert.Equal(1065, BuildLogParser.ParseWarningCount(log));
+    }
+
+    [Fact]
+    public void ParseErrorCount_finds_msbuild_error_before_build_failed_line()
+    {
+        const string log = """
+            [BuildMonitor] ===== Build #3 started 2026-06-24 10:00:00 — file change =====
+            C:\proj\Microsoft.NET.Sdk.StaticWebAssets.Compression.targets(269,5): error : The asset 'C:\proj\obj\Debug\net9.0\compressed\foo.gz' can not be found at any of the searched locations 'wwwroot\css\app.css'.
+            Build FAILED.
+            C:\proj\Microsoft.NET.Sdk.StaticWebAssets.Compression.targets(269,5): error : The asset 'C:\proj\obj\Debug\net9.0\compressed\foo.gz' can not be found at any of the searched locations 'wwwroot\css\app.css'.
+            """;
+
+        Assert.Equal(1, BuildLogParser.ParseErrorCount(log));
+    }
+
+    [Fact]
+    public void ResolveBuildIssues_falls_back_to_previous_log_when_incremental()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"bm-prev-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var currentPath = Path.Combine(dir, "last-build.log");
+        var prevPath = currentPath + ".prev";
+        try
+        {
+            File.WriteAllText(prevPath, """
+                C:\app\Foo.cs(1,1): warning CS8618: required [C:\app\app.csproj]
+
+                Build succeeded.
+                    1 Warning(s)
+                    0 Error(s)
+                """);
+            File.WriteAllText(currentPath, """
+                Build succeeded.
+                    0 Warning(s)
+                    0 Error(s)
+                """);
+
+            var issues = BuildLogParser.ResolveBuildIssues(File.ReadAllText(currentPath), currentPath);
+            Assert.Single(issues);
+            Assert.False(issues[0].IsError);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

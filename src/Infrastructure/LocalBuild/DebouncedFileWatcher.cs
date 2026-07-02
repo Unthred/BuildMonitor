@@ -14,6 +14,28 @@ public sealed class DebouncedFileWatcher : IDisposable
 
     public bool IsSuspended { get; private set; }
 
+    public bool HasPendingChanges
+    {
+        get
+        {
+            lock (pendingPathsSync)
+            {
+                return pendingPaths.Count > 0 || debounceTimer.Enabled;
+            }
+        }
+    }
+
+    public DateTimeOffset? BurstStartedUtc
+    {
+        get
+        {
+            lock (pendingPathsSync)
+            {
+                return burstStartedUtc;
+            }
+        }
+    }
+
     public DebouncedFileWatcher(string rootPath, int debounceMs, IEnumerable<string>? extraIgnoreSegments = null)
     {
         ignoreSegments = new HashSet<string>(

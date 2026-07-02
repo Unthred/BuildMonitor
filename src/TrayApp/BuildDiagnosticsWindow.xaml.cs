@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
@@ -11,6 +12,7 @@ using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Services;
 using BuildMonitor.TrayApp.Services;
 using WpfButton = System.Windows.Controls.Button;
+using WpfDataGrid = System.Windows.Controls.DataGrid;
 using WpfTextBox = System.Windows.Controls.TextBox;
 
 namespace BuildMonitor.TrayApp;
@@ -24,6 +26,10 @@ public partial class BuildDiagnosticsWindow : Window
     private readonly DispatcherTimer intelligenceRefreshTimer;
     private string? selectedProjectId;
     private bool suppressSelectionTracking;
+    private bool noteEditorFocused;
+    private bool refreshTriggersAfterNoteEdit;
+    private WpfDataGrid? activeTriggersGrid;
+    private DispatcherTimer? columnLayoutSaveTimer;
 
     public BuildDiagnosticsWindow(
         BuildTriggerJournal journal,
@@ -76,8 +82,54 @@ public partial class BuildDiagnosticsWindow : Window
         intelligenceRefreshTimer.Stop();
         journal.Changed -= OnJournalChanged;
         ThemeService.ThemeChanged -= OnThemeChanged;
+        CaptureTriggerGridColumnWidths();
         WindowLayoutService.Capture(this, windowsLayoutStore.Layout.Diagnostics);
         _ = windowsLayoutStore.SaveAsync();
+    }
+
+    private void TriggersGridLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfDataGrid grid)
+        {
+            return;
+        }
+
+        activeTriggersGrid = grid;
+        DiagnosticsGridLayoutService.ApplyColumnWidths(
+            grid,
+            windowsLayoutStore.Layout.Diagnostics.TriggerGridColumnWidths);
+    }
+
+    private void TriggersGridLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (sender is not WpfDataGrid grid || !grid.IsLoaded)
+        {
+            return;
+        }
+
+        columnLayoutSaveTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        columnLayoutSaveTimer.Tick -= ColumnLayoutSaveTick;
+        columnLayoutSaveTimer.Tick += ColumnLayoutSaveTick;
+        columnLayoutSaveTimer.Stop();
+        columnLayoutSaveTimer.Start();
+    }
+
+    private void ColumnLayoutSaveTick(object? sender, EventArgs e)
+    {
+        columnLayoutSaveTimer?.Stop();
+        CaptureTriggerGridColumnWidths();
+        _ = windowsLayoutStore.SaveAsync();
+    }
+
+    private void CaptureTriggerGridColumnWidths()
+    {
+        if (activeTriggersGrid is null)
+        {
+            return;
+        }
+
+        windowsLayoutStore.Layout.Diagnostics.TriggerGridColumnWidths =
+            DiagnosticsGridLayoutService.CaptureColumnWidths(activeTriggersGrid);
     }
 
     private void OnThemeChanged(ResolvedTheme theme) => ApplyTheme(theme);
@@ -98,16 +150,9 @@ public partial class BuildDiagnosticsWindow : Window
         var snapshots = orchestrator.GetBuildIntelligenceSnapshots();
         var unexpectedOnly = UnexpectedOnlyCheck.IsChecked == true;
         var entries = journal.GetEntries();
-        var projectIds = snapshots.Select(s => s.ProjectId)
-            .Concat(entries.Select(e => e.ProjectId))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
         var order = snapshots
             .OrderBy(s => s.ProjectDisplayName, StringComparer.OrdinalIgnoreCase)
             .Select(s => s.ProjectId)
-            .Concat(projectIds.Where(id => snapshots.All(s => !s.ProjectId.Equals(id, StringComparison.OrdinalIgnoreCase))))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         suppressSelectionTracking = true;
@@ -154,7 +199,14 @@ public partial class BuildDiagnosticsWindow : Window
                     new GlobalMonitorSettings(),
                     new FileChangeBurstStats());
 
-                tab.RefreshTriggers(entries, unexpectedOnly, journal);
+                if (!IsNoteEditorFocused())
+                {
+                    tab.RefreshTriggers(entries, unexpectedOnly, journal);
+                }
+                else
+                {
+                    refreshTriggersAfterNoteEdit = true;
+                }
             }
 
             var hasProjects = projectTabs.Count > 0;
@@ -208,12 +260,41 @@ public partial class BuildDiagnosticsWindow : Window
         }
     }
 
+    private void UserNoteGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfTextBox { Tag: BuildTriggerRowViewModel })
+        {
+            noteEditorFocused = true;
+        }
+    }
+
     private void UserNoteLostFocus(object sender, RoutedEventArgs e)
     {
-        if (sender is WpfTextBox { Tag: BuildTriggerRowViewModel row })
+        if (sender is not WpfTextBox { Tag: BuildTriggerRowViewModel row })
         {
-            row.SaveUserNote();
+            return;
         }
+
+        row.SaveUserNote();
+        noteEditorFocused = false;
+
+        if (!refreshTriggersAfterNoteEdit)
+        {
+            return;
+        }
+
+        refreshTriggersAfterNoteEdit = false;
+        RefreshAll();
+    }
+
+    private bool IsNoteEditorFocused()
+    {
+        if (noteEditorFocused)
+        {
+            return true;
+        }
+
+        return Keyboard.FocusedElement is WpfTextBox { Tag: BuildTriggerRowViewModel };
     }
 
     private void FilterChanged(object sender, RoutedEventArgs e) => RefreshAll();
@@ -274,16 +355,40 @@ public partial class BuildDiagnosticsWindow : Window
             bool unexpectedOnly,
             BuildTriggerJournal triggerJournal)
         {
-            Triggers.Clear();
-            foreach (var entry in entries.Where(e =>
-                         e.ProjectId.Equals(ProjectId, StringComparison.OrdinalIgnoreCase)))
+            var filtered = entries
+                .Where(e => e.ProjectId.Equals(ProjectId, StringComparison.OrdinalIgnoreCase))
+                .Where(e => !unexpectedOnly || e.Verdict == BuildTriggerVerdict.Unexpected)
+                .ToList();
+
+            var desiredIds = new HashSet<string>(
+                filtered.Select(e => e.Id),
+                StringComparer.OrdinalIgnoreCase);
+
+            for (var i = Triggers.Count - 1; i >= 0; i--)
             {
-                if (unexpectedOnly && entry.Verdict != BuildTriggerVerdict.Unexpected)
+                if (!desiredIds.Contains(Triggers[i].Record.Id))
                 {
+                    Triggers.RemoveAt(i);
+                }
+            }
+
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                var entry = filtered[i];
+                var existing = Triggers.FirstOrDefault(t =>
+                    t.Record.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing is null)
+                {
+                    Triggers.Insert(i, new BuildTriggerRowViewModel(entry, triggerJournal));
                     continue;
                 }
 
-                Triggers.Add(new BuildTriggerRowViewModel(entry, triggerJournal));
+                existing.SyncFrom(entry);
+                var currentIndex = Triggers.IndexOf(existing);
+                if (currentIndex != i)
+                {
+                    Triggers.Move(currentIndex, i);
+                }
             }
         }
 
@@ -294,16 +399,17 @@ public partial class BuildDiagnosticsWindow : Window
     private sealed class BuildTriggerRowViewModel : INotifyPropertyChanged
     {
         private readonly BuildTriggerJournal journal;
+        private BuildTriggerRecord record;
         private string userNote;
 
         public BuildTriggerRowViewModel(BuildTriggerRecord record, BuildTriggerJournal journal)
         {
-            Record = record;
+            this.record = record;
             this.journal = journal;
             userNote = record.UserNote ?? string.Empty;
         }
 
-        public BuildTriggerRecord Record { get; }
+        public BuildTriggerRecord Record => record;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -349,7 +455,56 @@ public partial class BuildDiagnosticsWindow : Window
             }
         }
 
-        public void SaveUserNote() => journal.SetUserNote(Record.Id, userNote);
+        public void SaveUserNote() => journal.SetUserNote(record.Id, userNote);
+
+        public void SyncFrom(BuildTriggerRecord latest)
+        {
+            if (record.Id.Equals(latest.Id, StringComparison.OrdinalIgnoreCase)
+                && record.Verdict == latest.Verdict
+                && string.Equals(record.UserNote, latest.UserNote, StringComparison.Ordinal)
+                && string.Equals(record.Summary, latest.Summary, StringComparison.Ordinal)
+                && string.Equals(record.Detail, latest.Detail, StringComparison.Ordinal)
+                && string.Equals(record.InferredCause, latest.InferredCause, StringComparison.Ordinal)
+                && record.OccurredAtUtc == latest.OccurredAtUtc
+                && PathsEqual(record.ChangedPaths, latest.ChangedPaths))
+            {
+                return;
+            }
+
+            record = latest;
+            userNote = latest.UserNote ?? string.Empty;
+            OnPropertyChanged(nameof(WhenLocal));
+            OnPropertyChanged(nameof(KindLabel));
+            OnPropertyChanged(nameof(Summary));
+            OnPropertyChanged(nameof(InferredCause));
+            OnPropertyChanged(nameof(Detail));
+            OnPropertyChanged(nameof(ChangedPathsText));
+            OnPropertyChanged(nameof(VerdictLabel));
+            OnPropertyChanged(nameof(UserNote));
+        }
+
+        private static bool PathsEqual(IReadOnlyList<string>? left, IReadOnlyList<string>? right)
+        {
+            if (left is null || left.Count == 0)
+            {
+                return right is null || right.Count == 0;
+            }
+
+            if (right is null || left.Count != right.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
 
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

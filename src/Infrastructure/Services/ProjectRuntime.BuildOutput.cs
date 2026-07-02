@@ -188,8 +188,7 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
-        var parsedErrors = BuildLogParser.ParseErrorCount(output);
-        var parsedWarnings = BuildLogParser.ParseWarningCount(output);
+        var (parsedErrors, parsedWarnings) = CountLiveBuildIssues(output);
         if (parsedErrors == buildErrorCount && parsedWarnings == buildWarningCount)
         {
             return false;
@@ -222,8 +221,10 @@ internal sealed partial class ProjectRuntime
                 : liveBuildOutput.ToString();
         }
 
-        var parsedErrors = BuildLogParser.ParseErrorCount(output);
-        var parsedWarnings = BuildLogParser.ParseWarningCount(output);
+        var normalized = BuildLogTextNormalizer.Normalize(output);
+        var (parsedErrors, parsedWarnings) = state == ProjectLifecycleState.Testing
+            ? CountLiveIssues(BuildLogKind.Test, normalized)
+            : CountLiveBuildIssues(normalized);
         if (parsedErrors == buildErrorCount && parsedWarnings == buildWarningCount)
         {
             return false;
@@ -236,9 +237,11 @@ internal sealed partial class ProjectRuntime
 
     private void NotifyProgressChanged(bool force = false) =>
         RequestHealthCoalesce(force);
-    private List<string> BuildProjectArgs()
+
+    private List<string> BuildProjectArgs(bool forceFullRebuild = false)
     {
         var args = new List<string> { "build", ResolveProjectFileArg() };
+        DotNetBuildArguments.ApplyFullRebuildFlag(args, forceFullRebuild);
         AppendExtraArgs(args);
         return args;
     }

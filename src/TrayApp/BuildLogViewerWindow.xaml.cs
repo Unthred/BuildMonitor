@@ -37,6 +37,9 @@ public partial class BuildLogViewerWindow : Window
     private BuildLogViewerLayoutState windowState = new();
     private BuildLogKind currentLogKind = BuildLogKind.Build;
     private bool splitterRatioApplied;
+    private bool issuesCarriedFromPreviousBuild;
+    private int resolvedDisplayErrorCount;
+    private int resolvedDisplayWarningCount;
     private bool wasLive;
     private bool wasWatchLive;
     private int lastRenderedRevision = -1;
@@ -164,6 +167,30 @@ public partial class BuildLogViewerWindow : Window
         Apply();
     }
 
+    public void SelectWarningsFilter()
+    {
+        void Apply()
+        {
+            FilterWarningsRadio.IsChecked = true;
+            ApplyIssueFilter(selectFirstIssue: true);
+        }
+
+        if (!IsLoaded)
+        {
+            Loaded += OnLoadedSelectWarnings;
+
+            void OnLoadedSelectWarnings(object? sender, RoutedEventArgs e)
+            {
+                Loaded -= OnLoadedSelectWarnings;
+                Apply();
+            }
+
+            return;
+        }
+
+        Apply();
+    }
+
     private async void LogKindChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded)
@@ -240,6 +267,7 @@ public partial class BuildLogViewerWindow : Window
         currentLogKind = kind;
         allIssues = ParseIssuesForCurrentLog();
         RenderLogText();
+        RefreshResolvedIssueCounts(live);
         ApplyIssueFilter();
 
         BuildTimeText.Text = live.State switch
@@ -250,8 +278,8 @@ public partial class BuildLogViewerWindow : Window
             _ => "Build in progress…"
         };
         FooterText.Text = FormatFooterText(
-            allIssues.Count(i => i.IsError),
-            allIssues.Count(i => !i.IsError),
+            resolvedDisplayErrorCount,
+            resolvedDisplayWarningCount,
             isLive: true);
 
         if (followTail)
@@ -300,10 +328,9 @@ public partial class BuildLogViewerWindow : Window
             await logStore.LoadLogTextAsync(currentRecord, maxDisplayBytes));
         allIssues = ParseIssuesForCurrentLog();
         RenderLogText();
+        RefreshResolvedIssueCounts();
         ApplyIssueFilter(selectFirstIssue: allIssues.Count > 0);
 
-        var errorCount = allIssues.Count(i => i.IsError);
-        var warningCount = allIssues.Count(i => !i.IsError);
         var finishedLocal = BuildTimestampFormatter.FormatLocal(currentRecord.FinishedAtUtc);
         var kindLabel = kind switch
         {
@@ -313,7 +340,7 @@ public partial class BuildLogViewerWindow : Window
         };
         BuildTimeText.Text = $"{kindLabel}: {finishedLocal}";
         FooterText.Text =
-            $"{currentRecord.CommandLine} | exit {currentRecord.ExitCode} | {FormatFooterText(errorCount, warningCount, isLive: false)} | duration {currentRecord.FinishedAtUtc - currentRecord.StartedAtUtc:g}";
+            $"{currentRecord.CommandLine} | exit {currentRecord.ExitCode} | {FormatFooterText(resolvedDisplayErrorCount, resolvedDisplayWarningCount, isLive: false)} | duration {currentRecord.FinishedAtUtc - currentRecord.StartedAtUtc:g}";
 
         if (ShouldFollowOutput())
         {
@@ -373,21 +400,25 @@ public partial class BuildLogViewerWindow : Window
 
         ErrorsList.ItemsSource = visibleIssues;
 
-        var errorCount = allIssues.Count(i => i.IsError);
-        var warningCount = allIssues.Count(i => !i.IsError);
+        var errorCount = resolvedDisplayErrorCount;
+        var warningCount = resolvedDisplayWarningCount;
         UpdateErrorBanner(errorCount);
+
+        var carryNote = issuesCarriedFromPreviousBuild
+            ? " — issues from last full compile (this build reported 0/0)"
+            : string.Empty;
 
         IssueSummaryText.Text = filter switch
         {
             IssueFilter.Errors => currentLogKind == BuildLogKind.Test
-                ? FormatIssueCountLabel("failure", "failures", visibleIssues.Count, errorCount)
-                : FormatIssueCountLabel("error", "errors", visibleIssues.Count, errorCount),
+                ? FormatIssueCountLabel("failure", "failures", visibleIssues.Count, errorCount) + carryNote
+                : FormatIssueCountLabel("error", "errors", visibleIssues.Count, errorCount) + carryNote,
             IssueFilter.Warnings => currentLogKind == BuildLogKind.Test
-                ? FormatIssueCountLabel("skipped test", "skipped tests", visibleIssues.Count, warningCount)
-                : FormatIssueCountLabel("warning", "warnings", visibleIssues.Count, warningCount),
+                ? FormatIssueCountLabel("skipped test", "skipped tests", visibleIssues.Count, warningCount) + carryNote
+                : FormatIssueCountLabel("warning", "warnings", visibleIssues.Count, warningCount) + carryNote,
             _ => currentLogKind == BuildLogKind.Test
-                ? $"{errorCount} failed, {warningCount} skipped"
-                : $"{errorCount} errors, {warningCount} warnings",
+                ? $"{errorCount} failed, {warningCount} skipped{carryNote}"
+                : $"{errorCount} errors, {warningCount} warnings{carryNote}",
         };
 
         if (filter == IssueFilter.Errors && errorCount == 0)
@@ -407,13 +438,49 @@ public partial class BuildLogViewerWindow : Window
         }
     }
 
-    private IReadOnlyList<LogIssue> ParseIssuesForCurrentLog() =>
-        currentLogKind switch
+    private IReadOnlyList<LogIssue> ParseIssuesForCurrentLog()
+    {
+        var logPath = currentRecord?.LogFilePath ?? logStore.GetLogPath(projectId, currentLogKind);
+        return currentLogKind switch
         {
             BuildLogKind.Test => DotNetTestOutputParser.ParseIssues(currentLogText),
             BuildLogKind.Run => DotNetRunOutputParser.ParseIssues(currentLogText),
-            _ => BuildLogParser.ParseIssues(currentLogText)
+            _ => BuildLogParser.ResolveBuildIssues(currentLogText, logPath)
         };
+    }
+
+    private void RefreshResolvedIssueCounts(LiveBuildLogView? live = null)
+    {
+        var parsedErrors = allIssues.Count(i => i.IsError);
+        var parsedWarnings = allIssues.Count(i => !i.IsError);
+
+        if (currentLogKind is BuildLogKind.Test or BuildLogKind.Run)
+        {
+            issuesCarriedFromPreviousBuild = false;
+            resolvedDisplayErrorCount = parsedErrors;
+            resolvedDisplayWarningCount = parsedWarnings;
+            return;
+        }
+
+        var logPath = currentRecord?.LogFilePath ?? logStore.GetLogPath(projectId, currentLogKind);
+        var resolved = BuildIssueCountResolver.Resolve(currentLogText, logPath);
+        var metaErrors = live?.ErrorCount ?? currentRecord?.ErrorCount ?? 0;
+        var metaWarnings = live?.WarningCount ?? currentRecord?.WarningCount ?? 0;
+        var note = BuildLogParser.TryParseIncrementalHealthNote(currentLogText);
+
+        resolvedDisplayErrorCount = Math.Max(
+            parsedErrors,
+            Math.Max(metaErrors, Math.Max(note.Errors, resolved.Errors)));
+        resolvedDisplayWarningCount = Math.Max(
+            parsedWarnings,
+            Math.Max(metaWarnings, Math.Max(note.Warnings, resolved.Warnings)));
+
+        issuesCarriedFromPreviousBuild =
+            IncrementalBuildDetector.WasCompileSkipped(currentLogText)
+            && resolvedDisplayWarningCount + resolvedDisplayErrorCount > 0
+            && BuildLogParser.ParseWarningCount(currentLogText) == 0
+            && BuildLogParser.ParseErrorCount(currentLogText) == 0;
+    }
 
     private string FormatFooterText(int errorCount, int warningCount, bool isLive)
     {

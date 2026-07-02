@@ -30,6 +30,7 @@ public partial class SettingsWindow : Window
 
         RunModeCombo.ItemsSource = Enum.GetValues<ProjectRunMode>();
         RunTestsCombo.ItemsSource = Enum.GetValues<TestRunTrigger>();
+        AutoOpenLogCombo.ItemsSource = Enum.GetValues<AutoOpenLogMode>();
         FileChangesCombo.ItemsSource = Enum.GetValues<FileChangeMode>();
         ThemeCombo.ItemsSource = Enum.GetValues<AppThemePreference>();
         ThemeCombo.SelectedItem = Settings.AppBehavior.Theme;
@@ -52,8 +53,10 @@ public partial class SettingsWindow : Window
         DebounceModeCombo.SelectedItem = Settings.Monitor.FileChangeDebounceMode;
         UpdateDebounceModeUi();
         CoalesceWatchRebuildsCheck.IsChecked = Settings.Monitor.CoalesceWatchRebuilds;
+        DeferStartupBuildUntilQuietCheck.IsChecked = Settings.Monitor.DeferStartupBuildUntilQuiet;
+        CancelSupersededBuildsCheck.IsChecked = Settings.Monitor.CancelSupersededBuilds;
+        UseAgentTranscriptActivityCheck.IsChecked = Settings.Monitor.UseAgentTranscriptActivity;
         HealthRefreshText.Text = Settings.Monitor.HealthRefreshSeconds.ToString();
-        AutoOpenLogCheck.IsChecked = Settings.Monitor.AutoOpenLogOnFailure;
         AutoOpenBuildMonitorHealthCheck.IsChecked = Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
         PlaySoundOnErrorCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildError;
         PlaySoundOnSuccessCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildSuccess;
@@ -149,6 +152,8 @@ public partial class SettingsWindow : Window
             AutoRestartOnHotReloadRequestCheck.IsChecked = project.RunOptions.AutoRestartOnHotReloadRequest;
             RestartAppAfterRebuildCheck.IsChecked = project.RunOptions.RestartAppAfterRebuild;
             RunTestsCombo.SelectedItem = project.RunOptions.RunTests;
+            AutoOpenLogCombo.SelectedItem = project.RunOptions.AutoOpenLog;
+            ShowStatusPanelWhileBuildingCheck.IsChecked = project.RunOptions.ShowStatusPanelWhileBuilding;
             FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
             WatchExcludeSegmentsText.Text = project.RunOptions.WatchExcludeSegments;
             ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
@@ -316,6 +321,8 @@ public partial class SettingsWindow : Window
         selectedProject.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
 
         selectedProject.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
+        selectedProject.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
+        selectedProject.RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
         selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
         selectedProject.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
         selectedProject.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
@@ -420,7 +427,9 @@ public partial class SettingsWindow : Window
         }
 
         Settings.Monitor.CoalesceWatchRebuilds = CoalesceWatchRebuildsCheck.IsChecked == true;
-        Settings.Monitor.AutoOpenLogOnFailure = AutoOpenLogCheck.IsChecked == true;
+        Settings.Monitor.DeferStartupBuildUntilQuiet = DeferStartupBuildUntilQuietCheck.IsChecked == true;
+        Settings.Monitor.CancelSupersededBuilds = CancelSupersededBuildsCheck.IsChecked == true;
+        Settings.Monitor.UseAgentTranscriptActivity = UseAgentTranscriptActivityCheck.IsChecked == true;
         Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = AutoOpenBuildMonitorHealthCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildError = PlaySoundOnErrorCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildSuccess = PlaySoundOnSuccessCheck.IsChecked == true;

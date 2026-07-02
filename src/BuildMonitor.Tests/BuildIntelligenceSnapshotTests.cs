@@ -1,3 +1,4 @@
+using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
@@ -115,13 +116,65 @@ public sealed class BuildIntelligenceSnapshotTests
         Assert.Equal(1.0, snapshot.BurstBars.Last().HeightRatio, 3);
     }
 
+    [Fact]
+    public void NextRebuildReasonText_timer_reset_mentions_files_and_restart()
+    {
+        var snapshot = CreateSnapshot(
+            pendingFileChangeRebuild: true,
+            rebuildQuietUntilUtc: DateTimeOffset.UtcNow.AddSeconds(3),
+            holdReason: PendingRebuildHoldReason.EditsStillArriving,
+            pendingRebuildFileCount: 3,
+            pendingRebuildSamplePaths: ["Foo.cs", "Bar.cs"],
+            rebuildTimerResetCount: 2);
+
+        Assert.Contains("Wait timer reset", snapshot.NextRebuildReasonText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("3 file(s)", snapshot.NextRebuildReasonText, StringComparison.Ordinal);
+        Assert.Contains("Quiet period restarted", snapshot.NextRebuildReasonText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Foo.cs", snapshot.NextRebuildReasonText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NextRebuildReasonText_build_in_progress_explains_wait()
+    {
+        var snapshot = CreateSnapshot(
+            pendingFileChangeRebuild: true,
+            holdReason: PendingRebuildHoldReason.BuildInProgress);
+
+        Assert.Contains("current build", snapshot.NextRebuildReasonText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NextRebuildReasonText_startup_deferred_mentions_quiet_period()
+    {
+        var snapshot = CreateSnapshot(
+            pendingFileChangeRebuild: true,
+            holdReason: PendingRebuildHoldReason.StartupDeferred);
+
+        Assert.Contains("Startup build deferred", snapshot.NextRebuildReasonText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(new[] { "src/A.cs" }, 1, " (src/A.cs)")]
+    [InlineData(new[] { "A.cs", "B.cs" }, 4, " (A.cs, B.cs +2 more)")]
+    public void FormatPendingFileSample_formats_path_suffix(
+        string[] paths,
+        int totalCount,
+        string expectedSuffix) =>
+        Assert.EndsWith(
+            expectedSuffix,
+            BuildIntelligenceSnapshot.FormatPendingFileSample(paths, totalCount));
+
     private static BuildIntelligenceSnapshot CreateSnapshot(
         FileChangeDebounceMode debounceMode = FileChangeDebounceMode.Auto,
         int baseEffectiveDebounceMs = 3000,
         int liveEffectiveDebounceMs = 3000,
         int recentFileChangeBuildsIn90s = 0,
         bool pendingFileChangeRebuild = false,
-        DateTimeOffset? rebuildQuietUntilUtc = null) =>
+        DateTimeOffset? rebuildQuietUntilUtc = null,
+        PendingRebuildHoldReason holdReason = PendingRebuildHoldReason.None,
+        int pendingRebuildFileCount = 0,
+        IReadOnlyList<string>? pendingRebuildSamplePaths = null,
+        int rebuildTimerResetCount = 0) =>
         BuildIntelligenceSnapshot.Create(
             SampleProject(),
             new GlobalMonitorSettings { FileChangeDebounceMode = debounceMode },
@@ -134,7 +187,11 @@ public sealed class BuildIntelligenceSnapshotTests
             coalesceWatchRebuilds: true,
             lastMeaningfulFileChangeUtc: null,
             pendingFileChangeRebuild: pendingFileChangeRebuild,
-            rebuildQuietUntilUtc: rebuildQuietUntilUtc);
+            rebuildQuietUntilUtc: rebuildQuietUntilUtc,
+            holdReason: holdReason,
+            pendingRebuildFileCount: pendingRebuildFileCount,
+            pendingRebuildSamplePaths: pendingRebuildSamplePaths,
+            rebuildTimerResetCount: rebuildTimerResetCount);
 
     private static LocalProjectDefinition SampleProject() => new()
     {

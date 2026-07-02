@@ -26,6 +26,14 @@ public static class BuildLogParser
         @"\berror\s+(CS|MSB|NU|BC|SA|IDE|CA|FS|VB|AD|SYSLIB|NETSDK|CS)\d+\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    private static readonly Regex IncrementalHealthWarningRegex = new(
+        @"(\d+)\s+warning\(s\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex IncrementalHealthErrorRegex = new(
+        @"(\d+)\s+error\(s\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex CompilerWarningRegex = new(
         @"\bwarning\s+(CS|MSB|NU|BC|SA|IDE|CA|FS|VB|AD|SYSLIB|NETSDK|CS)\d+\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -92,16 +100,109 @@ public static class BuildLogParser
         return (ParseErrorCount(logText), errors);
     }
 
-    public static int ParseErrorCount(string logText)
+    public static int ParseWarningCount(string logText)
     {
         var segment = ExtractLatestBuildResultSegment(logText);
-        var summary = ParseBuildSummaryCount(segment, warnings: false);
-        if (summary >= 0)
+        var summary = ParseBuildSummaryCount(segment, warnings: true);
+        if (summary > 0)
         {
             return summary;
         }
 
-        return ParseIssues(segment).Count(i => i.IsError);
+        var fromIssues = ParseIssues(segment).Count(i => !i.IsError);
+        if (fromIssues > 0)
+        {
+            return fromIssues;
+        }
+
+        var fromNote = TryParseIncrementalHealthNote(logText);
+        return fromNote.Warnings > 0 ? fromNote.Warnings : summary >= 0 ? summary : 0;
+    }
+
+    public static int ParseErrorCount(string logText)
+    {
+        var segment = ExtractLatestBuildResultSegment(logText);
+        var summary = ParseBuildSummaryCount(segment, warnings: false);
+        if (summary > 0)
+        {
+            return summary;
+        }
+
+        var fromIssues = ParseIssues(segment)
+            .Where(i => i.IsError)
+            .Select(i => i.Text)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        if (fromIssues > 0)
+        {
+            return fromIssues;
+        }
+
+        var fromNote = TryParseIncrementalHealthNote(logText);
+        return fromNote.Errors > 0 ? fromNote.Errors : summary >= 0 ? summary : 0;
+    }
+
+    /// <summary>Reads resolved tray-health counts from a BuildMonitor incremental-build note line.</summary>
+    public static (int Errors, int Warnings) TryParseIncrementalHealthNote(string logText)
+    {
+        if (string.IsNullOrWhiteSpace(logText))
+        {
+            return (0, 0);
+        }
+
+        var marker = "Tray health uses";
+        var index = logText.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return (0, 0);
+        }
+
+        var note = logText[index..];
+        var warnings = ParseLastMatchCount(note, IncrementalHealthWarningRegex);
+        var errors = ParseLastMatchCount(note, IncrementalHealthErrorRegex);
+        return (Math.Max(0, errors), Math.Max(0, warnings));
+    }
+
+    /// <summary>
+    /// Returns compiler issues from the log, or from the previous on-disk build log when this build was incremental.
+    /// </summary>
+    public static IReadOnlyList<LogIssue> ResolveBuildIssues(string logText, string? logFilePath)
+    {
+        var issues = ParseIssues(logText);
+        if (issues.Count > 0 || !IncrementalBuildDetector.WasCompileSkipped(logText))
+        {
+            return issues;
+        }
+
+        if (string.IsNullOrWhiteSpace(logFilePath))
+        {
+            return issues;
+        }
+
+        var prevPath = logFilePath + ".prev";
+        if (!File.Exists(prevPath))
+        {
+            return issues;
+        }
+
+        var previousIssues = ParseIssues(File.ReadAllText(prevPath));
+        return previousIssues.Count > 0 ? previousIssues : issues;
+    }
+
+    internal static IEnumerable<string> CandidatePreviousLogPaths(string? logFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(logFilePath))
+        {
+            yield break;
+        }
+
+        yield return logFilePath;
+
+        var previous = logFilePath + ".prev";
+        if (!string.Equals(previous, logFilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return previous;
+        }
     }
 
     public static bool IsOutputLockError(string logText)
@@ -115,20 +216,10 @@ public static class BuildLogParser
             logText.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
-    public static int ParseWarningCount(string logText)
-    {
-        var segment = ExtractLatestBuildResultSegment(logText);
-        var summary = ParseBuildSummaryCount(segment, warnings: true);
-        if (summary >= 0)
-        {
-            return summary;
-        }
-
-        return ParseIssues(segment).Count(i => !i.IsError);
-    }
-
     /// <summary>
     /// Limits parsing to the most recent MSBuild result in accumulated dotnet watch output.
+    /// When BuildMonitor banners are present, uses the latest build block so errors above
+    /// <c>Build FAILED</c> are not dropped from count/issue parsing.
     /// </summary>
     internal static string ExtractLatestBuildResultSegment(string logText)
     {
@@ -138,11 +229,46 @@ public static class BuildLogParser
         }
 
         var normalized = logText.Replace("\r\n", "\n");
+        const string buildBanner = "[BuildMonitor] ===== Build #";
+        var lastBanner = normalized.LastIndexOf(buildBanner, StringComparison.Ordinal);
+        if (lastBanner >= 0)
+        {
+            return normalized[lastBanner..];
+        }
+
         var lastSucceeded = normalized.LastIndexOf("Build succeeded", StringComparison.OrdinalIgnoreCase);
         var lastFailed = normalized.LastIndexOf("Build FAILED", StringComparison.OrdinalIgnoreCase);
         var lastFailedSentence = normalized.LastIndexOf("The build failed", StringComparison.OrdinalIgnoreCase);
         var start = Math.Max(Math.Max(lastSucceeded, lastFailed), lastFailedSentence);
-        return start < 0 ? normalized : normalized[start..];
+        if (start < 0)
+        {
+            return normalized;
+        }
+
+        if (lastFailed >= 0 && start == lastFailed)
+        {
+            // MSBuild prints diagnostics before the Build FAILED line — include them.
+            var lineStart = lastFailed > 0
+                ? normalized.LastIndexOf('\n', lastFailed - 1)
+                : -1;
+            var searchFrom = lineStart >= 0 ? lineStart + 1 : 0;
+            var previousFailedEnd = lastFailed > 0 ? lastFailed - 1 : 0;
+            var previousBoundary = Math.Max(
+                normalized.LastIndexOf(buildBanner, lastFailed, StringComparison.Ordinal),
+                Math.Max(
+                    normalized.LastIndexOf("Build succeeded", lastFailed, StringComparison.OrdinalIgnoreCase),
+                    lastFailed > 0
+                        ? normalized.LastIndexOf("Build FAILED", previousFailedEnd, StringComparison.OrdinalIgnoreCase)
+                        : -1));
+            if (previousBoundary >= 0 && previousBoundary < lastFailed)
+            {
+                searchFrom = previousBoundary;
+            }
+
+            return normalized[searchFrom..];
+        }
+
+        return normalized[start..];
     }
 
     /// <summary>
@@ -272,11 +398,19 @@ public static class BuildLogParser
         return int.Parse(matches[^1].Groups[1].Value);
     }
 
-    private static bool IsSummaryLine(string line) =>
-        ClassicErrorSummaryRegex.IsMatch(line)
-        || ClassicWarningSummaryRegex.IsMatch(line)
-        || TerminalErrorCountRegex.IsMatch(line)
-        || TerminalWarningCountRegex.IsMatch(line);
+    private static bool IsSummaryLine(string line)
+    {
+        var trimmed = line.TrimEnd('.', ' ');
+        if (trimmed.Equals("Build FAILED", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return ClassicErrorSummaryRegex.IsMatch(line)
+            || ClassicWarningSummaryRegex.IsMatch(line)
+            || TerminalErrorCountRegex.IsMatch(line)
+            || TerminalWarningCountRegex.IsMatch(line);
+    }
 
     private static bool IsErrorLine(string line) =>
         ErrorMarkers.Any(marker => line.Contains(marker, StringComparison.OrdinalIgnoreCase))
