@@ -72,20 +72,33 @@ public sealed class ProjectOrchestrator : IDisposable
         lock (sync)
         {
             var monitor = settings.Monitor;
+            var activeProjects = settings.Projects
+                .Where(p => p.IsActiveInSession)
+                .ToList();
+            var activeIds = new HashSet<string>(
+                activeProjects.Select(p => p.Id),
+                StringComparer.OrdinalIgnoreCase);
+            var triggerCounts = triggerJournal.GetEntries()
+                .GroupBy(e => e.ProjectId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
             var snapshots = new List<BuildIntelligenceSnapshot>();
-            var activeIds = new HashSet<string>(runtimes.Keys, StringComparer.OrdinalIgnoreCase);
 
-            foreach (var runtime in runtimes.Values)
+            foreach (var runtime in runtimes.Values.Where(r => activeIds.Contains(r.ProjectId)))
             {
-                snapshots.Add(runtime.GetIntelligenceSnapshot(monitor));
+                var count = triggerCounts.GetValueOrDefault(runtime.ProjectId);
+                snapshots.Add(runtime.GetIntelligenceSnapshot(monitor, count));
             }
 
-            foreach (var project in settings.Projects.Where(p => !activeIds.Contains(p.Id)))
+            foreach (var project in activeProjects.Where(p => !runtimes.ContainsKey(p.Id)))
             {
+                var count = triggerCounts.GetValueOrDefault(project.Id);
                 snapshots.Add(BuildIntelligenceSnapshot.FromStoredStats(
                     project,
                     monitor,
-                    burstStatsStore.GetOrDefault(project.Id)));
+                    burstStatsStore.GetOrDefault(project.Id)) with
+                {
+                    TodayTriggerCount = count
+                });
             }
 
             return snapshots

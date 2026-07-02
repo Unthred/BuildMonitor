@@ -24,7 +24,16 @@ public static class WatchIgnoreRules
         ".bak",
         ".swp",
         ".mdb",
-        ".meta"
+        ".meta",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".bmp",
+        ".avif"
     };
 
     private static readonly HashSet<string> IgnoredFileNames = new(StringComparer.OrdinalIgnoreCase)

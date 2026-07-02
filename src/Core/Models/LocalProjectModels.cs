@@ -32,7 +32,9 @@ public enum ProjectLifecycleState
     Crashed = 6,
     Testing = 7,
     TestFailed = 8,
-    TestOk = 9
+    TestOk = 9,
+    /// <summary>Waiting for source edits to settle before building.</summary>
+    WaitingForEdits = 10
 }
 
 public enum BuildLogKind
@@ -70,7 +72,8 @@ public sealed record BuildLogRecord(
     DateTimeOffset FinishedAtUtc,
     string LogFilePath,
     int ErrorCount,
-    IReadOnlyList<string> ErrorLines);
+    IReadOnlyList<string> ErrorLines,
+    int WarningCount = 0);
 
 public sealed record LiveBuildLogView(
     string Text,
@@ -100,7 +103,10 @@ public sealed record ProjectHealthSnapshot(
     bool SupportsAppRestart = false,
     string? IssueCountsText = null,
     string? FailurePhase = null,
-    bool IsRestarting = false);
+    bool IsRestarting = false,
+    bool IsEditGatingActive = false,
+    string? EditGatingDetailText = null,
+    DateTimeOffset? RebuildQuietUntilUtc = null);
 
 public enum BuildTriggerKind
 {

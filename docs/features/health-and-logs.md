@@ -11,10 +11,17 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 3 | Tray receives immutable snapshot list at bounded rate | `ProjectOrchestrator.HealthUpdated` → `App.OnHealthUpdated` (`ApplicationIdle`, coalesced) |
 | 4 | Run/watch output updates `runErrorCount` / `runWarningCount` | `DotNetRunOutputParser`, `OnRunProcessOutputLine` (coalesced same as build) |
 | 5 | Snapshot picks display counts by lifecycle state | `HealthIssueCountsFormatter.SelectPrimaryCounts` |
-| 6 | Tray tooltip uses headline project + failure phase + error preview | `App.FormatTrayTooltip` |
+| 5b | Incremental file builds with 0/0 MSBuild summary reuse counts from metadata, `.prev`, or the BuildMonitor incremental note | `IncrementalBuildDetector`, `BuildIssueCountResolver`, `BuildLogStore` |
+| 5c | **Startup**, **Rebuild**, and **Rebuild & restart** pass `--no-incremental` so MSBuild recompiles and reports real warning/error counts | `DotNetBuildArguments` |
+| 5d | Post-build tests no longer clear build warning/error counts used for tray health | `ProjectRuntime.TestAsync` |
+| 5e | **Agent-aware build suppression** — defer startup until edits settle; cancel superseded startup/file-change builds; optional agent-transcript activity signal | `EditActivityEvaluator`, `BuildSuppressionPolicy`, `ProjectRuntime` |
+| 5f | Edit gating auto-shows status panel with hold detail + countdown | `App.AutoShowStatusPanelForEditGating`, `HoverStatusPanel` |
+| 6 | Tray hover opens the status panel (project health, counts, gating detail, actions); native shell tooltip is suppressed | `HoverStatusPanel`, `TrayIconShellInterop` |
 | 7 | Status panel shows `IssueCountsText` (build vs run context) | `HoverStatusPanel` |
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
-| 9 | Failure auto-opens log on correct tab + Errors filter | `App.AutoOpenLogsOnFailureTransition` |
+| 8b | Log viewer footer and issues summary use the same resolved counts (metadata, `.prev`, incremental note); incremental 0/0 builds show a carry-forward note in the issues pane | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
+| 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`) | `App.AutoOpenLogsOnTransition`, `AutoOpenLogTransitionEvaluator` |
+| 9b | Auto-show status panel while building (per project, default off) | `App.AutoShowStatusPanelWhileBuilding`, `StatusPanelBuildVisibilityEvaluator` |
 | 10 | **Restart app** stops run/watch and starts with `--no-build` | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: false)` |
 | 11 | **Rebuild & restart** runs full build then starts app | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: true)` |
 | 12 | Hot-reload “requires restart/rebuild” lines trigger auto-restart when enabled | `HotReloadRestartDetector`, `ProjectRuntime.TryHandleHotReloadRestartRequest` |
@@ -38,7 +45,7 @@ Per-project dirty flags; up to `MaxConcurrentActiveProjects` (default 3) share o
 
 **Extension points:** add run-error heuristics in `DotNetRunOutputParser`; adjust status formatting in `HealthIssueCountsFormatter`.
 
-**Failure / fallback:** tray tooltip truncated to 63 characters; issue scroll uses text-match fallback when line index drifts after log truncation.
+**Failure / fallback:** native shell tooltip is suppressed via empty `NotifyIcon.Text` (custom hint only). `TrayIconShellInterop` resolves icon bounds for hint dismiss. Issue scroll uses text-match fallback when line index drifts after log truncation.
 
 ## Watch excludes (dotnet watch)
 

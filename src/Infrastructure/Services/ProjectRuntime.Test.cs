@@ -39,6 +39,8 @@ internal sealed partial class ProjectRuntime
         var wasRunProcessActive = runProcess?.IsRunning == true;
         var releaseLocksSetting = definition.RunOptions.ReleaseOutputLocksBeforeBuild;
         var stoppedAppForTests = false;
+        var preservedBuildErrors = buildErrorCount;
+        var preservedBuildWarnings = buildWarningCount;
 
         fileWatcher?.Suspend();
         fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddMinutes(2);
@@ -142,6 +144,8 @@ internal sealed partial class ProjectRuntime
 
             if (effectiveExitCode == 0)
             {
+                buildErrorCount = preservedBuildErrors;
+                buildWarningCount = preservedBuildWarnings;
                 SetState(ProjectLifecycleState.TestOk);
             }
             else

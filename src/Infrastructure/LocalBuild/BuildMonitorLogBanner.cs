@@ -14,6 +14,24 @@ public static class BuildMonitorLogBanner
         return $"[BuildMonitor] ===== Build #{buildNumber} finished — {status} (exit {exitCode}) =====";
     }
 
+    public static string FormatIncrementalNote(int errorCount, int warningCount)
+    {
+        var parts = new List<string>();
+        if (errorCount > 0)
+        {
+            parts.Add($"{errorCount} error(s)");
+        }
+
+        if (warningCount > 0)
+        {
+            parts.Add($"{warningCount} warning(s)");
+        }
+
+        var counts = parts.Count > 0 ? string.Join(", ", parts) : "prior issue counts";
+        return $"[BuildMonitor] Incremental build — compiler skipped (outputs up-to-date). "
+               + $"Tray health uses {counts} from the previous full build log.";
+    }
+
     public static string FormatTest(int testNumber, string reason, DateTimeOffset? timestamp = null)
     {
         var ts = (timestamp ?? DateTimeOffset.Now).ToString("yyyy-MM-dd HH:mm:ss");

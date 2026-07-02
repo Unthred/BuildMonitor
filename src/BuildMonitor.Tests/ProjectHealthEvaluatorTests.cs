@@ -66,6 +66,18 @@ public class ProjectHealthEvaluatorTests
     }
 
     [Fact]
+    public void Evaluate_returns_amber_after_tests_when_build_had_warnings()
+    {
+        var health = ProjectHealthEvaluator.Evaluate(
+            ProjectLifecycleState.TestOk,
+            lastBuildExitCode: 0,
+            errorCount: 0,
+            warningCount: 1065);
+
+        Assert.Equal(MonitorHealth.Amber, health);
+    }
+
+    [Fact]
     public void Evaluate_returns_green_when_restarting_despite_crashed_state()
     {
         var health = ProjectHealthEvaluator.Evaluate(

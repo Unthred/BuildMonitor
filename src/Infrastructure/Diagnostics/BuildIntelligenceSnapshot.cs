@@ -1,3 +1,5 @@
+using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.LocalBuild;
 
@@ -23,8 +25,17 @@ public sealed record BuildIntelligenceSnapshot(
     string? LastFileChangeLocal,
     bool PendingFileChangeRebuild,
     IReadOnlyList<int> RecentBurstSamplesMs,
-    DateTimeOffset? RebuildQuietUntilUtc)
+    IReadOnlyList<int> RecentBuildDurationSamplesMs,
+    int TodayTriggerCount,
+    DateTimeOffset? RebuildQuietUntilUtc,
+    PendingRebuildHoldReason HoldReason = PendingRebuildHoldReason.None,
+    int PendingRebuildFileCount = 0,
+    IReadOnlyList<string>? PendingRebuildSamplePaths = null,
+    int RebuildTimerResetCount = 0)
 {
+    /// <summary>Why the rebuild wait was deferred or the quiet timer restarted.</summary>
+    public string NextRebuildReasonText => BuildNextRebuildReasonText();
+
     /// <summary>One-line summary of what the monitor is doing for file-change rebuilds.</summary>
     public string StatusHeadline => BuildStatusHeadline();
 
@@ -59,7 +70,43 @@ public sealed record BuildIntelligenceSnapshot(
 
     public bool HasBurstChartData => RecentBurstSamplesMs.Count > 0;
 
+    public bool HasBuildDurationChartData => RecentBuildDurationSamplesMs.Count > 0;
+
     public IReadOnlyList<BurstBarVisual> BurstBars => BuildBurstBars();
+
+    public IReadOnlyList<BurstBarVisual> BuildDurationBars => BuildDurationBarVisuals();
+
+    public string CountdownRemainingText => BuildCountdownRemainingText();
+
+    public string TodayTriggersText => TodayTriggerCount switch
+    {
+        0 => "No triggers logged today.",
+        1 => "1 trigger today.",
+        _ => $"{TodayTriggerCount} triggers today."
+    };
+
+    public string AverageRecentBuildDurationText
+    {
+        get
+        {
+            if (RecentBuildDurationSamplesMs.Count == 0)
+            {
+                return "No build times yet.";
+            }
+
+            var avg = (int)Math.Round(RecentBuildDurationSamplesMs.Average());
+            return $"Typical build ~{FormatDuration(avg)}";
+        }
+    }
+
+    public string RecentBuildDurationLabel =>
+        RecentBuildDurationSamplesMs.Count == 0
+            ? "—"
+            : FormatDuration((int)Math.Round(RecentBuildDurationSamplesMs.Average()));
+
+    public string BuildDurationChartCaption => HasBuildDurationChartData
+        ? $"Newest on the right · {AverageRecentBuildDurationText}"
+        : "Build times appear after file-triggered rebuilds complete.";
 
     public string StatusChipText => BuildStatusChipText();
 
@@ -105,6 +152,8 @@ public sealed record BuildIntelligenceSnapshot(
             null,
             false,
             TakeRecentBurstSamples(stats.BurstSamplesMs),
+            TakeRecentBuildDurationSamples(stats.BuildSamplesMs),
+            0,
             null);
     }
 
@@ -120,7 +169,12 @@ public sealed record BuildIntelligenceSnapshot(
         bool coalesceWatchRebuilds,
         DateTimeOffset? lastMeaningfulFileChangeUtc,
         bool pendingFileChangeRebuild,
-        DateTimeOffset? rebuildQuietUntilUtc)
+        DateTimeOffset? rebuildQuietUntilUtc,
+        int todayTriggerCount = 0,
+        PendingRebuildHoldReason holdReason = PendingRebuildHoldReason.None,
+        int pendingRebuildFileCount = 0,
+        IReadOnlyList<string>? pendingRebuildSamplePaths = null,
+        int rebuildTimerResetCount = 0)
     {
         var agentBackoff = recentFileChangeBuildsIn90s >= 1;
         return new BuildIntelligenceSnapshot(
@@ -143,7 +197,24 @@ public sealed record BuildIntelligenceSnapshot(
             FormatLastFileChangeLocal(lastMeaningfulFileChangeUtc),
             pendingFileChangeRebuild,
             TakeRecentBurstSamples(stats.BurstSamplesMs),
-            rebuildQuietUntilUtc);
+            TakeRecentBuildDurationSamples(stats.BuildSamplesMs),
+            todayTriggerCount,
+            rebuildQuietUntilUtc,
+            holdReason,
+            pendingRebuildFileCount,
+            pendingRebuildSamplePaths ?? [],
+            rebuildTimerResetCount);
+    }
+
+    private string BuildCountdownRemainingText()
+    {
+        if (!ShowRebuildCountdown || RebuildQuietUntilUtc is not { } quietUntil)
+        {
+            return string.Empty;
+        }
+
+        var remainingMs = (int)Math.Max(0, (quietUntil - DateTimeOffset.UtcNow).TotalMilliseconds);
+        return remainingMs > 0 ? FormatDuration(remainingMs) : "now";
     }
 
     private string BuildNextRebuildText()
@@ -168,6 +239,25 @@ public sealed record BuildIntelligenceSnapshot(
             ? $"Rebuild in ~{FormatDuration(remainingMs)}"
             : "Rebuild starting…";
     }
+
+    private string BuildNextRebuildReasonText()
+    {
+        if (!PendingFileChangeRebuild || HoldReason == PendingRebuildHoldReason.None)
+        {
+            return string.Empty;
+        }
+
+        return EditGatingDetailFormatter.FormatHoldReason(
+            HoldReason,
+            PendingRebuildFileCount,
+            PendingRebuildSamplePaths,
+            RebuildTimerResetCount,
+            LiveEffectiveDebounceMs,
+            AgentSessionBackoff);
+    }
+
+    internal static string FormatPendingFileSample(IReadOnlyList<string>? paths, int totalCount) =>
+        EditGatingDetailFormatter.FormatPendingFileSample(paths, totalCount);
 
     private double BuildRebuildCountdownPercent()
     {
@@ -302,7 +392,10 @@ public sealed record BuildIntelligenceSnapshot(
 
         if (PendingFileChangeRebuild)
         {
-            return "Rebuild queued";
+            var remaining = BuildCountdownRemainingText();
+            return string.IsNullOrWhiteSpace(remaining) || remaining == "now"
+                ? "Rebuild queued"
+                : $"Rebuild queued · ~{remaining}";
         }
 
         if (AgentSessionBackoff && LiveEffectiveDebounceMs > BaseEffectiveDebounceMs)
@@ -334,10 +427,31 @@ public sealed record BuildIntelligenceSnapshot(
             .ToList();
     }
 
+    private IReadOnlyList<BurstBarVisual> BuildDurationBarVisuals()
+    {
+        if (RecentBuildDurationSamplesMs.Count == 0)
+        {
+            return [];
+        }
+
+        var max = Math.Max(
+            RecentBuildDurationSamplesMs.Max(),
+            AdaptiveFileChangeDebounce.MinDebounceMs);
+
+        return RecentBuildDurationSamplesMs
+            .Select(ms => new BurstBarVisual(FormatDuration(ms), Math.Max(0.12, ms / (double)max)))
+            .ToList();
+    }
+
     private static IReadOnlyList<int> TakeRecentBurstSamples(IReadOnlyList<int> burstSamplesMs) =>
         burstSamplesMs.Count == 0
             ? []
             : burstSamplesMs.TakeLast(5).ToList();
+
+    private static IReadOnlyList<int> TakeRecentBuildDurationSamples(IReadOnlyList<int> buildSamplesMs) =>
+        buildSamplesMs.Count == 0
+            ? []
+            : buildSamplesMs.TakeLast(5).ToList();
 
     private static string? FormatLastFileChangeLocal(DateTimeOffset? utc) =>
         utc is { } t && t != DateTimeOffset.MinValue

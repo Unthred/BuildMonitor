@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
 
 namespace BuildMonitor.TrayApp.Services;
@@ -89,7 +90,47 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 10;
         }
 
+        if (settings.SchemaVersion < 11)
+        {
+            MigrateAutoOpenLog(json, settings);
+            settings.SchemaVersion = 11;
+        }
+
+        if (settings.SchemaVersion < 12)
+        {
+            settings.SchemaVersion = 12;
+        }
+
+        if (settings.SchemaVersion < 13)
+        {
+            settings.SchemaVersion = 13;
+        }
+
         return settings;
+    }
+
+    private static void MigrateAutoOpenLog(string json, AppSettings settings)
+    {
+        var legacyErrorsOnly = false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("monitor", out var monitor)
+                && monitor.TryGetProperty("autoOpenLogOnFailure", out var legacy))
+            {
+                legacyErrorsOnly = legacy.GetBoolean();
+            }
+        }
+        catch (JsonException)
+        {
+            // keep default false
+        }
+
+        var migratedMode = legacyErrorsOnly ? AutoOpenLogMode.Errors : AutoOpenLogMode.Never;
+        foreach (var project in settings.Projects)
+        {
+            project.RunOptions.AutoOpenLog = migratedMode;
+        }
     }
 
     private static void MigrateStartOnLaunch(string json, AppSettings settings)
@@ -143,7 +184,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 10;
+        settings.SchemaVersion = 13;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

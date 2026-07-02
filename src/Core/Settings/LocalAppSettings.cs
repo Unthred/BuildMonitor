@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using BuildMonitor.Core.Models;
@@ -6,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 10;
+    public int SchemaVersion { get; set; } = 13;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -125,6 +126,10 @@ public sealed class ProjectRunOptions
     /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>
     public string WatchExcludeSegments { get; set; } =
         ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode";
+    /// <summary>When to open the log viewer automatically after builds or tests.</summary>
+    public AutoOpenLogMode AutoOpenLog { get; set; } = AutoOpenLogMode.Never;
+    /// <summary>When true, open the hover status panel when a build starts and hide it when the build finishes.</summary>
+    public bool ShowStatusPanelWhileBuilding { get; set; }
 }
 
 public enum FileChangeDebounceMode
@@ -142,12 +147,19 @@ public sealed class GlobalMonitorSettings
     /// <summary>When watch mode is enabled, batch file changes and rebuild once edits settle (instead of dotnet watch per-save rebuilds).</summary>
     public bool CoalesceWatchRebuilds { get; set; } = true;
     public int MaxConcurrentActiveProjects { get; set; } = 3;
+    [Obsolete("Migrated to per-project ProjectRunOptions.AutoOpenLog (schema v11).")]
     public bool AutoOpenLogOnFailure { get; set; }
     /// <summary>Open the Build Monitor Health window when the app starts.</summary>
     public bool AutoOpenBuildMonitorHealthOnStartup { get; set; } = true;
     public bool PlaySoundOnBuildError { get; set; } = true;
     public bool PlaySoundOnBuildSuccess { get; set; }
     public int MaxLogDisplayBytes { get; set; } = 2_097_152;
+    /// <summary>Wait for edit quiet before the first startup build.</summary>
+    public bool DeferStartupBuildUntilQuiet { get; set; } = true;
+    /// <summary>Cancel startup/file-change builds when newer saves arrive.</summary>
+    public bool CancelSupersededBuilds { get; set; } = true;
+    /// <summary>Treat agent-transcripts / .cursor writes as active editing.</summary>
+    public bool UseAgentTranscriptActivity { get; set; } = true;
 }
 
 public enum AppThemePreference

@@ -1,10 +1,10 @@
-using System.Diagnostics;
+using System.Drawing;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 using BuildMonitor.Core.Models;
-using BuildMonitor.Infrastructure.LocalBuild;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.TrayApp.Services;
 using WpfBrush = System.Windows.Media.Brush;
 using WpfColor = System.Windows.Media.Color;
@@ -18,6 +18,9 @@ namespace BuildMonitor.TrayApp;
 public partial class HoverStatusPanel : Window
 {
     private ResolvedTheme currentTheme = ResolvedTheme.Light;
+    private readonly DispatcherTimer countdownTimer;
+    private IReadOnlyList<ProjectHealthSnapshot> lastSnapshots = [];
+    private Rectangle? lastTrayIconBounds;
 
     public event Action<string>? ViewLogRequested;
     public event Action<string>? CopyErrorsRequested;
@@ -28,6 +31,9 @@ public partial class HoverStatusPanel : Window
     public HoverStatusPanel()
     {
         InitializeComponent();
+        countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        countdownTimer.Tick += (_, _) => OnCountdownTick();
+        Closed += (_, _) => countdownTimer.Stop();
     }
 
     public void ApplyTheme(ResolvedTheme theme)
@@ -47,6 +53,7 @@ public partial class HoverStatusPanel : Window
 
     public void Update(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
+        lastSnapshots = snapshots;
         var palette = ThemeService.GetPalette(currentTheme);
         ProjectCards.Items.Clear();
 
@@ -58,8 +65,8 @@ public partial class HoverStatusPanel : Window
             {
                 BorderBrush = new SolidColorBrush(palette.Border),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 0, 0, 8),
-                Padding = new Thickness(8),
+                Margin = new Thickness(0, 0, 0, 5),
+                Padding = new Thickness(6, 5, 6, 5),
                 Background = new SolidColorBrush(palette.CardBackground)
             };
 
@@ -68,44 +75,78 @@ public partial class HoverStatusPanel : Window
             {
                 Text = snapshot.DisplayName,
                 FontWeight = FontWeights.SemiBold,
+                FontSize = 12,
                 Foreground = new SolidColorBrush(palette.Foreground)
             });
+
+            var statusLine = snapshot.IsRestarting
+                ? "Restarting app…"
+                : snapshot.State == ProjectLifecycleState.WaitingForEdits
+                    ? $"Waiting — {snapshot.HealthLabel}"
+                    : $"{snapshot.HealthLabel} — {snapshot.State}";
+            var issueSuffix = snapshot.IssueCountsText
+                ?? (snapshot.ErrorCount > 0 || snapshot.WarningCount > 0
+                    ? $" · {snapshot.ErrorCount}e / {snapshot.WarningCount}w"
+                    : string.Empty);
             panel.Children.Add(new TextBlock
             {
-                Text = $"{snapshot.HealthLabel} — {snapshot.State}",
+                Text = statusLine + issueSuffix,
                 Foreground = healthBrush,
-                Margin = new Thickness(0, 4, 0, 0)
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = snapshot.IsRestarting
-                    ? "Restarting app…"
-                    : snapshot.IssueCountsText
-                        ?? $"Errors: {snapshot.ErrorCount} | Warnings: {snapshot.WarningCount}",
-                Foreground = new SolidColorBrush(palette.Foreground),
-                Opacity = 0.85,
+                FontSize = 11,
                 Margin = new Thickness(0, 2, 0, 0)
             });
             panel.Children.Add(new TextBlock
             {
                 Text = FormatLastBuildLine(snapshot),
                 Foreground = new SolidColorBrush(palette.Foreground),
-                Opacity = 0.85,
-                Margin = new Thickness(0, 2, 0, 0)
+                Opacity = 0.8,
+                FontSize = 11,
+                Margin = new Thickness(0, 1, 0, 0)
             });
 
-            if (snapshot.SupportsAppRestart
-                && !string.IsNullOrWhiteSpace(snapshot.ListenUrl)
-                && ShouldShowListenUrl(snapshot))
+            if (!string.IsNullOrWhiteSpace(snapshot.EditGatingDetailText)
+                || snapshot.RebuildQuietUntilUtc is not null)
             {
-                var showLink = snapshot.ListenUrlReady
-                    && snapshot.State is ProjectLifecycleState.Running or ProjectLifecycleState.Watching;
-                panel.Children.Add(showLink
-                    ? BuildListenUrlBlock(snapshot.ListenUrl, palette)
-                    : BuildListenUrlPendingBlock(snapshot.ListenUrl, palette));
+                var countdown = EditGatingDetailFormatter.FormatCountdownRemaining(
+                    snapshot.RebuildQuietUntilUtc,
+                    DateTimeOffset.UtcNow);
+                if (!string.IsNullOrWhiteSpace(snapshot.EditGatingDetailText))
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = snapshot.EditGatingDetailText,
+                        Foreground = new SolidColorBrush(palette.Foreground),
+                        Opacity = 0.9,
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 3, 0, 0)
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(countdown))
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = countdown,
+                        Foreground = new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
+                        FontWeight = FontWeights.SemiBold,
+                        FontSize = 11,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                }
             }
 
-            if (snapshot.ProgressSteps.Count > 0)
+            if (StatusPanelBuildVisibilityEvaluator.ShouldShowSiteStatus(snapshot))
+            {
+                panel.Children.Add(snapshot.ListenUrlReady
+                    ? StatusPanelVisuals.BuildSiteReadyBlock(snapshot.ListenUrl!, palette)
+                    : StatusPanelVisuals.BuildSiteAwaitingBlock(snapshot.ListenUrl!, palette));
+            }
+
+            if (snapshot.ProgressSteps.Count > 0
+                && snapshot.State is ProjectLifecycleState.Building
+                    or ProjectLifecycleState.Testing
+                    or ProjectLifecycleState.BuildFailed)
             {
                 panel.Children.Add(StatusPanelVisuals.BuildStepProgressChart(snapshot.ProgressSteps, palette));
             }
@@ -115,8 +156,9 @@ public partial class HoverStatusPanel : Window
                 {
                     Text = snapshot.LastErrorPreview,
                     TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11,
                     Foreground = new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
-                    Margin = new Thickness(0, 4, 0, 0)
+                    Margin = new Thickness(0, 3, 0, 0)
                 });
             }
             else if (snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
@@ -125,13 +167,22 @@ public partial class HoverStatusPanel : Window
             }
             else if (snapshot.ErrorCount > 0 || snapshot.WarningCount > 0)
             {
-                panel.Children.Add(StatusPanelVisuals.BuildIssueMeter(snapshot.ErrorCount, snapshot.WarningCount, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildIssueSummary(snapshot.ErrorCount, snapshot.WarningCount, palette));
+            }
+
+            if (snapshot.ProgressSteps.Count > 0
+                && snapshot.State is ProjectLifecycleState.Building
+                    or ProjectLifecycleState.Testing
+                    or ProjectLifecycleState.BuildFailed
+                && (snapshot.ErrorCount > 0 || snapshot.WarningCount > 0))
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildIssueSummary(snapshot.ErrorCount, snapshot.WarningCount, palette));
             }
 
             var actions = new StackPanel
             {
                 Orientation = WpfOrientation.Horizontal,
-                Margin = new Thickness(0, 6, 0, 0)
+                Margin = new Thickness(0, 4, 0, 0)
             };
 
             var viewLog = new WpfButton
@@ -210,18 +261,51 @@ public partial class HoverStatusPanel : Window
         var activeCount = snapshots.Count(s => s.IsActive);
         HeaderText.Text = activeCount switch
         {
-            0 => "Local build status",
-            1 => "Local build status",
-            _ => $"Local build status ({activeCount} projects)"
+            0 => "Build status",
+            1 => "Build status",
+            _ => $"Build status ({activeCount})"
         };
 
         FitHeightToContent();
+        SyncCountdownTimer(snapshots);
+        ApplyTrayPlacement();
     }
+
+    private void OnCountdownTick()
+    {
+        if (!IsVisible || !HasActiveCountdown(lastSnapshots))
+        {
+            countdownTimer.Stop();
+            return;
+        }
+
+        Update(lastSnapshots);
+    }
+
+    private void SyncCountdownTimer(IReadOnlyList<ProjectHealthSnapshot> snapshots)
+    {
+        if (IsVisible && HasActiveCountdown(snapshots))
+        {
+            if (!countdownTimer.IsEnabled)
+            {
+                countdownTimer.Start();
+            }
+        }
+        else
+        {
+            countdownTimer.Stop();
+        }
+    }
+
+    private static bool HasActiveCountdown(IReadOnlyList<ProjectHealthSnapshot> snapshots) =>
+        snapshots.Any(s =>
+            s.RebuildQuietUntilUtc is { } until
+            && until > DateTimeOffset.UtcNow);
 
     private void FitHeightToContent()
     {
-        const double chrome = 52;
-        var innerWidth = Math.Max(200, Width - 22);
+        const double chrome = 40;
+        var innerWidth = Math.Max(180, Width - 18);
         ProjectCards.Measure(new WpfSize(innerWidth, double.PositiveInfinity));
         var contentHeight = ProjectCards.DesiredSize.Height;
         var maxBody = MaxHeight - chrome;
@@ -238,59 +322,6 @@ public partial class HoverStatusPanel : Window
             CardsScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             Height = MaxHeight;
         }
-    }
-
-    private static bool ShouldShowListenUrl(ProjectHealthSnapshot snapshot) =>
-        snapshot.IsRestarting
-        || snapshot.State is ProjectLifecycleState.Running
-            or ProjectLifecycleState.Watching
-            or ProjectLifecycleState.Building
-            or ProjectLifecycleState.BuildOk;
-
-    private static UIElement BuildListenUrlPendingBlock(string listenUrl, ThemePalette palette) =>
-        new TextBlock
-        {
-            Text = $"Starting {listenUrl}…",
-            Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.7 },
-            Margin = new Thickness(0, 2, 0, 0)
-        };
-
-    private static UIElement BuildListenUrlBlock(string listenUrl, ThemePalette palette)
-    {
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
-        var labelBrush = new SolidColorBrush(palette.Foreground) { Opacity = 0.9 };
-        var block = new TextBlock { Margin = new Thickness(0, 2, 0, 0) };
-        block.Inlines.Add(new Run("URL: ") { Foreground = labelBrush });
-
-        if (!Uri.TryCreate(openUrl, UriKind.Absolute, out var uri))
-        {
-            block.Inlines.Add(new Run(openUrl) { Foreground = labelBrush });
-            return block;
-        }
-
-        var link = new Hyperlink
-        {
-            NavigateUri = uri,
-            Foreground = new SolidColorBrush(palette.Accent),
-            TextDecorations = TextDecorations.Underline,
-            Cursor = System.Windows.Input.Cursors.Hand
-        };
-        link.Inlines.Add(openUrl);
-        link.RequestNavigate += (_, e) =>
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-            }
-            catch
-            {
-                // Best effort only.
-            }
-
-            e.Handled = true;
-        };
-        block.Inlines.Add(link);
-        return block;
     }
 
     private static string FormatLastBuildLine(ProjectHealthSnapshot snapshot)
@@ -325,14 +356,32 @@ public partial class HoverStatusPanel : Window
     public void CaptureLayout(WindowLayoutState layout) =>
         WindowLayoutService.Capture(this, layout, sizeOnly: true);
 
-    public void ShowNearTray()
+    public void ShowNearTray(Rectangle? trayIconBounds = null)
     {
-        TrayScreenPlacement.PlaceNearTrayBottomRight(this);
+        if (trayIconBounds is { Width: > 0, Height: > 0 } bounds)
+        {
+            lastTrayIconBounds = bounds;
+        }
+
         if (!IsVisible)
         {
             Show();
         }
 
         FitHeightToContent();
+        SyncCountdownTimer(lastSnapshots);
+        ApplyTrayPlacement();
+    }
+
+    private void ApplyTrayPlacement()
+    {
+        if (lastTrayIconBounds is { Width: > 0, Height: > 0 } bounds)
+        {
+            TrayScreenPlacement.PlaceAboveTrayIcon(this, bounds);
+        }
+        else
+        {
+            TrayScreenPlacement.PlaceNearTrayBottomRight(this);
+        }
     }
 }

@@ -5,7 +5,7 @@ using FormsScreen = System.Windows.Forms.Screen;
 namespace BuildMonitor.TrayApp.Services;
 
 /// <summary>
-/// Places WPF windows on the monitor where the user last interacted with the tray icon.
+/// Places WPF windows relative to the system tray (icon bounds or captured work area).
 /// </summary>
 public static class TrayScreenPlacement
 {
@@ -41,6 +41,39 @@ public static class TrayScreenPlacement
 
         window.Left = area.Right - width - margin;
         window.Top = area.Bottom - height - margin;
+    }
+
+    /// <summary>
+    /// Positions the window above the tray notify icon with its bottom edge above the icon,
+    /// clamped to that monitor's work area so it does not cover the taskbar.
+    /// </summary>
+    public static void PlaceAboveTrayIcon(Window window, Rectangle iconBounds, double margin = 12)
+    {
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.UpdateLayout();
+
+        var area = FormsScreen.FromRectangle(iconBounds).WorkingArea;
+        var width = ResolveDimension(window.ActualWidth, window.Width, 360);
+        var height = ResolveDimension(window.ActualHeight, window.Height, 96);
+
+        var maxBottom = iconBounds.Top - margin;
+        var availableHeight = Math.Max(96, maxBottom - area.Top);
+        if (height > availableHeight)
+        {
+            height = availableHeight;
+        }
+
+        var top = maxBottom - height;
+        var left = iconBounds.Left + (iconBounds.Width - width) / 2.0;
+        left = Math.Clamp(left, area.Left, Math.Max(area.Left, area.Right - width));
+        top = Math.Clamp(top, area.Top, Math.Max(area.Top, maxBottom - height));
+
+        window.Left = left;
+        window.Top = top;
+        if (Math.Abs(window.Height - height) > 0.5)
+        {
+            window.Height = height;
+        }
     }
 
     private static double ResolveDimension(double actual, double design, double fallback)

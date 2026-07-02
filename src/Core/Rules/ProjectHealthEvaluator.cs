@@ -11,7 +11,10 @@ public static class ProjectHealthEvaluator
         int warningCount,
         bool inProgress = false)
     {
-        if (inProgress || state is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
+        if (inProgress
+            || state is ProjectLifecycleState.Building
+                or ProjectLifecycleState.Testing
+                or ProjectLifecycleState.WaitingForEdits)
         {
             if (errorCount > 0)
             {

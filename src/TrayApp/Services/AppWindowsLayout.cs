@@ -11,6 +11,11 @@ public class WindowLayoutState
     public int WindowState { get; set; }
 }
 
+public sealed class DiagnosticsWindowLayoutState : WindowLayoutState
+{
+    public Dictionary<string, double> TriggerGridColumnWidths { get; set; } = new(StringComparer.Ordinal);
+}
+
 public sealed class BuildLogViewerLayoutState : WindowLayoutState
 {
     public double LogPanelRatio { get; set; } = 0.65;
@@ -21,7 +26,7 @@ public sealed class AppWindowsLayout
 {
     public BuildLogViewerLayoutState BuildLog { get; set; } = new();
     public WindowLayoutState Settings { get; set; } = new();
-    public WindowLayoutState Diagnostics { get; set; } = new();
+    public DiagnosticsWindowLayoutState Diagnostics { get; set; } = new();
     [JsonPropertyName("threadHealth")]
     public WindowLayoutState BuildMonitorHealth { get; set; } = new();
     public WindowLayoutState StatusPanel { get; set; } = new() { Width = 480, Height = 420 };

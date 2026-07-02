@@ -254,6 +254,9 @@ internal sealed partial class ProjectRuntime
 
         try
         {
+            SetProjectCurrentAction(rebuildFirst
+                ? "Restarting — rebuild then start app"
+                : "Restarting app (dotnet run --no-build)");
             await StopRunProcessAsync(cancellationToken);
             restartCount = 0;
             runErrorCount = 0;
@@ -270,6 +273,15 @@ internal sealed partial class ProjectRuntime
                     BuildTriggerKind.HotReloadRestart,
                     "Hot reload requested app restart (no rebuild)",
                     detail: null);
+            }
+            else
+            {
+                notifyUser?.Invoke(
+                    definition.Id,
+                    $"Restarting app — {definition.DisplayName}",
+                    "Stopping run/watch and starting again with --no-build.",
+                    UserNotificationKind.Info,
+                    UserNotificationCategory.Info);
             }
 
             EnsureRunProcessStartedAfterBuild();

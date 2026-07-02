@@ -61,6 +61,11 @@ internal sealed partial class ProjectRuntime : IDisposable
     private int fileChangeRebuildScheduleGeneration;
     private readonly Queue<DateTimeOffset> recentFileChangeBuildStarts = new();
     private IReadOnlyList<string> lastFileChangePaths = [];
+    private string? lastFileChangeTriggerDetail;
+    private PendingRebuildHoldReason pendingRebuildHoldReason;
+    private int pendingRebuildHoldFileCount;
+    private IReadOnlyList<string> pendingRebuildHoldSamplePaths = [];
+    private int pendingRebuildTimerResetCount;
     private int runProcessGeneration;
     private Action<string, int>? runProcessExitedHandler;
     private string? pendingListenUrl;
@@ -119,7 +124,10 @@ internal sealed partial class ProjectRuntime : IDisposable
                     runErrorCount,
                     runWarningCount),
                 HealthIssueCountsFormatter.FormatFailurePhase(state),
-                isRestarting);
+                isRestarting,
+                IsEditGatingActive(),
+                BuildEditGatingDetailText(),
+                GetEditGatingQuietUntilUtc());
     }
 
     public void MarkHealthDirty() => Interlocked.Exchange(ref healthDirty, 1);
@@ -144,6 +152,12 @@ internal sealed partial class ProjectRuntime : IDisposable
     private void CoalesceHealthCore()
     {
         RefreshLiveIssueCounts(force: true);
+        if (UsesDotNetWatchProcess()
+            && state is ProjectLifecycleState.Watching or ProjectLifecycleState.Running)
+        {
+            RefreshBuildIssueCountsFromWatchOutput(force: false);
+        }
+
         RefreshHealth();
     }
 
@@ -188,6 +202,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         fileChangeDebounceMs = ResolveFileChangeDebounceMs();
         fileWatcher?.SetDebounceMs(fileChangeDebounceMs);
         coalesceWatchRebuilds = monitor.CoalesceWatchRebuilds;
+        ApplyMonitorSuppressionSettings(monitor);
     }
 
     private int ResolveFileChangeDebounceMs() =>
@@ -244,7 +259,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         return recentFileChangeBuildStarts.Count >= 1;
     }
 
-    public BuildIntelligenceSnapshot GetIntelligenceSnapshot(GlobalMonitorSettings monitor)
+    public BuildIntelligenceSnapshot GetIntelligenceSnapshot(GlobalMonitorSettings monitor, int todayTriggerCount = 0)
     {
         PruneRecentFileChangeBuildStarts();
         var stats = burstStatsStore.GetOrDefault(definition.Id);
@@ -268,7 +283,12 @@ internal sealed partial class ProjectRuntime : IDisposable
             coalesceWatchRebuilds,
             lastMeaningfulFileChangeUtc == DateTimeOffset.MinValue ? null : lastMeaningfulFileChangeUtc,
             pendingFileChangeRebuild,
-            rebuildQuietUntilUtc);
+            rebuildQuietUntilUtc,
+            todayTriggerCount,
+            pendingRebuildHoldReason,
+            pendingRebuildHoldFileCount,
+            pendingRebuildHoldSamplePaths,
+            pendingRebuildTimerResetCount);
     }
 
     private bool UsesCoalescedWatchRebuilds() =>
@@ -295,6 +315,11 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     public void SetUserNotifier(Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifier) =>
         notifyUser = notifier;
+
+    private (int Errors, int Warnings) CountLiveBuildIssues(string normalized) =>
+        BuildIssueCountResolver.Resolve(
+            normalized,
+            logStore.GetLogPath(definition.Id, BuildLogKind.Build));
 
     private static (int Errors, int Warnings) CountLiveIssues(BuildLogKind kind, string normalized) =>
         kind switch
@@ -361,7 +386,9 @@ internal sealed partial class ProjectRuntime : IDisposable
         var revision = kind == BuildLogKind.Test
             ? Volatile.Read(ref liveTestOutputRevision)
             : Volatile.Read(ref liveOutputRevision);
-        var (liveErrors, liveWarnings) = CountLiveIssues(kind, normalized);
+        var (liveErrors, liveWarnings) = kind == BuildLogKind.Build
+            ? CountLiveBuildIssues(normalized)
+            : CountLiveIssues(kind, normalized);
         return new LiveBuildLogView(
             normalized,
             true,
@@ -375,7 +402,23 @@ internal sealed partial class ProjectRuntime : IDisposable
     {
         SetProjectCurrentAction("Starting — loading saved build state");
         await HydrateLastBuildFromStoreAsync(cancellationToken);
-        await BuildAsync(cancellationToken);
+        TryStartFileWatcher();
+        TryStartAgentActivityWatcher();
+
+        var activity = EvaluateEditActivity();
+        if (BuildSuppressionPolicy.ShouldDeferStartupBuild(GetSuppressionSettings(), activity))
+        {
+            pendingFileChangeRebuild = true;
+            QueuePendingRebuild(
+                PendingRebuildHoldReason.StartupDeferred,
+                [],
+                wasAlreadyPending: false);
+            await WaitForEditQuietThenBuildAsync("startup");
+        }
+        else
+        {
+            await BuildAsync(cancellationToken);
+        }
 
         if (definition.RunOptions.RunMode == ProjectRunMode.None)
         {
@@ -390,7 +433,10 @@ internal sealed partial class ProjectRuntime : IDisposable
 
         // Build already completed above — skip watch/run's embedded rebuild.
         StartRunProcess(skipEmbeddedBuild: true);
-        TryStartFileWatcher();
+        if (fileWatcher is null)
+        {
+            TryStartFileWatcher();
+        }
     }
     private void SetState(ProjectLifecycleState newState)
     {
@@ -416,6 +462,7 @@ internal sealed partial class ProjectRuntime : IDisposable
             ProjectLifecycleState.Testing => "Running tests",
             ProjectLifecycleState.TestOk => "Tests passed",
             ProjectLifecycleState.TestFailed => "Tests failed",
+            ProjectLifecycleState.WaitingForEdits => "Waiting for edits to settle",
             _ => state.ToString()
         };
 
@@ -434,7 +481,8 @@ internal sealed partial class ProjectRuntime : IDisposable
             displayWarnings,
             inProgress: isRestarting
                 || state is ProjectLifecycleState.Building
-                || state is ProjectLifecycleState.Testing);
+                || state is ProjectLifecycleState.Testing
+                || state is ProjectLifecycleState.WaitingForEdits);
     }
     private void RecordBuildTrigger(
         BuildTriggerKind kind,
@@ -485,6 +533,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         StopListenUrlPolling();
         StopRunLogSaveTimer();
         fileWatcher?.Dispose();
+        agentActivityWatcher?.Dispose();
         runProcess?.Dispose();
     }
 

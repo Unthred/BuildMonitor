@@ -394,7 +394,16 @@
 
                                     <TextBlock Text="File changes" />
 
-                                    <ComboBox x:Name="FileChangesCombo" Margin="0,4,0,0" />
+                                    <ComboBox x:Name="FileChangesCombo" Margin="0,4,0,8" />
+
+                                    <TextBlock Text="Auto-open log"
+                                               ToolTip="When to open the log viewer automatically after a build or test completes." />
+
+                                    <ComboBox x:Name="AutoOpenLogCombo" Margin="0,4,0,8" />
+
+                                    <CheckBox x:Name="ShowStatusPanelWhileBuildingCheck"
+                                              Content="Show status panel while building"
+                                              ToolTip="Opens the hover status panel when a build starts and hides it when the build finishes." />
 
                                 </StackPanel>
 
@@ -549,6 +558,21 @@
 
                                           ToolTip="When enabled, watch mode uses a debounced file watcher and rebuilds once after edits stop instead of dotnet watch rebuilding on every save. Turn off for dotnet watch hot reload." />
 
+                                <CheckBox x:Name="DeferStartupBuildUntilQuietCheck"
+                                          Content="Defer startup build until edits settle"
+                                          Margin="0,8,0,0"
+                                          ToolTip="When starting Build Monitor while Cursor or an agent is still saving files, wait for a quiet period before the first build." />
+
+                                <CheckBox x:Name="CancelSupersededBuildsCheck"
+                                          Content="Cancel superseded startup/file-change builds"
+                                          Margin="0,4,0,0"
+                                          ToolTip="When new saves arrive during a startup or file-change build, cancel the in-flight compile and rebuild once edits settle. Manual tray rebuilds are never cancelled." />
+
+                                <CheckBox x:Name="UseAgentTranscriptActivityCheck"
+                                          Content="Treat agent-transcript activity as editing"
+                                          Margin="0,4,0,0"
+                                          ToolTip="Watch agent-transcripts and .cursor folders for activity signals (does not trigger rebuilds by itself)." />
+
                             </StackPanel>
 
                         </Border>
@@ -568,12 +592,6 @@
                             <StackPanel>
 
                                 <TextBlock Text="Feedback" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
-
-                                <CheckBox x:Name="AutoOpenLogCheck"
-
-                                          Content="Auto-open build log when a project fails"
-
-                                          Margin="0,0,0,6" />
 
                                 <CheckBox x:Name="AutoOpenBuildMonitorHealthCheck"
 

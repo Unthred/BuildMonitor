@@ -62,18 +62,21 @@ internal sealed partial class ProjectRuntime
         RecordBuildTrigger(
             BuildTriggerKindFormatter.FromBuildReason(buildReason, triggeredByFileChange),
             buildReason,
-            detail: null,
+            detail: triggeredByFileChange ? lastFileChangeTriggerDetail : null,
             fileChangePaths);
+        lastFileChangeTriggerDetail = null;
 
-        fileWatcher?.Suspend();
+        buildCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        currentBuildReasonInFlight = buildReason;
+        var buildToken = buildCancellationSource.Token;
 
         try
         {
             if (runProcess is not null)
             {
                 SetProjectCurrentAction("Building — stopping app");
-                await StopRunProcessAsync(cancellationToken);
-                await Task.Delay(500, cancellationToken);
+                await StopRunProcessAsync(buildToken);
+                await Task.Delay(500, buildToken);
             }
 
             lock (liveOutputSync)
@@ -83,8 +86,6 @@ internal sealed partial class ProjectRuntime
 
             watchRebuildInProgress = false;
             Interlocked.Exchange(ref liveOutputRevision, 0);
-            buildErrorCount = 0;
-            buildWarningCount = 0;
             lastErrorPreview = null;
 
             var buildBanner = WriteBuildStartBanner(buildReason);
@@ -100,12 +101,18 @@ internal sealed partial class ProjectRuntime
             if (releaseLocks)
             {
                 SetProjectCurrentAction("Building — releasing output locks");
-                await ReleaseOutputLocksAsync(cancellationToken);
+                await ReleaseOutputLocksAsync(buildToken);
             }
 
             SetProjectCurrentAction("Building — dotnet build");
-            var args = BuildProjectArgs();
-            var result = await RunBuildAttemptAsync(args, cancellationToken, buildBanner);
+            var args = BuildProjectArgs(DotNetBuildArguments.RequiresFullRebuild(buildReason));
+            var result = await RunBuildAttemptAsync(args, buildToken, buildBanner);
+
+            if (result.WasCancelled)
+            {
+                await HandleCancelledBuildAsync(buildReason, result, buildBanner, cancellationToken);
+                return;
+            }
 
             if (releaseLocks
                 && result.ExitCode != 0
@@ -126,7 +133,12 @@ internal sealed partial class ProjectRuntime
                 progressSteps = buildProgressTracker.Steps;
                 NotifyProgressChanged(force: true);
 
-                result = await RunBuildAttemptAsync(args, cancellationToken, retryBanner);
+                result = await RunBuildAttemptAsync(args, buildToken, retryBanner);
+                if (result.WasCancelled)
+                {
+                    await HandleCancelledBuildAsync(buildReason, result, retryBanner, cancellationToken);
+                    return;
+                }
             }
 
             if (result.ExitCode != 0
@@ -155,7 +167,12 @@ internal sealed partial class ProjectRuntime
                     buildProgressTracker.Reset();
                     progressSteps = buildProgressTracker.Steps;
                     NotifyProgressChanged(force: true);
-                    result = await RunBuildAttemptAsync(args, cancellationToken, repairBanner);
+                    result = await RunBuildAttemptAsync(args, buildToken, repairBanner);
+                    if (result.WasCancelled)
+                    {
+                        await HandleCancelledBuildAsync(buildReason, result, repairBanner, cancellationToken);
+                        return;
+                    }
                 }
             }
 
@@ -163,8 +180,30 @@ internal sealed partial class ProjectRuntime
             lastExitCode = result.ExitCode;
             lastDuration = result.Duration;
 
+            var existingLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+            var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(
+                result.Output,
+                existingLogPath);
+            var parsedErrors = BuildLogParser.ParseErrorCount(result.Output);
+            buildErrorCount = Math.Max(resolvedErrors, parsedErrors);
+            buildWarningCount = resolvedWarnings;
+            if (result.ExitCode != 0 && buildErrorCount == 0)
+            {
+                var (_, errorLines) = BuildLogParser.ParseErrors(result.Output);
+                if (errorLines.Count > 0)
+                {
+                    buildErrorCount = errorLines.Count;
+                }
+            }
+
             var finishBanner = BuildMonitorLogBanner.FormatFinished(buildNumber, result.ExitCode);
             var logText = result.Output + Environment.NewLine + finishBanner;
+            if (IncrementalBuildDetector.WasCompileSkipped(result.Output)
+                && (resolvedErrors > 0 || resolvedWarnings > 0))
+            {
+                logText += Environment.NewLine
+                           + BuildMonitorLogBanner.FormatIncrementalNote(resolvedErrors, resolvedWarnings);
+            }
 
             var buildLog = await logStore.SaveAsync(
                 definition.Id,
@@ -176,8 +215,6 @@ internal sealed partial class ProjectRuntime
                 cancellationToken);
 
             lastBuildFinishedAtUtc = buildLog.FinishedAtUtc;
-            buildErrorCount = buildLog.ErrorCount;
-            buildWarningCount = BuildLogParser.ParseWarningCount(result.Output);
             lastErrorPreview = buildLog.ErrorLines.FirstOrDefault();
             if (result.Duration.TotalMilliseconds > 0)
             {
@@ -186,6 +223,7 @@ internal sealed partial class ProjectRuntime
 
             if (result.ExitCode == 0)
             {
+                progressSteps = [];
                 SetState(ProjectLifecycleState.BuildOk);
                 if (definition.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess)
                 {
@@ -217,7 +255,7 @@ internal sealed partial class ProjectRuntime
             {
                 if (triggeredByFileChange)
                 {
-                    await Task.Delay(1500, cancellationToken);
+                    await Task.Delay(1500, buildToken);
                 }
 
                 StartRunProcess(skipEmbeddedBuild: true);
@@ -228,9 +266,11 @@ internal sealed partial class ProjectRuntime
         }
         finally
         {
+            buildCancellationSource?.Dispose();
+            buildCancellationSource = null;
+            currentBuildReasonInFlight = null;
             Interlocked.Exchange(ref buildInProgress, 0);
             Interlocked.Exchange(ref buildTriggeredByFileChange, 0);
-            fileWatcher?.Resume();
 
             if (triggeredByFileChange)
             {
@@ -246,21 +286,66 @@ internal sealed partial class ProjectRuntime
                 }
             }
 
-            if (pendingFileChangeRebuild && lastFileChangePaths.Count > 0)
+            if (pendingFileChangeRebuild)
             {
-                pendingFileChangeRebuild = false;
-                _ = ScheduleCoalescedFileChangeRebuildAsync();
+                var nextReason = pendingRebuildHoldReason == PendingRebuildHoldReason.StartupDeferred
+                    ? "startup"
+                    : "file change (queued)";
+                _ = WaitForEditQuietThenBuildAsync(nextReason);
             }
         }
     }
 
-    private async Task ScheduleCoalescedFileChangeRebuildAsync()
+    private async Task HandleCancelledBuildAsync(
+        string buildReason,
+        CliRunResult result,
+        string? buildBanner,
+        CancellationToken cancellationToken)
+    {
+        var cancelBanner = "[BuildMonitor] Build cancelled — superseded by newer source changes.";
+        var logText = result.Output;
+        if (!string.IsNullOrWhiteSpace(logText) && !logText.EndsWith('\n'))
+        {
+            logText += Environment.NewLine;
+        }
+
+        logText += cancelBanner;
+
+        await logStore.SaveAsync(
+            definition.Id,
+            BuildLogKind.Build,
+            result.CommandLine,
+            result.ExitCode,
+            DateTimeOffset.UtcNow - result.Duration,
+            logText,
+            cancellationToken);
+
+        progressSteps = [];
+        buildProgressTracker = null;
+        EnterWaitingForEditsState("Build cancelled — waiting for edits to settle");
+
+        notifyUser?.Invoke(
+            definition.Id,
+            $"Build cancelled — {definition.DisplayName}",
+            "Newer source changes detected. Rebuilding when edits settle.",
+            UserNotificationKind.Info,
+            UserNotificationCategory.FileChangeDetected);
+    }
+
+    private async Task WaitForEditQuietThenBuildAsync(string buildReason)
     {
         var generation = Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+        EnterWaitingForEditsState("Waiting for edits to settle…");
 
         while (generation == Volatile.Read(ref fileChangeRebuildScheduleGeneration))
         {
+            var activity = EvaluateEditActivity();
             var waitUntil = GetFileChangeQuietUntilUtc();
+            if (activity.IsActive && activity.QuietUntilUtc > waitUntil)
+            {
+                waitUntil = activity.QuietUntilUtc;
+            }
+
             if (fileChangeBuildCooldownUntil > waitUntil)
             {
                 waitUntil = fileChangeBuildCooldownUntil;
@@ -275,11 +360,16 @@ internal sealed partial class ProjectRuntime
 
             if (Volatile.Read(ref buildInProgress) != 0)
             {
-                pendingFileChangeRebuild = true;
+                QueuePendingRebuild(
+                    PendingRebuildHoldReason.BuildInProgress,
+                    lastFileChangePaths,
+                    wasAlreadyPending: true,
+                    pathsAlreadyRelative: true);
                 return;
             }
 
-            if (DateTimeOffset.UtcNow < GetFileChangeQuietUntilUtc())
+            activity = EvaluateEditActivity();
+            if (activity.IsActive || DateTimeOffset.UtcNow < GetFileChangeQuietUntilUtc())
             {
                 continue;
             }
@@ -294,11 +384,28 @@ internal sealed partial class ProjectRuntime
 
         if (Volatile.Read(ref buildInProgress) != 0)
         {
-            pendingFileChangeRebuild = true;
+            QueuePendingRebuild(
+                PendingRebuildHoldReason.BuildInProgress,
+                lastFileChangePaths,
+                wasAlreadyPending: true,
+                pathsAlreadyRelative: true);
             return;
         }
 
+        lastFileChangeTriggerDetail = BuildTriggerDetailFormatter.FormatCoalescedBuild(
+            GetSessionAdjustedFileChangeDebounceMs(),
+            pendingRebuildHoldReason,
+            pendingRebuildTimerResetCount);
+        ClearPendingRebuildHold();
         pendingFileChangeRebuild = false;
+
+        if (string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
+        {
+            pendingBuildReason = "startup";
+            await BuildAsync(CancellationToken.None);
+            return;
+        }
+
         Interlocked.Exchange(ref buildTriggeredByFileChange, 1);
         pendingBuildReason = "file change (queued)";
 
@@ -325,14 +432,18 @@ internal sealed partial class ProjectRuntime
         lastDuration = metadata.FinishedAtUtc - metadata.StartedAtUtc;
         lastBuildFinishedAtUtc = metadata.FinishedAtUtc;
         buildErrorCount = metadata.ErrorCount;
+        buildWarningCount = metadata.WarningCount;
         lastErrorPreview = metadata.ErrorLines.FirstOrDefault();
-        var logText = await logStore.LoadLogTextAsync(metadata, maxBytes: 512_000, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(logText))
+        if (buildWarningCount == 0)
         {
-            buildWarningCount = BuildLogParser.ParseWarningCount(logText);
-            if (buildErrorCount == 0)
+            var logText = await logStore.LoadLogTextAsync(metadata, maxBytes: 512_000, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(logText))
             {
-                buildErrorCount = BuildLogParser.ParseErrorCount(logText);
+                var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(
+                    logText,
+                    metadata.LogFilePath);
+                buildErrorCount = Math.Max(buildErrorCount, resolvedErrors);
+                buildWarningCount = Math.Max(buildWarningCount, resolvedWarnings);
             }
         }
 
@@ -437,34 +548,49 @@ internal sealed partial class ProjectRuntime
 
         lastFileChangePaths = RelativizePaths(meaningful);
         SyncFileWatcherDebounceMs();
+        var wasAlreadyPending = pendingFileChangeRebuild;
 
         if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
-            pendingFileChangeRebuild = true;
+            QueuePendingRebuild(PendingRebuildHoldReason.PostBuildCooldown, meaningful, wasAlreadyPending);
             return;
         }
 
         if (Volatile.Read(ref testInProgress) != 0)
         {
-            pendingFileChangeRebuild = true;
+            QueuePendingRebuild(PendingRebuildHoldReason.TestsInProgress, meaningful, wasAlreadyPending);
             return;
         }
 
         if (Volatile.Read(ref buildInProgress) != 0)
         {
-            pendingFileChangeRebuild = true;
+            QueuePendingRebuild(PendingRebuildHoldReason.BuildInProgress, meaningful, wasAlreadyPending);
+            if (BuildSuppressionPolicy.ShouldCancelInFlightBuild(
+                    GetSuppressionSettings(),
+                    currentBuildReasonInFlight))
+            {
+                pendingRebuildHoldReason = PendingRebuildHoldReason.SupersededByNewEdits;
+                RequestBuildCancellation();
+                Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+            }
+
             return;
         }
 
-        if (IsAgentEditSessionActive())
+        if (IsAgentEditSessionActive() || EvaluateEditActivity().IsActive)
         {
-            pendingFileChangeRebuild = true;
-            _ = ScheduleCoalescedFileChangeRebuildAsync();
+            var reason = wasAlreadyPending
+                ? PendingRebuildHoldReason.EditsStillArriving
+                : PendingRebuildHoldReason.EditsSettling;
+            QueuePendingRebuild(reason, meaningful, wasAlreadyPending);
+            _ = WaitForEditQuietThenBuildAsync("file change (queued)");
             return;
         }
 
         Interlocked.Exchange(ref buildTriggeredByFileChange, 1);
         pendingBuildReason = "file change";
+        lastFileChangeTriggerDetail = BuildTriggerDetailFormatter.FormatImmediateDebounce(
+            GetSessionAdjustedFileChangeDebounceMs());
 
         notifyUser?.Invoke(
             definition.Id,
@@ -474,6 +600,37 @@ internal sealed partial class ProjectRuntime
             UserNotificationCategory.FileChangeDetected);
 
         _ = BuildAsync(CancellationToken.None);
+    }
+
+    private void QueuePendingRebuild(
+        PendingRebuildHoldReason reason,
+        IReadOnlyList<string> meaningfulPaths,
+        bool wasAlreadyPending,
+        bool pathsAlreadyRelative = false)
+    {
+        pendingFileChangeRebuild = true;
+
+        pendingRebuildHoldReason = reason == PendingRebuildHoldReason.EditsSettling && wasAlreadyPending
+            ? PendingRebuildHoldReason.EditsStillArriving
+            : reason;
+
+        if (pendingRebuildHoldReason == PendingRebuildHoldReason.EditsStillArriving)
+        {
+            pendingRebuildTimerResetCount++;
+        }
+
+        pendingRebuildHoldFileCount = meaningfulPaths.Count;
+        pendingRebuildHoldSamplePaths = pathsAlreadyRelative
+            ? meaningfulPaths.Take(3).ToList()
+            : RelativizePaths(meaningfulPaths).Take(3).ToList();
+    }
+
+    private void ClearPendingRebuildHold()
+    {
+        pendingRebuildHoldReason = PendingRebuildHoldReason.None;
+        pendingRebuildHoldFileCount = 0;
+        pendingRebuildHoldSamplePaths = [];
+        pendingRebuildTimerResetCount = 0;
     }
 
 }

@@ -6,6 +6,19 @@ namespace BuildMonitor.Infrastructure.LocalBuild;
 
 public sealed class BuildLogStore(string logsRootDirectory)
 {
+    public string GetLogPath(string projectId, BuildLogKind kind)
+    {
+        var fileName = kind switch
+        {
+            BuildLogKind.Test => "last-test.log",
+            BuildLogKind.WatchCompile => "last-watch.log",
+            BuildLogKind.Run => "last-run.log",
+            _ => "last-build.log"
+        };
+
+        return Path.Combine(logsRootDirectory, projectId, fileName);
+    }
+
     public async Task<BuildLogRecord> SaveAsync(
         string projectId,
         BuildLogKind kind,
@@ -35,7 +48,20 @@ public sealed class BuildLogStore(string logsRootDirectory)
 
         await File.WriteAllTextAsync(logPath, logText, cancellationToken);
 
-        var (errorCount, errorLines) = BuildLogParser.ParseErrors(logText);
+        var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(logText, logPath);
+        var (parsedErrors, errorLines) = BuildLogParser.ParseErrors(logText);
+        if (resolvedErrors == 0 && resolvedWarnings == 0
+            && IncrementalBuildDetector.WasCompileSkipped(logText)
+            && File.Exists(prevPath))
+        {
+            var prevText = await File.ReadAllTextAsync(prevPath, cancellationToken);
+            (parsedErrors, errorLines) = BuildLogParser.ParseErrors(prevText);
+            resolvedErrors = parsedErrors;
+            resolvedWarnings = BuildLogParser.ParseWarningCount(prevText);
+        }
+
+        var errorCount = Math.Max(parsedErrors, resolvedErrors);
+        var warningCount = Math.Max(BuildLogParser.ParseWarningCount(logText), resolvedWarnings);
         var finishedAt = DateTimeOffset.UtcNow;
         var record = new BuildLogRecord(
             projectId,
@@ -46,7 +72,8 @@ public sealed class BuildLogStore(string logsRootDirectory)
             finishedAt,
             logPath,
             errorCount,
-            errorLines);
+            errorLines,
+            warningCount);
 
         var metaPath = Path.Combine(projectDir, $"{Path.GetFileNameWithoutExtension(fileName)}.meta.json");
         var dto = new BuildLogMetadataDto
@@ -59,6 +86,7 @@ public sealed class BuildLogStore(string logsRootDirectory)
             FinishedAtUtc = record.FinishedAtUtc,
             LogFilePath = record.LogFilePath,
             ErrorCount = record.ErrorCount,
+            WarningCount = record.WarningCount,
             ErrorLines = record.ErrorLines.ToList()
         };
         await File.WriteAllTextAsync(metaPath, JsonSerializer.Serialize(dto), cancellationToken);
@@ -129,3 +157,4 @@ public sealed class BuildLogStore(string logsRootDirectory)
         return $"... (truncated, showing last {maxBytes} bytes)\n{tail}";
     }
 }
+
