@@ -36,21 +36,11 @@ public sealed class DebouncedFileWatcher : IDisposable
         }
     }
 
-    public DebouncedFileWatcher(string rootPath, int debounceMs, IEnumerable<string>? extraIgnoreSegments = null)
+    public DebouncedFileWatcher(string rootPath, int debounceMs, IReadOnlySet<string>? ignoreSegments = null)
     {
-        ignoreSegments = new HashSet<string>(
-            WatchExcludeSegments.DefaultSegmentSet,
-            StringComparer.OrdinalIgnoreCase);
-        if (extraIgnoreSegments is not null)
-        {
-            foreach (var segment in extraIgnoreSegments)
-            {
-                if (!string.IsNullOrWhiteSpace(segment))
-                {
-                    ignoreSegments.Add(segment);
-                }
-            }
-        }
+        this.ignoreSegments = ignoreSegments is not null
+            ? new HashSet<string>(ignoreSegments, StringComparer.OrdinalIgnoreCase)
+            : WatchExcludeSegments.ResolveIgnoreSegmentSet(null);
 
         watcher = new FileSystemWatcher(rootPath)
         {
@@ -70,6 +60,17 @@ public sealed class DebouncedFileWatcher : IDisposable
     public void SetDebounceMs(int debounceMs)
     {
         debounceTimer.Interval = Math.Max(1, debounceMs);
+    }
+
+    public void AddIgnoreSegments(IEnumerable<string> segments)
+    {
+        foreach (var segment in segments)
+        {
+            if (!string.IsNullOrWhiteSpace(segment))
+            {
+                ignoreSegments.Add(segment.Trim());
+            }
+        }
     }
 
     private void OnFsEvent(object sender, FileSystemEventArgs e)

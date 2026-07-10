@@ -573,6 +573,11 @@
                                           Margin="0,4,0,0"
                                           ToolTip="Watch agent-transcripts and .cursor folders for activity signals (does not trigger rebuilds by itself)." />
 
+                                <CheckBox x:Name="LearnFromDiagnosticsVerdictsCheck"
+                                          Content="Learn from Unexpected build diagnostics verdicts"
+                                          Margin="0,4,0,0"
+                                          ToolTip="When you mark a rebuild Unexpected, suggest folders to ignore and increase debounce learning for file-change triggers." />
+
                             </StackPanel>
 
                         </Border>
@@ -672,6 +677,17 @@
                                 <TextBlock Text="Tray menu layout" Margin="0,12,0,0" />
 
                                 <ComboBox x:Name="TrayMenuLayoutCombo" Margin="0,4,0,0" />
+
+                                <TextBlock Text="Virtual desktops" Margin="0,12,0,4" FontWeight="SemiBold" />
+
+                                <CheckBox x:Name="FollowStatusPanelDesktopCheck"
+                                          Content="Status panel follows current desktop"
+                                          Margin="0,0,0,4"
+                                          ToolTip="When the hover status panel opens, move it onto the Windows virtual desktop you are viewing." />
+
+                                <CheckBox x:Name="FollowBuildLogDesktopCheck"
+                                          Content="Build log follows current desktop"
+                                          ToolTip="When the build log opens or is brought to the front, move it onto the Windows virtual desktop you are viewing." />
 
                             </StackPanel>
 

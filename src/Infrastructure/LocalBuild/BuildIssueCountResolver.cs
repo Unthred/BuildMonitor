@@ -43,6 +43,36 @@ public static class BuildIssueCountResolver
             BuildLogParser.ParseWarningCount(buildOutput));
     }
 
+    /// <summary>
+    /// Watch/run console output often lacks a full MSBuild summary. Avoid clearing persisted build counts
+    /// when the parsed result is zero but the output does not contain a definitive build outcome.
+    /// </summary>
+    public static bool ShouldApplyWatchOutputCounts(
+        string normalizedOutput,
+        int currentErrors,
+        int currentWarnings,
+        int parsedErrors,
+        int parsedWarnings)
+    {
+        if (parsedErrors == currentErrors && parsedWarnings == currentWarnings)
+        {
+            return false;
+        }
+
+        if (parsedErrors > 0 || parsedWarnings > 0)
+        {
+            return true;
+        }
+
+        // Parsed 0/0 must never clear existing build issues from watch/run console output.
+        if (currentErrors > 0 || currentWarnings > 0)
+        {
+            return false;
+        }
+
+        return normalizedOutput.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static (int Errors, int Warnings) ReadCountsFromLogText(string logText)
     {
         var errors = BuildLogParser.ParseErrorCount(logText);
@@ -54,6 +84,9 @@ public static class BuildIssueCountResolver
 
         return BuildLogParser.TryParseIncrementalHealthNote(logText);
     }
+
+    public static (int Errors, int Warnings) ReadPersistedMetadataCounts(string? logFilePath) =>
+        string.IsNullOrWhiteSpace(logFilePath) ? (0, 0) : TryReadMetadataCounts(logFilePath);
 
     private static (int Errors, int Warnings) TryReadMetadataCounts(string logFilePath)
     {

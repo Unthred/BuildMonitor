@@ -12,16 +12,16 @@ public static class TrafficLightIconFactory
 
     private static readonly int[] TrayIconSizes = [16, 20, 24, 32];
 
-    private static readonly Color RedBright = Color.FromArgb(220, 53, 69);
-    private static readonly Color AmberBright = Color.FromArgb(255, 193, 7);
-    private static readonly Color GreenBright = Color.FromArgb(40, 167, 69);
+    private static readonly Color RedBright = Color.FromArgb(255, 235, 65, 80);
+    private static readonly Color AmberBright = Color.FromArgb(255, 255, 205, 0);
+    private static readonly Color GreenBright = Color.FromArgb(255, 50, 205, 90);
 
-    private static readonly Color RedMuted = Blend(Color.FromArgb(52, 28, 32), RedBright, 0.55f);
-    private static readonly Color AmberMuted = Blend(Color.FromArgb(52, 44, 24), AmberBright, 0.55f);
-    private static readonly Color GreenMuted = Blend(Color.FromArgb(28, 44, 32), GreenBright, 0.55f);
+    private static readonly Color RedMuted = Blend(Color.FromArgb(48, 24, 28), RedBright, 0.42f);
+    private static readonly Color AmberMuted = Blend(Color.FromArgb(48, 40, 20), AmberBright, 0.42f);
+    private static readonly Color GreenMuted = Blend(Color.FromArgb(24, 40, 28), GreenBright, 0.42f);
 
-    private static readonly Color Housing = Color.FromArgb(55, 55, 58);
-    private static readonly Color HousingBorder = Color.FromArgb(40, 40, 40);
+    private static readonly Color Housing = Color.FromArgb(255, 48, 48, 52);
+    private static readonly Color HousingBorder = Color.FromArgb(255, 28, 28, 30);
 
     private static readonly Dictionary<(MonitorHealth Health, bool IsBuilding, int Frame, bool Showcase, bool WebReady), Icon> IconCache = new();
 
@@ -103,8 +103,8 @@ public static class TrafficLightIconFactory
         var scale = pixelSize / (float)DesignSize;
         float U(float units) => units * scale;
 
-        var housing = new RectangleF(U(1), U(0), U(30), U(32));
-        var corner = Math.Max(1f, U(5));
+        var housing = new RectangleF(U(0), U(0), U(32), U(32));
+        var corner = Math.Max(1f, U(6));
         FillRoundedRectangle(graphics, new SolidBrush(Housing), housing, corner);
         using (var housingBorder = new Pen(HousingBorder, Math.Max(1f, U(1f))))
         {
@@ -119,19 +119,31 @@ public static class TrafficLightIconFactory
 
         if (webReady && !showcaseAllLamps)
         {
-            DrawWebReadyBadge(graphics, scale);
+            var badgeLamp = activeLamp == TrafficLamp.None ? TrafficLamp.Green : activeLamp;
+            DrawWebReadyBadge(graphics, scale, badgeLamp);
         }
 
         return bitmap;
     }
 
-    private static void DrawWebReadyBadge(Graphics graphics, float scale)
+    private static float LampCenterY(TrafficLamp lamp, Func<float, float> unit) =>
+        lamp switch
+        {
+            TrafficLamp.Red => unit(7.5f),
+            TrafficLamp.Amber => unit(16f),
+            _ => unit(24.5f)
+        };
+
+    private static void DrawWebReadyBadge(Graphics graphics, float scale, TrafficLamp activeLamp)
     {
         float U(float units) => units * scale;
 
-        var badgeSize = U(9f);
-        var x = U(DesignSize) - badgeSize + U(1f);
-        var y = U(DesignSize) - badgeSize + U(1f);
+        var badgeSize = U(7.5f);
+        var lampDiameter = U(14.5f);
+        var lampCenterX = U(DesignSize / 2f);
+        var lampCenterY = LampCenterY(activeLamp, U);
+        var x = lampCenterX + lampDiameter / 2f - badgeSize + U(0.5f);
+        var y = lampCenterY + lampDiameter / 2f - badgeSize + U(0.5f);
 
         using var outer = new SolidBrush(Color.FromArgb(255, 255, 255));
         graphics.FillEllipse(outer, x - U(0.75f), y - U(0.75f), badgeSize + U(1.5f), badgeSize + U(1.5f));
@@ -164,32 +176,35 @@ public static class TrafficLightIconFactory
     {
         float U(float units) => units * scale;
 
-        var centerY = lamp switch
-        {
-            TrafficLamp.Red => U(7.5f),
-            TrafficLamp.Amber => U(16f),
-            _ => U(24.5f)
-        };
+        var centerY = LampCenterY(lamp, U);
 
         var isActive = showcaseAllLamps || activeLamp == lamp;
         var (muted, bright) = GetLampColors(lamp);
         var fill = ResolveLampFill(muted, bright, isActive, isBuilding && isActive, animationFrame);
 
-        var diameter = isActive ? U(13f) : U(11.5f);
+        var diameter = isActive ? U(14.5f) : U(12.5f);
         var x = U(DesignSize / 2f) - diameter / 2f;
         var y = centerY - diameter / 2f;
 
         using var brush = new SolidBrush(fill);
         graphics.FillEllipse(brush, x, y, diameter, diameter);
 
-        using var rim = new Pen(Color.FromArgb(isActive ? 160 : 80, 0, 0, 0), Math.Max(1f, U(0.85f)));
+        if (isActive)
+        {
+            using var bloom = new SolidBrush(Color.FromArgb(70, bright));
+            var bloomPad = U(2.2f);
+            graphics.FillEllipse(bloom, x - bloomPad, y - bloomPad, diameter + bloomPad * 2f, diameter + bloomPad * 2f);
+            graphics.FillEllipse(brush, x, y, diameter, diameter);
+        }
+
+        using var rim = new Pen(Color.FromArgb(isActive ? 200 : 90, 0, 0, 0), Math.Max(1f, U(0.85f)));
         graphics.DrawEllipse(rim, x, y, diameter, diameter);
 
         if (isActive)
         {
-            var glowWidth = isBuilding && animationFrame % 2 == 0 ? U(2f) : U(1.35f);
-            using var highlight = new Pen(Color.FromArgb(210, 255, 255, 255), Math.Max(1f, glowWidth));
-            var glowPad = U(1.25f);
+            var glowWidth = isBuilding && animationFrame % 2 == 0 ? U(2.25f) : U(1.5f);
+            using var highlight = new Pen(Color.FromArgb(240, 255, 255, 255), Math.Max(1f, glowWidth));
+            var glowPad = U(1.4f);
             graphics.DrawEllipse(highlight, x - glowPad, y - glowPad, diameter + glowPad * 2f, diameter + glowPad * 2f);
         }
     }
@@ -272,7 +287,7 @@ public static class TrafficLightIconFactory
             return bright;
         }
 
-        var strength = animationFrame is 0 or 2 ? 1f : 0.72f;
+        var strength = animationFrame is 0 or 2 ? 1f : 0.82f;
         return Blend(muted, bright, strength);
     }
 

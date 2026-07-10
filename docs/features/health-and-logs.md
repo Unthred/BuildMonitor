@@ -18,6 +18,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 5f | Edit gating auto-shows status panel with hold detail + countdown | `App.AutoShowStatusPanelForEditGating`, `HoverStatusPanel` |
 | 6 | Tray hover opens the status panel (project health, counts, gating detail, actions); native shell tooltip is suppressed | `HoverStatusPanel`, `TrayIconShellInterop` |
 | 7 | Status panel shows `IssueCountsText` (build vs run context) | `HoverStatusPanel` |
+| 7b | **AI working?** — extends rebuild wait when header countdown is active; marks in-flight build **Unexpected** while building | `HoverStatusPanel`, `ProjectRuntime.HandleStillEditingClick` |
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
 | 8b | Log viewer footer and issues summary use the same resolved counts (metadata, `.prev`, incremental note); incremental 0/0 builds show a carry-forward note in the issues pane | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
 | 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`) | `App.AutoOpenLogsOnTransition`, `AutoOpenLogTransitionEvaluator` |

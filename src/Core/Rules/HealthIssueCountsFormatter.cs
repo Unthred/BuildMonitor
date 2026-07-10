@@ -4,7 +4,7 @@ namespace BuildMonitor.Core.Rules;
 
 public static class HealthIssueCountsFormatter
 {
-    public static string FormatStatusLine(
+    public static string? FormatStatusLine(
         ProjectLifecycleState state,
         int buildErrors,
         int buildWarnings,
@@ -20,15 +20,23 @@ public static class HealthIssueCountsFormatter
                 return $"Run: {runErrors} errors | {runWarnings} warnings";
             }
 
-            if (buildWarnings > 0 && state is not ProjectLifecycleState.Crashed)
+            if (state is not ProjectLifecycleState.Crashed
+                && (buildErrors > 0 || buildWarnings > 0))
             {
                 return $"Build: {buildErrors} errors | {buildWarnings} warnings";
             }
+
+            return null;
         }
 
         if (state is ProjectLifecycleState.Testing or ProjectLifecycleState.TestFailed)
         {
             return $"Tests: {buildErrors} failed | {buildWarnings} skipped";
+        }
+
+        if (buildErrors == 0 && buildWarnings == 0)
+        {
+            return null;
         }
 
         return $"Build: {buildErrors} errors | {buildWarnings} warnings";

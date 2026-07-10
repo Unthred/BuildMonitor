@@ -16,6 +16,7 @@ public static class BuildTriggerKindFormatter
             BuildTriggerKind.HotReloadRestart => "Hot reload restart",
             BuildTriggerKind.DotNetWatchCompile => "dotnet watch compile",
             BuildTriggerKind.DotNetWatchFileChange => "dotnet watch file change",
+            BuildTriggerKind.EditActivitySample => "Edit activity sample",
             _ => "Other"
         };
 

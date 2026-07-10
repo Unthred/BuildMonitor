@@ -13,6 +13,10 @@ public class WatchIgnoreRulesTests
     [InlineData(@"C:\proj\Thumbs.db", true)]
     [InlineData(@"C:\proj\wwwroot\Images\logo.png", true)]
     [InlineData(@"C:\proj\wwwroot\Files\guide.pdf", false)]
+    [InlineData(@"C:\proj\docs\SETTINGS.md", true)]
+    [InlineData(@"C:\proj\templates\email.md", true)]
+    [InlineData(@"C:\proj\README.md", true)]
+    [InlineData(@"C:\proj\.github\pull_request_template.md", true)]
     public void ShouldIgnorePath_classifies_noise_and_source(string path, bool expected) =>
         Assert.Equal(
             expected,

@@ -13,6 +13,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private readonly BuildLogStore logStore;
     private readonly BuildTriggerJournal triggerJournal;
     private readonly FileChangeBurstStatsStore burstStatsStore;
+    private readonly BuildTrainingStore trainingStore;
     private readonly DotNetCliRunner cliRunner;
     private Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser;
     private SupervisedProcess? runProcess;
@@ -45,6 +46,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private IReadOnlyList<BuildProgressStep> progressSteps = [];
     private BuildProgressTracker? buildProgressTracker;
     private int buildInProgress;
+    private string? currentBuildTriggerId;
     private int buildTriggeredByFileChange;
     private bool pendingFileChangeRebuild;
     private DateTimeOffset fileChangeBuildCooldownUntil = DateTimeOffset.MinValue;
@@ -54,6 +56,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private int manualFileChangeDebounceMs = 3000;
     private FileChangeDebounceMode debounceMode = FileChangeDebounceMode.Manual;
     private bool coalesceWatchRebuilds = true;
+    private bool learnFromDiagnosticsVerdicts = true;
     private int pendingHotReloadRestartRequest;
     private int buildNumber;
     private string pendingBuildReason = "startup";
@@ -152,12 +155,6 @@ internal sealed partial class ProjectRuntime : IDisposable
     private void CoalesceHealthCore()
     {
         RefreshLiveIssueCounts(force: true);
-        if (UsesDotNetWatchProcess()
-            && state is ProjectLifecycleState.Watching or ProjectLifecycleState.Running)
-        {
-            RefreshBuildIssueCountsFromWatchOutput(force: false);
-        }
-
         RefreshHealth();
     }
 
@@ -173,6 +170,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         DotNetCliRunner cliRunner,
         BuildTriggerJournal triggerJournal,
         FileChangeBurstStatsStore burstStatsStore,
+        BuildTrainingStore trainingStore,
         Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null)
     {
         this.definition = definition;
@@ -180,6 +178,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         this.cliRunner = cliRunner;
         this.triggerJournal = triggerJournal;
         this.burstStatsStore = burstStatsStore;
+        this.trainingStore = trainingStore;
         this.notifyUser = notifyUser;
         RegisterProjectWorkers();
     }
@@ -202,8 +201,19 @@ internal sealed partial class ProjectRuntime : IDisposable
         fileChangeDebounceMs = ResolveFileChangeDebounceMs();
         fileWatcher?.SetDebounceMs(fileChangeDebounceMs);
         coalesceWatchRebuilds = monitor.CoalesceWatchRebuilds;
+        learnFromDiagnosticsVerdicts = monitor.LearnFromDiagnosticsVerdicts;
         ApplyMonitorSuppressionSettings(monitor);
     }
+
+    private HashSet<string> GetEffectiveWatchIgnoreSegments() =>
+        WatchExcludeSegments.ResolveIgnoreSegmentSet(
+            definition.RunOptions.WatchExcludeSegments,
+            trainingStore.GetLearnedExcludeSegments(definition.Id));
+
+    public void RefreshWatchIgnoreSegments(IEnumerable<string> segments) =>
+        fileWatcher?.AddIgnoreSegments(segments);
+
+    public void RefreshFileWatcherDebounce() => SyncFileWatcherDebounceMs();
 
     private int ResolveFileChangeDebounceMs() =>
         AdaptiveFileChangeDebounce.ResolveEffectiveDebounce(
@@ -402,7 +412,6 @@ internal sealed partial class ProjectRuntime : IDisposable
     {
         SetProjectCurrentAction("Starting — loading saved build state");
         await HydrateLastBuildFromStoreAsync(cancellationToken);
-        TryStartFileWatcher();
         TryStartAgentActivityWatcher();
 
         var activity = EvaluateEditActivity();
@@ -422,21 +431,24 @@ internal sealed partial class ProjectRuntime : IDisposable
 
         if (definition.RunOptions.RunMode == ProjectRunMode.None)
         {
+            TryStartFileWatcher();
             return;
         }
 
         if (lastBuildExitCode != 0)
         {
+            TryStartFileWatcher();
             RefreshHealth();
             return;
         }
 
-        // Build already completed above — skip watch/run's embedded rebuild.
-        StartRunProcess(skipEmbeddedBuild: true);
-        if (fileWatcher is null)
+        // BuildAsync may already have started run when RestartAppAfterRebuild is enabled.
+        if (runProcess?.IsRunning != true)
         {
-            TryStartFileWatcher();
+            StartRunProcess(skipEmbeddedBuild: true);
         }
+
+        TryStartFileWatcher();
     }
     private void SetState(ProjectLifecycleState newState)
     {
@@ -490,8 +502,14 @@ internal sealed partial class ProjectRuntime : IDisposable
         string? detail,
         IReadOnlyList<string>? changedPaths = null)
     {
+        var id = Guid.NewGuid().ToString("N");
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            currentBuildTriggerId = id;
+        }
+
         triggerJournal.Record(new BuildTriggerRecord(
-            Guid.NewGuid().ToString("N"),
+            id,
             definition.Id,
             definition.DisplayName,
             DateTimeOffset.UtcNow,

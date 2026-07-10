@@ -75,4 +75,14 @@ public sealed class AdaptiveFileChangeDebounceTests
         var quiet = AdaptiveFileChangeDebounce.ComputeQuietUntilUtc(last, 5000);
         Assert.Equal(last.AddSeconds(5), quiet);
     }
+
+    [Fact]
+    public void RecordUnexpectedVerdict_bumps_learned_debounce_within_bounds()
+    {
+        var updated = AdaptiveFileChangeDebounce.RecordUnexpectedVerdict(
+            new FileChangeBurstStats { LearnedDebounceMs = 10000 });
+
+        Assert.Equal(11500, updated.LearnedDebounceMs);
+        Assert.Equal(1, updated.UnexpectedVerdictCount);
+    }
 }

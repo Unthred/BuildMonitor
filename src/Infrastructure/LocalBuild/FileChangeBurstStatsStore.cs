@@ -42,12 +42,24 @@ public sealed class FileChangeBurstStatsStore
         }
     }
 
-    public FileChangeBurstStats RecordBuildDuration(string projectId, int buildDurationMs)
+    public FileChangeBurstStats RecordBuildDuration(string projectId, int buildDurationMs, bool succeeded)
     {
         lock (sync)
         {
             var current = GetOrDefault(projectId);
-            var updated = AdaptiveFileChangeDebounce.RecordBuildDuration(current, buildDurationMs);
+            var updated = AdaptiveFileChangeDebounce.RecordBuildDuration(current, buildDurationMs, succeeded);
+            statsByProjectId[projectId] = updated;
+            SaveLocked();
+            return updated;
+        }
+    }
+
+    public FileChangeBurstStats RecordUnexpectedVerdict(string projectId)
+    {
+        lock (sync)
+        {
+            var current = GetOrDefault(projectId);
+            var updated = AdaptiveFileChangeDebounce.RecordUnexpectedVerdict(current);
             statsByProjectId[projectId] = updated;
             SaveLocked();
             return updated;

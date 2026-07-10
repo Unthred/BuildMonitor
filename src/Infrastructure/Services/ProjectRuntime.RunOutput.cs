@@ -257,6 +257,15 @@ internal sealed partial class ProjectRuntime
             SetProjectCurrentAction(rebuildFirst
                 ? "Restarting — rebuild then start app"
                 : "Restarting app (dotnet run --no-build)");
+            listenUrlReady = false;
+            listenUrlNotified = false;
+
+            if (rebuildFirst)
+            {
+                PrepareBuild(buildReason ?? "rebuild & restart");
+                BeginRebuildDisplayReset();
+            }
+
             await StopRunProcessAsync(cancellationToken);
             restartCount = 0;
             runErrorCount = 0;
@@ -264,7 +273,6 @@ internal sealed partial class ProjectRuntime
 
             if (rebuildFirst)
             {
-                PrepareBuild(buildReason ?? "rebuild & restart");
                 await BuildAsync(cancellationToken);
             }
             else if (buildReason == "hot reload restart")

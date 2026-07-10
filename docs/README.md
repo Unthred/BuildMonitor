@@ -6,6 +6,7 @@
 | Settings schema | [SETTINGS.md](SETTINGS.md) |
 | Logs | [LOGS.md](LOGS.md) |
 | GitHub workflow (Issues, Projects, PRs) | [ops/github-workflow.md](ops/github-workflow.md) |
+| Local release deploy (`C:\Utils\BuildMonitor`) | [ops/local-deploy.md](ops/local-deploy.md) |
 | Features | [features/](features/) (per feature) |
 | ADRs | [adr/](adr/) |
 

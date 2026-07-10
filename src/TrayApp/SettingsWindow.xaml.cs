@@ -56,6 +56,7 @@ public partial class SettingsWindow : Window
         DeferStartupBuildUntilQuietCheck.IsChecked = Settings.Monitor.DeferStartupBuildUntilQuiet;
         CancelSupersededBuildsCheck.IsChecked = Settings.Monitor.CancelSupersededBuilds;
         UseAgentTranscriptActivityCheck.IsChecked = Settings.Monitor.UseAgentTranscriptActivity;
+        LearnFromDiagnosticsVerdictsCheck.IsChecked = Settings.Monitor.LearnFromDiagnosticsVerdicts;
         HealthRefreshText.Text = Settings.Monitor.HealthRefreshSeconds.ToString();
         AutoOpenBuildMonitorHealthCheck.IsChecked = Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
         PlaySoundOnErrorCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildError;
@@ -63,6 +64,8 @@ public partial class SettingsWindow : Window
         MaxLogBytesText.Text = Settings.Monitor.MaxLogDisplayBytes.ToString();
         StartMinimizedCheck.IsChecked = Settings.AppBehavior.StartMinimizedToTray;
         RunOnLogonCheck.IsChecked = Settings.AppBehavior.RunOnLogon;
+        FollowStatusPanelDesktopCheck.IsChecked = Settings.AppBehavior.FollowStatusPanelToVirtualDesktop;
+        FollowBuildLogDesktopCheck.IsChecked = Settings.AppBehavior.FollowBuildLogToVirtualDesktop;
 
         foreach (var project in Settings.Projects)
         {
@@ -430,6 +433,7 @@ public partial class SettingsWindow : Window
         Settings.Monitor.DeferStartupBuildUntilQuiet = DeferStartupBuildUntilQuietCheck.IsChecked == true;
         Settings.Monitor.CancelSupersededBuilds = CancelSupersededBuildsCheck.IsChecked == true;
         Settings.Monitor.UseAgentTranscriptActivity = UseAgentTranscriptActivityCheck.IsChecked == true;
+        Settings.Monitor.LearnFromDiagnosticsVerdicts = LearnFromDiagnosticsVerdictsCheck.IsChecked == true;
         Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = AutoOpenBuildMonitorHealthCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildError = PlaySoundOnErrorCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildSuccess = PlaySoundOnSuccessCheck.IsChecked == true;
@@ -446,6 +450,8 @@ public partial class SettingsWindow : Window
 
         Settings.AppBehavior.StartMinimizedToTray = StartMinimizedCheck.IsChecked == true;
         Settings.AppBehavior.RunOnLogon = RunOnLogonCheck.IsChecked == true;
+        Settings.AppBehavior.FollowStatusPanelToVirtualDesktop = FollowStatusPanelDesktopCheck.IsChecked == true;
+        Settings.AppBehavior.FollowBuildLogToVirtualDesktop = FollowBuildLogDesktopCheck.IsChecked == true;
 
         if (TrayMenuLayoutCombo.SelectedItem is TrayMenuLayout trayMenuLayout)
         {

@@ -23,4 +23,20 @@ public class DotNetRunOutputParserTests
         Assert.False(ok);
         Assert.Empty(url);
     }
+
+    [Fact]
+    public void ParseErrorCount_ignores_msbuild_diagnostics_and_launch_settings_in_watch_output()
+    {
+        const string log = """
+            Using launch settings from C:\src\WitherbyConnect\Properties\launchSettings.json...
+            C:\src\WitherbyConnect\Pages\Index.razor(1,1): error CS8618: Required [C:\src\WitherbyConnect\app.csproj]
+            Build succeeded.
+                0 Warning(s)
+                0 Error(s)
+            info: Microsoft.Hosting.Lifetime[14]
+                  Now listening on: http://localhost:5000
+            """;
+
+        Assert.Equal(0, DotNetRunOutputParser.ParseErrorCount(log));
+    }
 }

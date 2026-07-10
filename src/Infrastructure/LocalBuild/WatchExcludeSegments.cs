@@ -20,7 +20,10 @@ public static class WatchExcludeSegments
         "TestResults",
         "coverage",
         "logs",
-        "diagnostics"
+        "diagnostics",
+        "docs",
+        "templates",
+        ".github"
     ];
 
     public static readonly HashSet<string> DefaultSegmentSet =
@@ -30,4 +33,33 @@ public static class WatchExcludeSegments
         string.IsNullOrWhiteSpace(configured)
             ? DefaultSegments
             : configured.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public static HashSet<string> ResolveIgnoreSegmentSet(
+        string? configured,
+        IEnumerable<string>? learnedSegments = null)
+    {
+        var set = new HashSet<string>(DefaultSegmentSet, StringComparer.OrdinalIgnoreCase);
+        foreach (var segment in Parse(configured))
+        {
+            if (!string.IsNullOrWhiteSpace(segment))
+            {
+                set.Add(segment);
+            }
+        }
+
+        if (learnedSegments is null)
+        {
+            return set;
+        }
+
+        foreach (var segment in learnedSegments)
+        {
+            if (!string.IsNullOrWhiteSpace(segment))
+            {
+                set.Add(segment);
+            }
+        }
+
+        return set;
+    }
 }

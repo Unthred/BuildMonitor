@@ -26,6 +26,7 @@ public sealed record BuildIntelligenceSnapshot(
     bool PendingFileChangeRebuild,
     IReadOnlyList<int> RecentBurstSamplesMs,
     IReadOnlyList<int> RecentBuildDurationSamplesMs,
+    IReadOnlyList<bool> RecentBuildSucceededSamples,
     int TodayTriggerCount,
     DateTimeOffset? RebuildQuietUntilUtc,
     PendingRebuildHoldReason HoldReason = PendingRebuildHoldReason.None,
@@ -42,6 +43,19 @@ public sealed record BuildIntelligenceSnapshot(
     /// <summary>What happens next — rebuild countdown or idle.</summary>
     public string NextRebuildText => BuildNextRebuildText();
 
+    /// <summary>Primary line in the Next rebuild tile.</summary>
+    public string NextRebuildHeadline => BuildNextRebuildHeadline();
+
+    /// <summary>Secondary line in the Next rebuild tile.</summary>
+    public string NextRebuildSubtext => BuildNextRebuildSubtext();
+
+    public bool ShowNextRebuildIdleState => IsActiveInSession && !PendingFileChangeRebuild;
+
+    public bool ShowNextRebuildStrategy => PendingFileChangeRebuild
+        || AgentSessionBackoff
+        || IsLearningIncomplete
+        || !IsAutoMode;
+
     /// <summary>0–100 progress through the quiet period when a rebuild is queued.</summary>
     public double RebuildCountdownPercent => BuildRebuildCountdownPercent();
 
@@ -56,8 +70,33 @@ public sealed record BuildIntelligenceSnapshot(
     /// <summary>Caption under the burst chart.</summary>
     public string BurstChartCaption => BuildBurstChartCaption();
 
-    /// <summary>Last file change and watch mode.</summary>
-    public string ActivityText => BuildActivityText();
+    public string LastFileChangeText => BuildLastFileChangeText();
+
+    public string WatchModeText => BuildWatchModeText();
+
+    public string QuietPeriodHelpText =>
+        "Quiet period after edits stop before a file-triggered rebuild can start.";
+
+    public string RecentRebuildsHelpText =>
+        "File-triggered rebuilds in the last 90 seconds; busy sessions lengthen the wait.";
+
+    public string TriggersTodayHelpText =>
+        "All build triggers logged today for this project (see table below).";
+
+    public string TypicalBuildHelpText =>
+        "Average compile time from recent file-triggered builds.";
+
+    public string BurstChartHelpText =>
+        "Length of multi-file save bursts; feeds auto debounce learning.";
+
+    public string BuildDurationHelpText =>
+        "How long recent file-triggered builds took to compile.";
+
+    public string BuildOutcomeHelpText =>
+        "Success (green) vs failure (red) for those recent builds.";
+
+    public string NextRebuildHelpText =>
+        "Whether a rebuild is queued, and when the last meaningful source save happened.";
 
     public string TabTitle => PendingFileChangeRebuild
         ? $"{ProjectDisplayName} •"
@@ -72,9 +111,17 @@ public sealed record BuildIntelligenceSnapshot(
 
     public bool HasBuildDurationChartData => RecentBuildDurationSamplesMs.Count > 0;
 
+    public bool HasBuildOutcomeChartData => RecentBuildSucceededSamples.Count > 0;
+
     public IReadOnlyList<BurstBarVisual> BurstBars => BuildBurstBars();
 
     public IReadOnlyList<BurstBarVisual> BuildDurationBars => BuildDurationBarVisuals();
+
+    public IReadOnlyList<BuildOutcomeBarVisual> BuildOutcomeBars => BuildOutcomeBarVisuals();
+
+    public string BuildOutcomeChartCaption => BuildBuildOutcomeChartCaption();
+
+    public string BuildOutcomeSummaryLabel => BuildBuildOutcomeSummaryLabel();
 
     public string CountdownRemainingText => BuildCountdownRemainingText();
 
@@ -153,6 +200,7 @@ public sealed record BuildIntelligenceSnapshot(
             false,
             TakeRecentBurstSamples(stats.BurstSamplesMs),
             TakeRecentBuildDurationSamples(stats.BuildSamplesMs),
+            TakeRecentBuildSucceededSamples(stats.BuildSucceededSamples),
             0,
             null);
     }
@@ -198,6 +246,7 @@ public sealed record BuildIntelligenceSnapshot(
             pendingFileChangeRebuild,
             TakeRecentBurstSamples(stats.BurstSamplesMs),
             TakeRecentBuildDurationSamples(stats.BuildSamplesMs),
+            TakeRecentBuildSucceededSamples(stats.BuildSucceededSamples),
             todayTriggerCount,
             rebuildQuietUntilUtc,
             holdReason,
@@ -226,7 +275,7 @@ public sealed record BuildIntelligenceSnapshot(
 
         if (!PendingFileChangeRebuild)
         {
-            return "Not waiting — no rebuild queued.";
+            return "Watching — no rebuild queued.";
         }
 
         if (RebuildQuietUntilUtc is not { } quietUntil)
@@ -238,6 +287,52 @@ public sealed record BuildIntelligenceSnapshot(
         return remainingMs > 0
             ? $"Rebuild in ~{FormatDuration(remainingMs)}"
             : "Rebuild starting…";
+    }
+
+    private string BuildNextRebuildHeadline()
+    {
+        if (!IsActiveInSession)
+        {
+            return "—";
+        }
+
+        if (!PendingFileChangeRebuild)
+        {
+            return "All quiet";
+        }
+
+        if (ShowRebuildCountdown)
+        {
+            var remaining = CountdownRemainingText;
+            return string.IsNullOrWhiteSpace(remaining) ? "Soon" : remaining;
+        }
+
+        return "Queued";
+    }
+
+    private string BuildNextRebuildSubtext()
+    {
+        if (!IsActiveInSession)
+        {
+            return "Enable this project to watch for changes.";
+        }
+
+        if (!PendingFileChangeRebuild)
+        {
+            return "Watching for file changes";
+        }
+
+        if (!string.IsNullOrWhiteSpace(NextRebuildReasonText))
+        {
+            return NextRebuildReasonText;
+        }
+
+        if (ShowRebuildCountdown)
+        {
+            return "Waiting for edit quiet period";
+        }
+
+        return "Rebuild queued after edits settle";
     }
 
     private string BuildNextRebuildReasonText()
@@ -373,15 +468,15 @@ public sealed record BuildIntelligenceSnapshot(
                + $"({BurstSampleCount} bursts, {BuildDurationSampleCount} build times).";
     }
 
-    private string BuildActivityText()
-    {
-        var lastChange = string.IsNullOrWhiteSpace(LastFileChangeLocal)
-            ? "No file changes yet"
-            : $"Last change {LastFileChangeLocal}";
+    private string BuildLastFileChangeText() =>
+        string.IsNullOrWhiteSpace(LastFileChangeLocal)
+            ? "Last file change: none yet"
+            : $"Last file change: {LastFileChangeLocal}";
 
-        var watchMode = CoalesceWatchRebuilds ? "Batch watch rebuilds" : "dotnet watch per change";
-        return $"{lastChange} · {watchMode}";
-    }
+    private string BuildWatchModeText() =>
+        CoalesceWatchRebuilds
+            ? "Watch: batch rebuild after quiet period"
+            : "Watch: dotnet watch per change";
 
     private string BuildStatusChipText()
     {
@@ -443,6 +538,68 @@ public sealed record BuildIntelligenceSnapshot(
             .ToList();
     }
 
+    private IReadOnlyList<BuildOutcomeBarVisual> BuildOutcomeBarVisuals()
+    {
+        if (RecentBuildSucceededSamples.Count == 0)
+        {
+            return [];
+        }
+
+        var count = Math.Min(
+            RecentBuildSucceededSamples.Count,
+            RecentBuildDurationSamplesMs.Count > 0
+                ? RecentBuildDurationSamplesMs.Count
+                : RecentBuildSucceededSamples.Count);
+
+        var outcomes = RecentBuildSucceededSamples.TakeLast(count).ToList();
+        var durations = RecentBuildDurationSamplesMs.TakeLast(count).ToList();
+        var maxDuration = durations.Count > 0 ? Math.Max(durations.Max(), 1000) : 1000;
+
+        var bars = new List<BuildOutcomeBarVisual>(outcomes.Count);
+        for (var i = 0; i < outcomes.Count; i++)
+        {
+            var durationMs = i < durations.Count ? durations[i] : 0;
+            var height = durationMs > 0
+                ? Math.Max(0.35, durationMs / (double)maxDuration)
+                : 0.55;
+            var label = durationMs > 0
+                ? $"{(outcomes[i] ? "Succeeded" : "Failed")} · {FormatDuration(durationMs)}"
+                : outcomes[i] ? "Succeeded" : "Failed";
+            bars.Add(new BuildOutcomeBarVisual(label, height, outcomes[i]));
+        }
+
+        return bars;
+    }
+
+    private string BuildBuildOutcomeChartCaption()
+    {
+        if (!HasBuildOutcomeChartData)
+        {
+            return "Recent build outcomes appear after file-triggered rebuilds complete.";
+        }
+
+        return $"Newest on the right · {BuildOutcomeSummaryLabel}";
+    }
+
+    private string BuildBuildOutcomeSummaryLabel()
+    {
+        if (RecentBuildSucceededSamples.Count == 0)
+        {
+            return "No outcomes yet";
+        }
+
+        var succeeded = RecentBuildSucceededSamples.Count(static s => s);
+        var failed = RecentBuildSucceededSamples.Count - succeeded;
+        return failed == 0
+            ? $"{succeeded} succeeded"
+            : $"{succeeded} succeeded · {failed} failed";
+    }
+
+    private static IReadOnlyList<bool> TakeRecentBuildSucceededSamples(IReadOnlyList<bool> buildSucceededSamples) =>
+        buildSucceededSamples.Count == 0
+            ? []
+            : buildSucceededSamples.TakeLast(5).ToList();
+
     private static IReadOnlyList<int> TakeRecentBurstSamples(IReadOnlyList<int> burstSamplesMs) =>
         burstSamplesMs.Count == 0
             ? []
@@ -496,4 +653,9 @@ public sealed record BuildIntelligenceSnapshot(
 public sealed record BurstBarVisual(string Label, double HeightRatio)
 {
     public double BarHeight => 6 + HeightRatio * 34;
+}
+
+public sealed record BuildOutcomeBarVisual(string Label, double HeightRatio, bool Succeeded)
+{
+    public double BarHeight => 10 + HeightRatio * 30;
 }

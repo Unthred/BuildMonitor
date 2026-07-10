@@ -188,8 +188,20 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
-        var (parsedErrors, parsedWarnings) = CountLiveBuildIssues(output);
-        if (parsedErrors == buildErrorCount && parsedWarnings == buildWarningCount)
+        var buildSegment = BuildLogParser.ExtractLatestBuildResultSegment(output);
+        if (string.IsNullOrWhiteSpace(buildSegment))
+        {
+            return false;
+        }
+
+        var logPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+        var (parsedErrors, parsedWarnings) = BuildIssueCountResolver.Resolve(buildSegment, logPath);
+        if (!BuildIssueCountResolver.ShouldApplyWatchOutputCounts(
+                buildSegment,
+                buildErrorCount,
+                buildWarningCount,
+                parsedErrors,
+                parsedWarnings))
         {
             return false;
         }
@@ -226,6 +238,13 @@ internal sealed partial class ProjectRuntime
             ? CountLiveIssues(BuildLogKind.Test, normalized)
             : CountLiveBuildIssues(normalized);
         if (parsedErrors == buildErrorCount && parsedWarnings == buildWarningCount)
+        {
+            return false;
+        }
+
+        if (parsedWarnings == 0
+            && parsedErrors == 0
+            && (buildWarningCount > 0 || buildErrorCount > 0))
         {
             return false;
         }

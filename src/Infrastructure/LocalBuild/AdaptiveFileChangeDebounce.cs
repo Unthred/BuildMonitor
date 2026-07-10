@@ -80,7 +80,10 @@ public static class AdaptiveFileChangeDebounce
         };
     }
 
-    public static FileChangeBurstStats RecordBuildDuration(FileChangeBurstStats stats, int buildDurationMs)
+    public static FileChangeBurstStats RecordBuildDuration(
+        FileChangeBurstStats stats,
+        int buildDurationMs,
+        bool succeeded)
     {
         if (buildDurationMs <= 0)
         {
@@ -89,7 +92,27 @@ public static class AdaptiveFileChangeDebounce
 
         return stats with
         {
-            BuildSamplesMs = AppendSample(stats.BuildSamplesMs, buildDurationMs)
+            BuildSamplesMs = AppendSample(stats.BuildSamplesMs, buildDurationMs),
+            BuildSucceededSamples = AppendBoolSample(stats.BuildSucceededSamples, succeeded)
+        };
+    }
+
+    public static FileChangeBurstStats RecordBuildDuration(FileChangeBurstStats stats, int buildDurationMs) =>
+        RecordBuildDuration(stats, buildDurationMs, succeeded: true);
+
+    public static FileChangeBurstStats RecordUnexpectedVerdict(FileChangeBurstStats stats)
+    {
+        var bumped = Math.Clamp(
+            Math.Max(
+                stats.LearnedDebounceMs + 250,
+                (int)Math.Round(stats.LearnedDebounceMs * 1.15)),
+            MinDebounceMs,
+            MaxDebounceMs);
+
+        return stats with
+        {
+            LearnedDebounceMs = bumped,
+            UnexpectedVerdictCount = stats.UnexpectedVerdictCount + 1
         };
     }
 
@@ -97,6 +120,21 @@ public static class AdaptiveFileChangeDebounce
     {
         var updated = samples.Count == 0
             ? new List<int>(MaxSamples)
+            : [.. samples];
+
+        updated.Add(value);
+        if (updated.Count > MaxSamples)
+        {
+            updated.RemoveRange(0, updated.Count - MaxSamples);
+        }
+
+        return updated;
+    }
+
+    private static List<bool> AppendBoolSample(IReadOnlyList<bool> samples, bool value)
+    {
+        var updated = samples.Count == 0
+            ? new List<bool>(MaxSamples)
             : [.. samples];
 
         updated.Add(value);
@@ -133,5 +171,7 @@ public sealed record FileChangeBurstStats
 {
     public List<int> BurstSamplesMs { get; init; } = [];
     public List<int> BuildSamplesMs { get; init; } = [];
+    public List<bool> BuildSucceededSamples { get; init; } = [];
     public int LearnedDebounceMs { get; init; } = AdaptiveFileChangeDebounce.DefaultDebounceMs;
+    public int UnexpectedVerdictCount { get; init; }
 }

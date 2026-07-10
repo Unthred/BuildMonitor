@@ -14,6 +14,14 @@ dotnet watch run --project src/TrayApp/BuildMonitor.TrayApp.csproj
 
 Or use `watch.ps1` from the repo root.
 
+## Local release deploy
+
+Default install folder: **`C:\Utils\BuildMonitor`**. See [docs/ops/local-deploy.md](docs/ops/local-deploy.md).
+
+```powershell
+.\scripts\Deploy-BuildMonitor.ps1
+```
+
 ## Settings
 
 User settings: `%LocalAppData%/BuildMonitor/settings.json` (not committed). See [docs/SETTINGS.md](docs/SETTINGS.md).

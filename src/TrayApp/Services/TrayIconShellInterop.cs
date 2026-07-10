@@ -63,6 +63,12 @@ internal static class TrayIconShellInterop
         return bounds.Width > 0 && bounds.Height > 0;
     }
 
+    public static bool TryGetNotifyIconWindowHandle(NotifyIcon notifyIcon, out IntPtr windowHandle)
+    {
+        windowHandle = GetNotifyIconWindowHandle(notifyIcon);
+        return windowHandle != IntPtr.Zero;
+    }
+
     public static bool IsCursorOverIcon(NotifyIcon notifyIcon, int inflatePixels = 12)
     {
         if (!TryGetIconScreenBounds(notifyIcon, out var bounds))

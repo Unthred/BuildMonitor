@@ -33,7 +33,12 @@ public static class WatchIgnoreRules
         ".svg",
         ".ico",
         ".bmp",
-        ".avif"
+        ".avif",
+        ".md",
+        ".mdc",
+        ".mdx",
+        ".rst",
+        ".adoc"
     };
 
     private static readonly HashSet<string> IgnoredFileNames = new(StringComparer.OrdinalIgnoreCase)

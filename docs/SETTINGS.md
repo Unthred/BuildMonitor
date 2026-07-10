@@ -76,6 +76,7 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 - **`deferStartupBuildUntilQuiet`** (default **true**) — when starting Build Monitor while an agent is still saving, wait for the quiet period before the first `dotnet build`.
 - **`cancelSupersededBuilds`** (default **true**) — cancel in-flight **startup** or **file-change** builds when newer saves arrive; coalesce into one rebuild after edits settle. Manual tray rebuilds are never cancelled.
 - **`useAgentTranscriptActivity`** (default **true**) — treat writes under `agent-transcripts` / `.cursor` as “agent still active” for gating (signal only; does not trigger rebuilds).
+- **`learnFromDiagnosticsVerdicts`** (default **true**) — when you mark a build trigger **Unexpected** in **Build diagnostics**, suggest watch-ignore folders and apply debounce feedback for file-change triggers. Learned excludes persist in `build-training.json`.
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
 
@@ -109,6 +110,13 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 
 - **`appBehavior.trayMenuLayout`**: `ByOperation` (default) — Rebuild / Restart / … each with a project list; `ByProject` — one submenu per active project with all actions underneath. Toggle in **Settings → App → Tray menu layout**. Both layouts include **Clean build output**.
 
+## Virtual desktops (Windows)
+
+- **`appBehavior.followStatusPanelToVirtualDesktop`** (default **true**) — when the hover **status panel** opens, move it onto the virtual desktop you are currently viewing (foreground window / cursor).
+- **`appBehavior.followBuildLogToVirtualDesktop`** (default **true**) — when the **build log** window opens or is activated, move it onto your current virtual desktop. Useful when auto-open log fires while you are on another desktop.
+
+Toggle both under **Settings → App → Virtual desktops**.
+
 ## File changes
 
 - `Off`
@@ -128,16 +136,22 @@ Tray → **Build diagnostics…** opens **one tab per active project**: a compac
 
 Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (**today's entries only**, local calendar day; up to 500 per day). Mark **Unexpected** triggers to spot spurious rebuilds during agent sessions.
 
-**Learning over time:** with **File change debounce → Auto**, BuildMonitor records save-burst lengths per project in `debounce-stats.json` and raises the quiet period (1500–12000 ms) after five bursts. **Agent session coalescing** (in memory) backs off further when several file-triggered builds happen within 90 seconds. Verdicts and notes in this window are **not** fed back into debounce yet — they are for your review.
+**Learning over time:** with **File change debounce → Auto**, BuildMonitor records save-burst lengths per project in `debounce-stats.json` and raises the quiet period (1500–12000 ms) after five bursts. **Agent session coalescing** (in memory) backs off further when several file-triggered builds happen within 90 seconds.
 
-**Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds.
+**Train from diagnostics:** with **Monitor → Learn from Unexpected build diagnostics verdicts** (default on), marking a trigger **Unexpected** in **Build diagnostics** can:
+- **Suggest folders to ignore** — when changed files point at tooling/docs paths (e.g. `docs/`, `.cursor/`), a prompt offers to add them to per-project learned excludes (persisted in `%LOCALAPPDATA%/BuildMonitor/build-training.json`, merged with settings excludes at runtime).
+- **Raise debounce learning** — file-watcher / `dotnet watch` file-change triggers bump the learned quiet period in `debounce-stats.json` (+15%, min +250 ms, capped at 12000 ms).
+
+Turn learning off to keep verdicts and notes for review only.
+
+**Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds. Status panel **AI working?** appears in the header during a rebuild countdown (extends the wait) or on the card while a build is running (marks that trigger **Unexpected**).
 
 Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics — including trigger grid column widths — and status panel width — height auto-fits content up to 460 px).
 
 ## Watch / file-watcher excludes
 
-- **`watchExcludeSegments`** — semicolon-separated folder names ignored by BuildMonitor’s debounced file watcher (`TriggerRebuild` mode). Defaults include `.cursor`, `agent-transcripts`, `logs`, `bin`, `obj`, and similar tooling/output folders.
-- Noisy file types (`.log`, `.dll`, `.pdb`, `.tmp`, common image formats under `wwwroot`, etc.) are also ignored so build output and static assets are less likely to trigger rebuilds.
+- **`watchExcludeSegments`** — semicolon-separated folder names ignored by BuildMonitor’s debounced file watcher (`TriggerRebuild` mode). Defaults include `.cursor`, `agent-transcripts`, `docs`, `templates`, `.github`, `logs`, `bin`, `obj`, and similar tooling/output folders.
+- Noisy file types (`.log`, `.dll`, `.pdb`, `.tmp`, `.md`, `.mdc`, common image formats under `wwwroot`, etc.) are also ignored so build output, documentation, and static assets are less likely to trigger rebuilds.
 - **`wwwroot/Images`** — image saves are ignored by default (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.ico`, …). **`wwwroot/Files`** (PDFs, Office docs, etc.) still trigger rebuilds unless you add `Files` or `wwwroot` to **`watchExcludeSegments`**.
 - For **dotnet watch**, also add `<Watch Remove="**/.cursor/**" />` (and similar) to the monitored `.csproj`. Defaults and behaviour: [features/health-and-logs.md](features/health-and-logs.md).
 
