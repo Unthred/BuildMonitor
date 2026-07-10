@@ -19,7 +19,6 @@ public static class StatusPanelPresentationBuilder
         var headerCountdown = StatusPanelHeaderCountdownFormatter.Format(snapshots, panelDismissAtUtc, utcNow);
         var (headerStillEditingProjectId, headerStillEditingToolTip) = ResolveHeaderStillEditing(
             active,
-            cards,
             utcNow);
 
         return new StatusPanelPresentation(
@@ -33,7 +32,6 @@ public static class StatusPanelPresentationBuilder
 
     private static (string? ProjectId, string? ToolTip) ResolveHeaderStillEditing(
         IReadOnlyList<ProjectHealthSnapshot> activeSnapshots,
-        IReadOnlyList<StatusPanelCardPresentation> cards,
         DateTimeOffset utcNow)
     {
         foreach (var snapshot in activeSnapshots.OrderByDescending(s => s.LastChangedUtc))
@@ -43,9 +41,9 @@ public static class StatusPanelPresentationBuilder
                 continue;
             }
 
-            var card = cards.FirstOrDefault(c =>
-                string.Equals(c.ProjectId, snapshot.ProjectId, StringComparison.OrdinalIgnoreCase));
-            return (snapshot.ProjectId, card?.StillEditingToolTip);
+            return (
+                snapshot.ProjectId,
+                StatusPanelBuildVisibilityEvaluator.StillEditingToolTip(snapshot, utcNow));
         }
 
         return (null, null);
@@ -89,12 +87,8 @@ public static class StatusPanelPresentationBuilder
             ShowCopyErrorsButton: snapshot.ErrorCount > 0,
             ShowRestartButtons: snapshot.SupportsAppRestart,
             ShowRunTestsButton: true,
-            ShowStillEditingButton: StatusPanelBuildVisibilityEvaluator.ShouldShowStillEditingButton(
-                snapshot,
-                utcNow),
-            StillEditingToolTip: StatusPanelBuildVisibilityEvaluator.ShouldShowStillEditingButton(snapshot, utcNow)
-                ? StatusPanelBuildVisibilityEvaluator.StillEditingToolTip(snapshot, utcNow)
-                : null);
+            ShowStillEditingButton: false,
+            StillEditingToolTip: null);
     }
 
     private static StatusPanelSideRailPresentation BuildSideRail(IReadOnlyList<ProjectHealthSnapshot> active)

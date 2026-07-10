@@ -30,6 +30,8 @@ public sealed class AgentActivityWatcher : IDisposable
         watcher.EnableRaisingEvents = true;
     }
 
+    public event Action? ActivityDetected;
+
     public DateTimeOffset LastActivityUtc
     {
         get
@@ -56,6 +58,8 @@ public sealed class AgentActivityWatcher : IDisposable
         {
             lastActivityUtc = DateTimeOffset.UtcNow;
         }
+
+        ActivityDetected?.Invoke();
     }
 
     internal static bool IsAgentActivityPath(string fullPath)
