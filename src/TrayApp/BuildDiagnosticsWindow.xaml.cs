@@ -246,9 +246,37 @@ public partial class BuildDiagnosticsWindow : Window
 
     private void UnexpectedClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is WpfButton { Tag: BuildTriggerRowViewModel row })
+        if (sender is not WpfButton { Tag: BuildTriggerRowViewModel row })
         {
-            journal.SetVerdict(row.Record.Id, BuildTriggerVerdict.Unexpected);
+            return;
+        }
+
+        journal.SetVerdict(row.Record.Id, BuildTriggerVerdict.Unexpected);
+        var training = orchestrator.ProcessUnexpectedVerdict(row.Record with { Verdict = BuildTriggerVerdict.Unexpected });
+        if (training.SuggestedExcludeSegments.Count == 0)
+        {
+            return;
+        }
+
+        var segmentLines = string.Join(
+            Environment.NewLine,
+            training.SuggestedExcludeSegments.Select(s => $"  • {s}"));
+        var message =
+            $"Add these folders to the watch ignore list for {row.Record.ProjectDisplayName}?"
+            + $"{Environment.NewLine}{Environment.NewLine}{segmentLines}"
+            + $"{Environment.NewLine}{Environment.NewLine}Future saves under these folders will not trigger rebuilds."
+            + $"{Environment.NewLine}(Saved in build-training.json — no app recompile needed.)";
+
+        var add = System.Windows.MessageBox.Show(
+            this,
+            message,
+            "Train Build Monitor",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (add == MessageBoxResult.Yes)
+        {
+            orchestrator.ApplyLearnedExcludeSegments(row.Record.ProjectId, training.SuggestedExcludeSegments);
         }
     }
 

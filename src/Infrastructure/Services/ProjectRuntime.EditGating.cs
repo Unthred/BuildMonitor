@@ -1,6 +1,7 @@
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 
 namespace BuildMonitor.Infrastructure.Services;
@@ -118,5 +119,71 @@ internal sealed partial class ProjectRuntime
         SetProjectCurrentAction(action);
         MarkHealthDirty();
         HealthCoalesceRequested?.Invoke(true);
+    }
+
+    public StillEditingClickResult HandleStillEditingClick()
+    {
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            return MarkInFlightBuildUnexpected()
+                ? StillEditingClickResult.BuildMarkedUnexpected
+                : StillEditingClickResult.NotApplicable;
+        }
+
+        return ExtendRebuildQuietPeriod()
+            ? StillEditingClickResult.QuietPeriodExtended
+            : StillEditingClickResult.NotApplicable;
+    }
+
+    public bool MarkInFlightBuildUnexpected()
+    {
+        if (Volatile.Read(ref buildInProgress) == 0 || string.IsNullOrWhiteSpace(currentBuildTriggerId))
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var note = InFlightBuildUnexpectedNoteFormatter.Format(EvaluateEditActivity(), now);
+        triggerJournal.SetVerdict(currentBuildTriggerId, BuildTriggerVerdict.Unexpected);
+        triggerJournal.SetUserNote(currentBuildTriggerId, note);
+        if (learnFromDiagnosticsVerdicts && Volatile.Read(ref buildTriggeredByFileChange) != 0)
+        {
+            trainingStore.RecordUnexpectedVerdict(definition.Id);
+            burstStatsStore.RecordUnexpectedVerdict(definition.Id);
+            SyncFileWatcherDebounceMs();
+        }
+
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
+        return true;
+    }
+
+    private bool ExtendRebuildQuietPeriod()
+    {
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (GetEditGatingQuietUntilUtc() is not { } until || until <= now)
+        {
+            return false;
+        }
+
+        lastMeaningfulFileChangeUtc = now;
+        pendingFileChangeRebuild = true;
+        var buildReason = string.Equals(pendingBuildReason, "startup", StringComparison.OrdinalIgnoreCase)
+            ? "startup"
+            : "file change (queued)";
+        pendingRebuildHoldReason = PendingRebuildHoldReason.EditsStillArriving;
+        pendingRebuildTimerResetCount++;
+
+        EnterWaitingForEditsState("Waiting for edits to settle… (extended)");
+        Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+        _ = WaitForEditQuietThenBuildAsync(buildReason);
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
+        return true;
     }
 }

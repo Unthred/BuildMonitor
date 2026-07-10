@@ -117,6 +117,49 @@ public sealed class BuildIntelligenceSnapshotTests
     }
 
     [Fact]
+    public void LastFileChangeText_formats_none_yet_when_no_changes()
+    {
+        var snapshot = CreateSnapshot();
+        Assert.Equal("Last file change: none yet", snapshot.LastFileChangeText);
+    }
+
+    [Fact]
+    public void NextRebuildHeadline_idle_shows_all_quiet()
+    {
+        var snapshot = CreateSnapshot();
+        Assert.Equal("All quiet", snapshot.NextRebuildHeadline);
+        Assert.Equal("Watching for file changes", snapshot.NextRebuildSubtext);
+    }
+
+    [Fact]
+    public void BuildOutcomeBars_color_recent_success_and_failure()
+    {
+        var stats = new FileChangeBurstStats
+        {
+            BuildSamplesMs = [2000, 3000, 2500],
+            BuildSucceededSamples = [true, false, true]
+        };
+        var snapshot = BuildIntelligenceSnapshot.Create(
+            SampleProject(),
+            new GlobalMonitorSettings(),
+            stats,
+            manualDebounceMs: 3000,
+            debounceMode: FileChangeDebounceMode.Auto,
+            baseEffectiveDebounceMs: 3000,
+            liveEffectiveDebounceMs: 3000,
+            recentFileChangeBuildsIn90s: 0,
+            coalesceWatchRebuilds: true,
+            lastMeaningfulFileChangeUtc: null,
+            pendingFileChangeRebuild: false,
+            rebuildQuietUntilUtc: null);
+
+        Assert.Equal(3, snapshot.BuildOutcomeBars.Count);
+        Assert.True(snapshot.BuildOutcomeBars[0].Succeeded);
+        Assert.False(snapshot.BuildOutcomeBars[1].Succeeded);
+        Assert.Contains("2 succeeded · 1 failed", snapshot.BuildOutcomeSummaryLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NextRebuildReasonText_timer_reset_mentions_files_and_restart()
     {
         var snapshot = CreateSnapshot(

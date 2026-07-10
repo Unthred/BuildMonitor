@@ -93,6 +93,11 @@ public static partial class DotNetRunOutputParser
 
     private static bool IsRunErrorLine(string line)
     {
+        if (IsBuildToolOutputLine(line))
+        {
+            return false;
+        }
+
         if (IsFatalStartupLine(line) || IsHostTerminatedLine(line))
         {
             return true;
@@ -108,15 +113,27 @@ public static partial class DotNetRunOutputParser
     }
 
     private static bool IsRunWarningLine(string line) =>
-        RunWarningMarkers.Any(marker =>
+        !IsBuildToolOutputLine(line)
+        && RunWarningMarkers.Any(marker =>
             line.Contains(marker, StringComparison.OrdinalIgnoreCase))
         && !IsRunErrorLine(line);
+
+    private static bool IsBuildToolOutputLine(string line) =>
+        line.Contains("Using launch settings from", StringComparison.OrdinalIgnoreCase)
+        || line.Contains("Build succeeded", StringComparison.OrdinalIgnoreCase)
+        || line.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase)
+        || line.Contains(": error CS", StringComparison.OrdinalIgnoreCase)
+        || line.Contains(": error MSB", StringComparison.OrdinalIgnoreCase)
+        || line.Contains(": error NU", StringComparison.OrdinalIgnoreCase)
+        || line.Contains(": warning CS", StringComparison.OrdinalIgnoreCase)
+        || line.Contains(": warning MSB", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsNoiseLine(string line) =>
         line.StartsWith("dotnet watch", StringComparison.OrdinalIgnoreCase)
         || line.StartsWith("🔥", StringComparison.Ordinal)
         || line.StartsWith("⌚", StringComparison.Ordinal)
-        || line.Contains("Hot reload enabled", StringComparison.OrdinalIgnoreCase);
+        || line.Contains("Hot reload enabled", StringComparison.OrdinalIgnoreCase)
+        || line.Contains("Using launch settings from", StringComparison.OrdinalIgnoreCase);
 
     private static string StripAnsi(string line) =>
         AnsiRegex().Replace(line, string.Empty);

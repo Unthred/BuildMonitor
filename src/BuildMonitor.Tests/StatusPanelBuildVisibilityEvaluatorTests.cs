@@ -173,6 +173,34 @@ public sealed class StatusPanelBuildVisibilityEvaluatorTests
     }
 
     [Fact]
+    public void ShouldShowSiteReady_false_while_rebuild_restart_in_progress()
+    {
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Success",
+            ProjectLifecycleState.Building,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            "http://localhost:5154",
+            ListenUrlReady: true,
+            SupportsAppRestart: true,
+            IsRestarting: true);
+
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteStatus(snapshot));
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteReady(snapshot));
+        Assert.True(StatusPanelAccentFormatter.ShouldShowAccentRail(snapshot));
+    }
+
+    [Fact]
     public void ShouldShowSiteStatus_false_while_building()
     {
         var snapshot = new ProjectHealthSnapshot(
@@ -222,5 +250,171 @@ public sealed class StatusPanelBuildVisibilityEvaluatorTests
 
         Assert.True(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteStatus(snapshot));
         Assert.True(StatusPanelBuildVisibilityEvaluator.IsAwaitingSiteReady(snapshot));
+    }
+
+    [Fact]
+    public void ShouldShowSiteReady_false_when_rebuild_is_pending()
+    {
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Success",
+            ProjectLifecycleState.Watching,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            "http://localhost:5154",
+            ListenUrlReady: true,
+            SupportsAppRestart: true,
+            IsEditGatingActive: true,
+            EditGatingDetailText: "Rebuild queued — post-build cooldown; 3 file(s) arrived.",
+            RebuildQuietUntilUtc: DateTimeOffset.UtcNow.AddSeconds(1));
+
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteReady(snapshot));
+        Assert.True(StatusPanelBuildVisibilityEvaluator.HasPendingRebuild(snapshot));
+    }
+
+    [Fact]
+    public void ShouldBlockSiteReadyDismiss_while_awaiting_site()
+    {
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Success",
+            ProjectLifecycleState.Running,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            "http://localhost:5000",
+            ListenUrlReady: false,
+            SupportsAppRestart: true);
+
+        Assert.True(StatusPanelBuildVisibilityEvaluator.ShouldBlockSiteReadyDismiss(snapshot));
+    }
+
+    [Fact]
+    public void ShouldScheduleSiteReadyDismiss_when_site_up_but_rebuild_queued()
+    {
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Success",
+            ProjectLifecycleState.Watching,
+            0,
+            null,
+            null,
+            0,
+            2000,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            "http://localhost:5154",
+            ListenUrlReady: true,
+            SupportsAppRestart: true,
+            IsEditGatingActive: true,
+            EditGatingDetailText: "Rebuild queued — post-build cooldown; 1 file(s) arrived.",
+            RebuildQuietUntilUtc: DateTimeOffset.UtcNow.AddSeconds(1));
+
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteReady(snapshot));
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldBlockSiteReadyDismiss(snapshot));
+        Assert.True(StatusPanelBuildVisibilityEvaluator.ShouldScheduleSiteReadyDismiss([snapshot]));
+    }
+
+    [Fact]
+    public void ShouldShowSiteAwaiting_false_when_probe_ready_even_if_rebuild_pending()
+    {
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Success",
+            ProjectLifecycleState.Watching,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            "http://localhost:5154",
+            ListenUrlReady: true,
+            SupportsAppRestart: true,
+            IsEditGatingActive: true,
+            RebuildQuietUntilUtc: DateTimeOffset.UtcNow.AddSeconds(2));
+
+        Assert.False(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteAwaiting(snapshot));
+    }
+
+    [Fact]
+    public void ShouldShowStillEditingButton_when_rebuild_countdown_active()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Green,
+            "Waiting",
+            ProjectLifecycleState.WaitingForEdits,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            ListenUrlReady: false,
+            SupportsAppRestart: true,
+            IsEditGatingActive: true,
+            RebuildQuietUntilUtc: now.AddSeconds(6));
+
+        Assert.True(StatusPanelBuildVisibilityEvaluator.ShouldShowStillEditingButton(snapshot, now));
+        Assert.True(StatusPanelBuildVisibilityEvaluator.StillEditingExtendsQuietPeriod(snapshot, now));
+    }
+
+    [Fact]
+    public void ShouldShowStillEditingButton_when_building_marks_unexpected_mode()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = new ProjectHealthSnapshot(
+            "p1",
+            "Demo",
+            MonitorHealth.Amber,
+            "Building",
+            ProjectLifecycleState.Building,
+            0,
+            null,
+            null,
+            0,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            [],
+            ListenUrlReady: false,
+            SupportsAppRestart: true,
+            RebuildQuietUntilUtc: now.AddSeconds(6));
+
+        Assert.True(StatusPanelBuildVisibilityEvaluator.ShouldShowStillEditingButton(snapshot, now));
+        Assert.False(StatusPanelBuildVisibilityEvaluator.StillEditingExtendsQuietPeriod(snapshot, now));
     }
 }

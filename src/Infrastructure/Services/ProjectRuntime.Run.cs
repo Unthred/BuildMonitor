@@ -16,6 +16,8 @@ internal sealed partial class ProjectRuntime
             : "Starting app (dotnet run)");
         StopRunProcess();
         WarnIfRiskyBaseOutputPath();
+        runErrorCount = 0;
+        runWarningCount = 0;
 
         runProcessGeneration++;
         var generation = runProcessGeneration;
@@ -54,11 +56,18 @@ internal sealed partial class ProjectRuntime
             args,
             psi =>
             {
+                var effectiveProfile = LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
+                    definition.RootFolder,
+                    definition.ProjectFile,
+                    definition.LaunchProfile);
                 LaunchProfileEnvironmentApplier.ApplyTo(
                     psi,
                     definition.RootFolder,
                     definition.ProjectFile,
-                    definition.LaunchProfile);
+                    effectiveProfile);
+
+                // BuildMonitor shows site-ready in the tray panel; avoid launchSettings launchBrowser pop-ups.
+                psi.Environment["DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER"] = "1";
 
                 if (UsesDotNetWatchProcess()
                     && !definition.RunOptions.AutoRestartOnWatchChanges)
@@ -90,11 +99,19 @@ internal sealed partial class ProjectRuntime
         listenUrlNotified = false;
         lastExitCode = exitCode;
         var runOutput = exitedProcess.Output;
-        runErrorCount = DotNetRunOutputParser.ParseErrorCount(runOutput);
-        runWarningCount = DotNetRunOutputParser.ParseWarningCount(runOutput);
-        if (exitCode != 0 && runErrorCount == 0)
+        if (exitCode == 0)
         {
-            runErrorCount = 1;
+            runErrorCount = 0;
+            runWarningCount = DotNetRunOutputParser.ParseWarningCount(runOutput);
+        }
+        else
+        {
+            runErrorCount = DotNetRunOutputParser.ParseErrorCount(runOutput);
+            runWarningCount = DotNetRunOutputParser.ParseWarningCount(runOutput);
+            if (runErrorCount == 0)
+            {
+                runErrorCount = 1;
+            }
         }
 
         if (exitCode != 0 && definition.RunOptions.RestartOnCrash && restartCount < definition.RunOptions.MaxRestartRetries)
@@ -127,6 +144,8 @@ internal sealed partial class ProjectRuntime
     {
         StopListenUrlPolling();
         StopRunLogSaveTimer();
+        listenUrlReady = false;
+        listenUrlNotified = false;
 
         if (runProcess is null)
         {
@@ -144,9 +163,13 @@ internal sealed partial class ProjectRuntime
     {
         if (runProcess is null)
         {
+            listenUrlReady = false;
+            listenUrlNotified = false;
             return;
         }
 
+        listenUrlReady = false;
+        listenUrlNotified = false;
         runProcessGeneration++;
         DetachRunProcessHandlers();
         await runProcess.StopGracefullyAsync(cancellationToken);
@@ -170,15 +193,10 @@ internal sealed partial class ProjectRuntime
 
     private List<string> BuildRunArgs(bool skipEmbeddedBuild = false)
     {
-        var args = new List<string> { "run", "--project", ResolveProjectFileArg() };
+        var args = new List<string> { "run", "--project", ResolveProjectFileArg(), "--no-launch-profile" };
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
-        }
-
-        if (!string.IsNullOrWhiteSpace(definition.LaunchProfile))
-        {
-            args.AddRange(["--launch-profile", definition.LaunchProfile]);
         }
 
         AppendExtraArgs(args);
@@ -194,15 +212,10 @@ internal sealed partial class ProjectRuntime
             args.Add("--non-interactive");
         }
 
-        args.AddRange(["run", "--project", ResolveProjectFileArg()]);
+        args.AddRange(["run", "--project", ResolveProjectFileArg(), "--no-launch-profile"]);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
-        }
-
-        if (!string.IsNullOrWhiteSpace(definition.LaunchProfile))
-        {
-            args.AddRange(["--launch-profile", definition.LaunchProfile]);
         }
 
         AppendExtraArgs(args);
@@ -228,18 +241,22 @@ internal sealed partial class ProjectRuntime
 
         if (!string.IsNullOrWhiteSpace(pendingListenUrl))
         {
-            return pendingListenUrl;
+            return LocalPortProbe.NormalizeDisplayUrl(
+                LocalPortProbe.PreferProfileDisplayUrl(pendingListenUrl, candidateListenUrls));
         }
 
         if (candidateListenUrls.Count > 0)
         {
-            return candidateListenUrls[0];
+            return LocalPortProbe.NormalizeDisplayUrl(candidateListenUrls[0]);
         }
 
-        return LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
+        var profileUrl = LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
             definition.RootFolder,
             definition.ProjectFile,
             definition.LaunchProfile);
+        return string.IsNullOrWhiteSpace(profileUrl)
+            ? null
+            : LocalPortProbe.NormalizeDisplayUrl(profileUrl);
     }
 
     private void RefreshListenUrlReady()
@@ -303,6 +320,12 @@ internal sealed partial class ProjectRuntime
 
         listenUrlReady = true;
         StopListenUrlPolling();
+        if (runProcess?.IsRunning == true)
+        {
+            runErrorCount = 0;
+        }
+
+        RefreshHealth();
         NotifyProgressChanged(force: true);
 
         if (listenUrlNotified)

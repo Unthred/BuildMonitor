@@ -105,6 +105,7 @@
     </Style>
 
     <SolidColorBrush x:Key="LogIssueErrorBrush" Color="#C82333" />
+    <SolidColorBrush x:Key="LogIssueSuccessBrush" Color="#28A745" />
     <SolidColorBrush x:Key="LogIssueWarningBrush" Color="#B8860B" />
 
     <Style TargetType="{x:Type RichTextBox}">

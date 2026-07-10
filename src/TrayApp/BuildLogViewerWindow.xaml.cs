@@ -45,6 +45,8 @@ public partial class BuildLogViewerWindow : Window
     private int lastRenderedRevision = -1;
     private bool isLoadingLog;
 
+    private bool followVirtualDesktop = true;
+
     public BuildLogViewerWindow(
         BuildLogStore logStore,
         AppWindowsLayoutStore windowsLayoutStore,
@@ -60,6 +62,7 @@ public partial class BuildLogViewerWindow : Window
         FilterWarningsRadio.Checked += IssueFilterChanged;
 
         Loaded += OnWindowLoaded;
+        Activated += OnWindowActivated;
         Closing += OnWindowClosing;
         this.logStore = logStore;
         this.windowsLayoutStore = windowsLayoutStore;
@@ -90,7 +93,15 @@ public partial class BuildLogViewerWindow : Window
         ThemeService.ApplyToWindow(this, ThemeService.CurrentResolved);
         await LoadSelectedLogAsync();
         liveRefreshTimer.Start();
+        TryFollowVirtualDesktop();
     }
+
+    public void ConfigureVirtualDesktopFollow(bool enabled) => followVirtualDesktop = enabled;
+
+    public void TryFollowVirtualDesktop() =>
+        WindowVirtualDesktopPlacement.TryFollow(this, followVirtualDesktop);
+
+    private void OnWindowActivated(object? sender, EventArgs e) => TryFollowVirtualDesktop();
 
     private void ApplyWindowState(BuildLogViewerLayoutState state)
     {

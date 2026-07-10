@@ -41,6 +41,63 @@ public static class LocalPortProbe
         return new UriBuilder(uri) { Host = "127.0.0.1" }.Uri.AbsoluteUri;
     }
 
+    /// <summary>Human-friendly URL for status panel / tooltips (localhost instead of 127.0.0.1).</summary>
+    public static string NormalizeDisplayUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        if (uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            && uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+        {
+            return new UriBuilder(uri) { Host = "localhost" }.Uri.AbsoluteUri;
+        }
+
+        return uri.AbsoluteUri;
+    }
+
+    public static bool SameListenEndpoint(string left, string right)
+    {
+        if (!Uri.TryCreate(left, UriKind.Absolute, out var leftUri)
+            || !Uri.TryCreate(right, UriKind.Absolute, out var rightUri))
+        {
+            return false;
+        }
+
+        return leftUri.Port == rightUri.Port
+            && leftUri.Scheme.Equals(rightUri.Scheme, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string PreferProfileDisplayUrl(string runtimeUrl, IReadOnlyList<string> profileUrls)
+    {
+        if (!Uri.TryCreate(runtimeUrl, UriKind.Absolute, out var runtime))
+        {
+            return runtimeUrl;
+        }
+
+        foreach (var candidate in profileUrls)
+        {
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out var profile))
+            {
+                continue;
+            }
+
+            if (!SameListenEndpoint(runtimeUrl, candidate))
+            {
+                continue;
+            }
+
+            if (profile.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeDisplayUrl(candidate);
+            }
+        }
+
+        return runtimeUrl;
+    }
+
     private static bool IsPortOpen(string host, int port, int timeoutMs)
     {
         try

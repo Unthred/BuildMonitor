@@ -13,6 +13,7 @@ public sealed class ProjectOrchestrator : IDisposable
     private readonly BuildLogStore logStore;
     private readonly BuildTriggerJournal triggerJournal;
     private readonly FileChangeBurstStatsStore burstStatsStore;
+    private readonly BuildTrainingStore trainingStore;
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
@@ -29,6 +30,7 @@ public sealed class ProjectOrchestrator : IDisposable
             ?? logsRootDirectory;
         triggerJournal = new BuildTriggerJournal(dataRoot);
         burstStatsStore = new FileChangeBurstStatsStore(dataRoot);
+        trainingStore = new BuildTrainingStore(dataRoot);
         WorkerHealthRegistry.Shared.Register(
             "health.event.raise",
             "HealthUpdated event (background → UI)",
@@ -66,6 +68,46 @@ public sealed class ProjectOrchestrator : IDisposable
     public BuildLogStore LogStore => logStore;
 
     public BuildTriggerJournal TriggerJournal => triggerJournal;
+
+    public BuildVerdictTrainingResult ProcessUnexpectedVerdict(BuildTriggerRecord record)
+    {
+        lock (sync)
+        {
+            var project = settings.Projects.FirstOrDefault(p => p.Id == record.ProjectId);
+            var configured = project?.RunOptions.WatchExcludeSegments;
+            var learned = trainingStore.GetLearnedExcludeSegments(record.ProjectId);
+            var learn = settings.Monitor.LearnFromDiagnosticsVerdicts;
+
+            var result = BuildVerdictTrainer.ProcessUnexpectedVerdict(
+                record,
+                configured,
+                learned,
+                learn,
+                trainingStore.RecordUnexpectedVerdict,
+                projectId => _ = burstStatsStore.RecordUnexpectedVerdict(projectId));
+
+            if (result.AppliedDebounceFeedback && runtimes.TryGetValue(record.ProjectId, out var runtime))
+            {
+                runtime.RefreshFileWatcherDebounce();
+            }
+
+            return result;
+        }
+    }
+
+    public IReadOnlyList<string> ApplyLearnedExcludeSegments(string projectId, IReadOnlyList<string> segments)
+    {
+        lock (sync)
+        {
+            var added = trainingStore.AddLearnedExcludeSegments(projectId, segments);
+            if (runtimes.TryGetValue(projectId, out var runtime))
+            {
+                runtime.RefreshWatchIgnoreSegments(segments);
+            }
+
+            return added;
+        }
+    }
 
     public IReadOnlyList<BuildIntelligenceSnapshot> GetBuildIntelligenceSnapshots()
     {
@@ -140,6 +182,7 @@ public sealed class ProjectOrchestrator : IDisposable
                         cliRunner,
                         triggerJournal,
                         burstStatsStore,
+                        trainingStore,
                         RaiseUserNotification);
                     runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
                     runtimes[project.Id] = runtime;
@@ -257,6 +300,16 @@ public sealed class ProjectOrchestrator : IDisposable
                 ExceptionDetailFormatter.Format(ex),
                 UserNotificationKind.Error,
                 UserNotificationCategory.Error);
+        }
+    }
+
+    public StillEditingClickResult HandleStillEditingClick(string projectId)
+    {
+        lock (sync)
+        {
+            return runtimes.TryGetValue(projectId, out var runtime)
+                ? runtime.HandleStillEditingClick()
+                : StillEditingClickResult.NotApplicable;
         }
     }
 

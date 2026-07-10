@@ -106,6 +106,16 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 13;
         }
 
+        if (settings.SchemaVersion < 14)
+        {
+            settings.SchemaVersion = 14;
+        }
+
+        if (settings.SchemaVersion < 15)
+        {
+            settings.SchemaVersion = 15;
+        }
+
         return settings;
     }
 
@@ -184,7 +194,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 13;
+        settings.SchemaVersion = 15;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

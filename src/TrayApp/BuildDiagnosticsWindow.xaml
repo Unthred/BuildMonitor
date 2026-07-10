@@ -30,7 +30,7 @@
                            TextWrapping="Wrap"
                            Opacity="0.8"
                            FontSize="11"
-                           Text="One tab per active project — rebuild timing at the top, today's triggers below. Mark unexpected triggers to spot spurious rebuilds." />
+                           Text="One tab per active project — rebuild timing at the top, today's triggers below. Mark unexpected triggers to train ignore rules and debounce learning." />
             </StackPanel>
         </DockPanel>
 

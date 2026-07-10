@@ -61,6 +61,8 @@ public static class BuildTriggerInference
             BuildTriggerKind.HotReloadRebuild => "Hot reload output requested a full rebuild",
             BuildTriggerKind.HotReloadRestart => "Hot reload output requested an app restart",
             BuildTriggerKind.RebuildAndRestart => "Rebuild & restart from tray or status panel",
+            BuildTriggerKind.EditActivitySample =>
+                "Manual snapshot from status panel while reviewing edit/agent activity",
             _ => string.IsNullOrWhiteSpace(detail) ? "—" : "See Detail column"
         };
     }

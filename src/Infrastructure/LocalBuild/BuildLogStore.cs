@@ -41,6 +41,7 @@ public sealed class BuildLogStore(string logsRootDirectory)
 
         var logPath = Path.Combine(projectDir, fileName);
         var prevPath = logPath + ".prev";
+        var priorPersisted = BuildIssueCountResolver.ReadPersistedMetadataCounts(logPath);
         if (File.Exists(logPath))
         {
             File.Copy(logPath, prevPath, overwrite: true);
@@ -60,8 +61,10 @@ public sealed class BuildLogStore(string logsRootDirectory)
             resolvedWarnings = BuildLogParser.ParseWarningCount(prevText);
         }
 
-        var errorCount = Math.Max(parsedErrors, resolvedErrors);
-        var warningCount = Math.Max(BuildLogParser.ParseWarningCount(logText), resolvedWarnings);
+        var errorCount = Math.Max(Math.Max(parsedErrors, resolvedErrors), priorPersisted.Errors);
+        var warningCount = Math.Max(
+            Math.Max(BuildLogParser.ParseWarningCount(logText), resolvedWarnings),
+            priorPersisted.Warnings);
         var finishedAt = DateTimeOffset.UtcNow;
         var record = new BuildLogRecord(
             projectId,

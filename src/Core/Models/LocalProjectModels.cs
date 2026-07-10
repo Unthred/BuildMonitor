@@ -119,7 +119,8 @@ public enum BuildTriggerKind
     HotReloadRestart = 6,
     DotNetWatchCompile = 7,
     DotNetWatchFileChange = 8,
-    Other = 9
+    Other = 9,
+    EditActivitySample = 10
 }
 
 public enum BuildTriggerVerdict

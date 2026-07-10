@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 13;
+    public int SchemaVersion { get; set; } = 15;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -125,7 +125,7 @@ public sealed class ProjectRunOptions
     public bool AutoRepairCorruptedOutput { get; set; } = true;
     /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>
     public string WatchExcludeSegments { get; set; } =
-        ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode";
+        ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode;docs;templates;.github";
     /// <summary>When to open the log viewer automatically after builds or tests.</summary>
     public AutoOpenLogMode AutoOpenLog { get; set; } = AutoOpenLogMode.Never;
     /// <summary>When true, open the hover status panel when a build starts and hide it when the build finishes.</summary>
@@ -160,6 +160,8 @@ public sealed class GlobalMonitorSettings
     public bool CancelSupersededBuilds { get; set; } = true;
     /// <summary>Treat agent-transcripts / .cursor writes as active editing.</summary>
     public bool UseAgentTranscriptActivity { get; set; } = true;
+    /// <summary>Learn from Unexpected verdicts in Build diagnostics (exclude suggestions and debounce feedback).</summary>
+    public bool LearnFromDiagnosticsVerdicts { get; set; } = true;
 }
 
 public enum AppThemePreference
@@ -203,4 +205,8 @@ public sealed class AppBehaviorSettings
     public int ToastDurationSeconds { get; set; } = 7;
     public TrayMenuLayout TrayMenuLayout { get; set; } = TrayMenuLayout.ByOperation;
     public ToastNotificationSettings Toasts { get; set; } = new();
+    /// <summary>Move the hover status panel onto the virtual desktop you are viewing when it opens.</summary>
+    public bool FollowStatusPanelToVirtualDesktop { get; set; } = true;
+    /// <summary>Move the build log window onto the virtual desktop you are viewing when it opens or is activated.</summary>
+    public bool FollowBuildLogToVirtualDesktop { get; set; } = true;
 }

@@ -160,7 +160,7 @@ internal static class StatusPanelVisuals
         };
     }
 
-    private static WpfColor Blend(WpfColor from, WpfColor to, float amount)
+    internal static WpfColor Blend(WpfColor from, WpfColor to, float amount)
     {
         amount = Math.Clamp(amount, 0f, 1f);
         var r = (byte)(from.R + (to.R - from.R) * amount);
@@ -189,6 +189,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteAwaitingBlock(string listenUrl, ThemePalette palette)
     {
+        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
         var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
         var accent = WpfColor.FromRgb(255, 193, 7);
         return new Border
@@ -212,7 +213,7 @@ internal static class StatusPanelVisuals
                     },
                     new TextBlock
                     {
-                        Text = openUrl,
+                        Text = displayUrl,
                         FontSize = 10,
                         TextWrapping = TextWrapping.Wrap,
                         Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
@@ -225,6 +226,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteReadyBlock(string listenUrl, ThemePalette palette)
     {
+        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
         var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
         var readyGreen = WpfColor.FromRgb(40, 167, 69);
         var panel = new StackPanel();
@@ -247,7 +249,7 @@ internal static class StatusPanelVisuals
                 TextDecorations = TextDecorations.Underline,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
-            link.Inlines.Add($"Open {openUrl}");
+            link.Inlines.Add($"Open {displayUrl}");
             link.RequestNavigate += (_, e) =>
             {
                 try
@@ -265,7 +267,7 @@ internal static class StatusPanelVisuals
         }
         else
         {
-            linkRow.Inlines.Add(new Run(openUrl)
+            linkRow.Inlines.Add(new Run(displayUrl)
             {
                 Foreground = new SolidColorBrush(palette.Foreground),
                 FontWeight = FontWeights.SemiBold

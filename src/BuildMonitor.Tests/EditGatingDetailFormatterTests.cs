@@ -21,4 +21,13 @@ public sealed class EditGatingDetailFormatterTests
 
         Assert.Equal("Rebuild starting…", text);
     }
+
+    [Fact]
+    public void FormatPanelDismissCountdown_shows_whole_seconds()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var text = EditGatingDetailFormatter.FormatPanelDismissCountdown(now.AddSeconds(4.2), now);
+
+        Assert.Equal("Closing in 5 s", text);
+    }
 }

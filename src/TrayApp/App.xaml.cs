@@ -23,6 +23,7 @@ public partial class App : System.Windows.Application
     private DispatcherHealthProbe? dispatcherHealthProbe;
     private HoverStatusPanel? hoverPanel;
     private DispatcherTimer? trayHoverPollTimer;
+    private DispatcherTimer? statusPanelPlacementTimer;
     private SettingsStore? settingsStore;
     private AppWindowsLayoutStore? windowsLayoutStore;
     private AppSettings currentSettings = new();
@@ -41,6 +42,7 @@ public partial class App : System.Windows.Application
     private bool statusPanelAutoShownForEditGating;
     private bool statusPanelPinnedAutoFlow;
     private bool statusPanelDismissScheduled;
+    private DateTimeOffset? statusPanelDismissAtUtc;
     private DateTimeOffset trayHoverStatusPanelSuppressedUntil = DateTimeOffset.MinValue;
     private readonly Dictionary<string, bool> previousEditGatingActive =
         new(StringComparer.OrdinalIgnoreCase);
@@ -57,6 +59,7 @@ public partial class App : System.Windows.Application
     private int exitRequested;
     private readonly object pendingHealthUiSync = new();
     private IReadOnlyList<ProjectHealthSnapshot>? pendingHealthSnapshots;
+    private IReadOnlyList<ProjectHealthSnapshot> lastHealthSnapshots = [];
     private MonitorHealth pendingHealthRollup = MonitorHealth.Unknown;
     private int healthUiUpdateScheduled;
     private int trayMenuOpen;
@@ -237,6 +240,7 @@ public partial class App : System.Windows.Application
             snapshots = pendingHealthSnapshots ?? [];
             rollup = pendingHealthRollup;
             pendingHealthSnapshots = null;
+            lastHealthSnapshots = snapshots;
         }
 
         lock (pendingHealthUiSync)
@@ -266,15 +270,18 @@ public partial class App : System.Windows.Application
 
             if (hoverPanel is { IsVisible: true })
             {
-                hoverPanel.Update(snapshots);
+                GetTrayPlacementContext(out var trayIconBounds, out var trayWindowHandle);
+                hoverPanel.FollowTray(trayIconBounds, trayWindowHandle);
+                UpdateStatusPanelIfVisible(snapshots);
             }
+
+            UpdateStatusPanelSiteReadyPin(snapshots);
 
             if (Volatile.Read(ref trayMenuOpen) == 0)
             {
                 AutoOpenLogsOnTransition(snapshots);
                 AutoShowStatusPanelWhileBuilding(snapshots);
                 AutoShowStatusPanelForEditGating(snapshots);
-                UpdateStatusPanelSiteReadyPin(snapshots);
                 buildLifecycleToastNotifier.Process(snapshots, fileChangeBuildStarts);
                 PlayBuildNotificationSounds(snapshots);
             }
@@ -384,80 +391,136 @@ public partial class App : System.Windows.Application
 
     private void MarkStatusPanelAutoPinned() => statusPanelPinnedAutoFlow = true;
 
+    private IReadOnlyList<ProjectHealthSnapshot> ResolveStatusPanelSnapshots()
+    {
+        if (lastHealthSnapshots.Any(s => s.IsActive))
+        {
+            return lastHealthSnapshots;
+        }
+
+        var live = orchestrator?.GetHealthSnapshots();
+        if (live is not null && live.Any(s => s.IsActive))
+        {
+            return live;
+        }
+
+        return lastHealthSnapshots;
+    }
+
+    private void UpdateStatusPanelIfVisible(IReadOnlyList<ProjectHealthSnapshot>? snapshots = null)
+    {
+        if (hoverPanel is not { IsVisible: true })
+        {
+            return;
+        }
+
+        var resolved = snapshots ?? ResolveStatusPanelSnapshots();
+        if (!resolved.Any(s => s.IsActive))
+        {
+            HideAutoStatusPanel(suppressTrayHover: true);
+            return;
+        }
+
+        hoverPanel.Update(resolved, statusPanelDismissAtUtc);
+    }
+
     private void UpdateStatusPanelSiteReadyPin(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
-        if (!statusPanelPinnedAutoFlow)
-        {
-            statusPanelDismissScheduled = false;
-            return;
-        }
-
         var active = snapshots.Where(s => s.IsActive).ToList();
-        var awaitingSite = StatusPanelBuildVisibilityEvaluator.ShouldKeepPanelVisibleUntilSiteReady(active);
-        var hasListenUrl = active.Any(StatusPanelBuildVisibilityEvaluator.HasSiteLaunchConfigured);
-        var busy = active.Any(s =>
-            StatusPanelBuildVisibilityEvaluator.IsBusyWorkState(s.State)
-            || s.IsEditGatingActive
-            || s.IsRestarting
-            || s.State is ProjectLifecycleState.Building);
+        var panelVisible = hoverPanel is { IsVisible: true };
 
-        if (hasListenUrl)
+        if (active.Count == 0)
         {
-            if (awaitingSite || busy)
+            CancelSiteReadyDismissSchedule();
+            if (panelVisible)
             {
-                statusPanelDismissScheduled = false;
-                siteReadyDismissTimer?.Stop();
-                return;
+                HideAutoStatusPanel(suppressTrayHover: true);
             }
 
-            ScheduleSiteReadyDismissOnce(TimeSpan.FromSeconds(4));
             return;
         }
 
-        if (!busy)
+        if (!statusPanelPinnedAutoFlow && !panelVisible)
         {
-            ScheduleSiteReadyDismissOnce(TimeSpan.FromSeconds(2));
+            CancelSiteReadyDismissSchedule();
+            return;
         }
-        else
+
+        if (active.Any(StatusPanelBuildVisibilityEvaluator.ShouldBlockSiteReadyDismiss))
         {
-            statusPanelDismissScheduled = false;
-            siteReadyDismissTimer?.Stop();
+            CancelSiteReadyDismissSchedule();
+            return;
+        }
+
+        if (!StatusPanelBuildVisibilityEvaluator.ShouldScheduleSiteReadyDismiss(active))
+        {
+            CancelSiteReadyDismissSchedule();
+            return;
+        }
+
+        var hasListenUrl = active.Any(StatusPanelBuildVisibilityEvaluator.HasSiteLaunchConfigured);
+        var siteReadyBanner = active.Any(StatusPanelBuildVisibilityEvaluator.ShouldShowSiteReady);
+        var delay = hasListenUrl
+            ? siteReadyBanner ? TimeSpan.FromSeconds(4) : TimeSpan.FromSeconds(8)
+            : TimeSpan.FromSeconds(2);
+        if (!statusPanelDismissScheduled)
+        {
+            ScheduleSiteReadyDismiss(delay, snapshots);
         }
     }
 
-    private void ScheduleSiteReadyDismissOnce(TimeSpan delay)
+    private void CancelSiteReadyDismissSchedule()
     {
-        if (statusPanelDismissScheduled)
-        {
-            return;
-        }
+        statusPanelDismissAtUtc = null;
+        statusPanelDismissScheduled = false;
+        siteReadyDismissTimer?.Stop();
+    }
 
+    private void ScheduleSiteReadyDismiss(TimeSpan delay, IReadOnlyList<ProjectHealthSnapshot> snapshots)
+    {
+        statusPanelDismissAtUtc = DateTimeOffset.UtcNow.Add(delay);
         statusPanelDismissScheduled = true;
-        ScheduleSiteReadyDismiss(delay);
-    }
 
-    private void ScheduleSiteReadyDismiss(TimeSpan delay)
-    {
-        siteReadyDismissTimer ??= new DispatcherTimer();
-        siteReadyDismissTimer.Interval = delay;
+        siteReadyDismissTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         siteReadyDismissTimer.Tick -= SiteReadyDismissTick;
         siteReadyDismissTimer.Tick += SiteReadyDismissTick;
         siteReadyDismissTimer.Stop();
         siteReadyDismissTimer.Start();
+
+        if (hoverPanel is { IsVisible: true })
+        {
+            UpdateStatusPanelIfVisible(snapshots);
+        }
     }
 
     private void SiteReadyDismissTick(object? sender, EventArgs e)
     {
-        siteReadyDismissTimer?.Stop();
-        if (!statusPanelPinnedAutoFlow)
+        if (statusPanelDismissAtUtc is not { } dismissAt)
         {
+            siteReadyDismissTimer?.Stop();
+            statusPanelDismissScheduled = false;
             return;
         }
 
-        if (pointerOverStatusPanel)
+        if (hoverPanel is { IsVisible: true, IsMouseOver: true })
         {
-            statusPanelDismissScheduled = false;
-            ScheduleSiteReadyDismiss(TimeSpan.FromSeconds(2));
+            statusPanelDismissAtUtc = DateTimeOffset.UtcNow.AddSeconds(2);
+            UpdateStatusPanelIfVisible();
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow < dismissAt)
+        {
+            UpdateStatusPanelIfVisible();
+            return;
+        }
+
+        siteReadyDismissTimer?.Stop();
+        statusPanelDismissAtUtc = null;
+        statusPanelDismissScheduled = false;
+
+        if (!statusPanelPinnedAutoFlow && hoverPanel is not { IsVisible: true })
+        {
             return;
         }
 
@@ -502,8 +565,16 @@ public partial class App : System.Windows.Application
             if (StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForEditGating(
                     suppressionEnabled,
                     snapshot.IsEditGatingActive,
-                    wasGating)
-                || StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForBusyWork(
+                    wasGating))
+            {
+                if (hoverPanel is not { IsVisible: true })
+                {
+                    ShowStatusPanel();
+                }
+
+                statusPanelAutoShownForEditGating = true;
+            }
+            else if (StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForBusyWork(
                     suppressionEnabled,
                     showWhileBuilding,
                     previousState,
@@ -535,7 +606,6 @@ public partial class App : System.Windows.Application
             && !anyGatingActive
             && !anyBusyWork
             && !statusPanelAutoShownForBuild
-            && !statusPanelPinnedAutoFlow
             && !StatusPanelBuildVisibilityEvaluator.ShouldKeepPanelVisibleUntilSiteReady(active))
         {
             HideAutoStatusPanel();
@@ -543,12 +613,19 @@ public partial class App : System.Windows.Application
         }
     }
 
+    private void OnStatusPanelCloseRequested()
+    {
+        HideAutoStatusPanel(suppressTrayHover: true);
+        statusPanelAutoShownForBuild = false;
+        statusPanelAutoShownForEditGating = false;
+    }
+
     private void HideAutoStatusPanel(bool suppressTrayHover = false)
     {
         CancelStatusPanelTimers();
-        siteReadyDismissTimer?.Stop();
+        CancelSiteReadyDismissSchedule();
         statusPanelPinnedAutoFlow = false;
-        statusPanelDismissScheduled = false;
+        StopStatusPanelPlacementTimer();
         if (suppressTrayHover)
         {
             trayHoverStatusPanelSuppressedUntil = DateTimeOffset.UtcNow.AddSeconds(5);
@@ -715,7 +792,8 @@ public partial class App : System.Windows.Application
 
         if (hoverPanel is { IsVisible: true })
         {
-            hoverPanel.Update(orchestrator?.GetHealthSnapshots() ?? []);
+            RepositionStatusPanelNearTray();
+            UpdateStatusPanelIfVisible();
         }
     }
 
@@ -736,7 +814,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        hoverPanel.Update(orchestrator?.GetHealthSnapshots() ?? []);
+        RepositionStatusPanelNearTray();
+        UpdateStatusPanelIfVisible();
     }
 
     private void ToggleStatusPanel()
@@ -746,15 +825,13 @@ public partial class App : System.Windows.Application
 
         if (hoverPanel is { IsVisible: true })
         {
-            hoverPanel.Hide();
-            statusPanelPinnedAutoFlow = false;
+            HideAutoStatusPanel();
             statusPanelAutoShownForBuild = false;
             statusPanelAutoShownForEditGating = false;
-            siteReadyDismissTimer?.Stop();
             return;
         }
 
-        hoverPanel!.Update(orchestrator?.GetHealthSnapshots() ?? []);
+        hoverPanel!.Update(ResolveStatusPanelSnapshots(), statusPanelDismissAtUtc);
         ShowStatusPanelNearTray();
     }
 
@@ -765,20 +842,74 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Rectangle? trayIconBounds = null;
-        if (notifyIcon is not null && TrayIconShellInterop.TryGetIconScreenBounds(notifyIcon, out var bounds))
+        GetTrayPlacementContext(out var trayIconBounds, out var trayWindowHandle);
+        hoverPanel.ShowNearTray(trayIconBounds, trayWindowHandle);
+        EnsureStatusPanelPlacementTimer();
+    }
+
+    private void GetTrayPlacementContext(out Rectangle? trayIconBounds, out IntPtr trayWindowHandle)
+    {
+        trayIconBounds = null;
+        trayWindowHandle = IntPtr.Zero;
+        if (notifyIcon is null)
+        {
+            return;
+        }
+
+        if (TrayIconShellInterop.TryGetIconScreenBounds(notifyIcon, out var bounds))
         {
             trayIconBounds = bounds;
         }
 
-        hoverPanel.ShowNearTray(trayIconBounds);
+        TrayIconShellInterop.TryGetNotifyIconWindowHandle(notifyIcon, out trayWindowHandle);
+    }
+
+    private void RepositionStatusPanelNearTray()
+    {
+        if (hoverPanel is not { IsVisible: true })
+        {
+            return;
+        }
+
+        GetTrayPlacementContext(out var trayIconBounds, out var trayWindowHandle);
+        hoverPanel.FollowTray(trayIconBounds, trayWindowHandle);
+    }
+
+    private void EnsureStatusPanelPlacementTimer()
+    {
+        statusPanelPlacementTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        statusPanelPlacementTimer.Tick -= StatusPanelPlacementTick;
+        statusPanelPlacementTimer.Tick += StatusPanelPlacementTick;
+        if (!statusPanelPlacementTimer.IsEnabled)
+        {
+            statusPanelPlacementTimer.Start();
+        }
+    }
+
+    private void StopStatusPanelPlacementTimer() => statusPanelPlacementTimer?.Stop();
+
+    private void StatusPanelPlacementTick(object? sender, EventArgs e)
+    {
+        if (hoverPanel is not { IsVisible: true })
+        {
+            StopStatusPanelPlacementTimer();
+            return;
+        }
+
+        RepositionStatusPanelNearTray();
     }
 
     private void ShowStatusPanel()
     {
+        var snapshots = ResolveStatusPanelSnapshots();
+        if (!snapshots.Any(s => s.IsActive))
+        {
+            return;
+        }
+
         CancelStatusPanelTimers();
         EnsureHoverPanel();
-        hoverPanel!.Update(orchestrator?.GetHealthSnapshots() ?? []);
+        hoverPanel!.Update(snapshots, statusPanelDismissAtUtc);
         ShowStatusPanelNearTray();
     }
 
@@ -823,7 +954,10 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        hoverPanel = new HoverStatusPanel();
+        hoverPanel = new HoverStatusPanel
+        {
+            FollowVirtualDesktop = currentSettings.AppBehavior.FollowStatusPanelToVirtualDesktop
+        };
         hoverPanel.ApplyLayout(windowsLayoutStore.Layout.StatusPanel);
         hoverPanel.SizeChanged += (_, _) => ScheduleSaveStatusPanelLayout();
         ApplyThemeToUi();
@@ -833,7 +967,12 @@ public partial class App : System.Windows.Application
         hoverPanel.RestartAppRequested += projectId =>
             RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(projectId, CancellationToken.None));
         hoverPanel.RebuildAndRestartRequested += projectId =>
+        {
+            CancelSiteReadyDismissSchedule();
+            statusPanelAutoShownForBuild = true;
+            hoverPanel?.PrepareForPendingRebuild();
             RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAndRestartAsync(projectId, CancellationToken.None));
+        };
         hoverPanel.RunTestsRequested += projectId =>
         {
             var name = currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
@@ -855,12 +994,58 @@ public partial class App : System.Windows.Application
                 }
             });
         };
+        hoverPanel.MarkStillEditingRequested += projectId =>
+            RunTrayMenuBackgroundAction(async () =>
+            {
+                var result = orchestrator!.HandleStillEditingClick(projectId);
+                if (result == StillEditingClickResult.NotApplicable)
+                {
+                    return;
+                }
+
+                var message = result switch
+                {
+                    StillEditingClickResult.QuietPeriodExtended =>
+                        "Rebuild wait extended — AI still working.",
+                    StillEditingClickResult.BuildMarkedUnexpected =>
+                        "Current build marked unexpected in Build diagnostics.",
+                    _ => string.Empty
+                };
+
+                if (string.IsNullOrEmpty(message))
+                {
+                    return;
+                }
+
+                await Dispatcher.InvokeAsync(() =>
+                    ToastNotificationService.ShowIfEnabled(
+                        "Local Build Monitor",
+                        message,
+                        ToastKind.Info,
+                        UserNotificationCategory.Info));
+            });
+        hoverPanel.CloseRequested += OnStatusPanelCloseRequested;
+        hoverPanel.IsVisibleChanged += (_, _) =>
+        {
+            if (hoverPanel.IsVisible)
+            {
+                EnsureStatusPanelPlacementTimer();
+            }
+            else
+            {
+                StopStatusPanelPlacementTimer();
+            }
+        };
         hoverPanel.MouseEnter += (_, _) =>
         {
             pointerOverStatusPanel = true;
             hideStatusPanelTimer?.Stop();
         };
-        hoverPanel.MouseLeave += (_, _) => ScheduleHideStatusPanel();
+        hoverPanel.MouseLeave += (_, _) =>
+        {
+            pointerOverStatusPanel = false;
+            ScheduleHideStatusPanel();
+        };
         hoverPanel.Deactivated += (_, _) => ScheduleHideStatusPanel();
         hoverPanel.Closed += (_, _) => hoverPanel = null;
     }
@@ -997,6 +1182,8 @@ public partial class App : System.Windows.Application
             {
                 if (existing.IsLoaded)
                 {
+                    existing.ConfigureVirtualDesktopFollow(
+                        currentSettings.AppBehavior.FollowBuildLogToVirtualDesktop);
                     WindowLayoutService.Apply(existing, windowsLayoutStore.Layout.BuildLog, 960, 720);
                     if (double.IsNaN(windowsLayoutStore.Layout.BuildLog.Left))
                     {
@@ -1024,6 +1211,7 @@ public partial class App : System.Windows.Application
 
                     existing.Activate();
                     existing.Focus();
+                    existing.TryFollowVirtualDesktop();
                     return;
                 }
             }
@@ -1040,9 +1228,11 @@ public partial class App : System.Windows.Application
             name,
             currentSettings.Monitor.MaxLogDisplayBytes,
             orchestrator.GetLiveBuildLog);
+        viewer.ConfigureVirtualDesktopFollow(currentSettings.AppBehavior.FollowBuildLogToVirtualDesktop);
         viewer.Closed += (_, _) => openLogViewers.Remove(projectId);
         openLogViewers[projectId] = viewer;
         viewer.Show();
+        viewer.TryFollowVirtualDesktop();
 
         if (logKind is not null)
         {
@@ -1154,6 +1344,7 @@ public partial class App : System.Windows.Application
         ThemeService.ApplyTheme(currentSettings.AppBehavior.Theme);
         ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
         WindowsStartupService.Apply(currentSettings.AppBehavior.RunOnLogon);
+        ApplyVirtualDesktopWindowSettings();
         ApplyThemeToUi();
         RebuildTrayMenu();
 
@@ -1447,6 +1638,20 @@ public partial class App : System.Windows.Application
     private static AppSettings CloneSettings(AppSettings source) =>
         System.Text.Json.JsonSerializer.Deserialize<AppSettings>(
             System.Text.Json.JsonSerializer.Serialize(source)) ?? new AppSettings();
+
+    private void ApplyVirtualDesktopWindowSettings()
+    {
+        if (hoverPanel is not null)
+        {
+            hoverPanel.FollowVirtualDesktop = currentSettings.AppBehavior.FollowStatusPanelToVirtualDesktop;
+        }
+
+        var followLog = currentSettings.AppBehavior.FollowBuildLogToVirtualDesktop;
+        foreach (var viewer in openLogViewers.Values)
+        {
+            viewer.ConfigureVirtualDesktopFollow(followLog);
+        }
+    }
 
     private void ApplyThemeToUi()
     {

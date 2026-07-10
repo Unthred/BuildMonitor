@@ -6,6 +6,32 @@ namespace BuildMonitor.Tests;
 public class HealthIssueCountsFormatterTests
 {
     [Fact]
+    public void FormatStatusLine_omits_zero_build_counts_while_running()
+    {
+        var text = HealthIssueCountsFormatter.FormatStatusLine(
+            ProjectLifecycleState.Running,
+            buildErrors: 0,
+            buildWarnings: 0,
+            runErrors: 0,
+            runWarnings: 0);
+
+        Assert.Null(text);
+    }
+
+    [Fact]
+    public void FormatStatusLine_shows_build_warnings_while_running_with_clean_run()
+    {
+        var text = HealthIssueCountsFormatter.FormatStatusLine(
+            ProjectLifecycleState.Running,
+            buildErrors: 0,
+            buildWarnings: 1067,
+            runErrors: 0,
+            runWarnings: 0);
+
+        Assert.Equal("Build: 0 errors | 1067 warnings", text);
+    }
+
+    [Fact]
     public void FormatStatusLine_prefers_run_errors_when_crashed()
     {
         var text = HealthIssueCountsFormatter.FormatStatusLine(

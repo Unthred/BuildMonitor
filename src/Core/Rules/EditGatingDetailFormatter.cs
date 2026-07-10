@@ -62,6 +62,25 @@ public static class EditGatingDetailFormatter
             : $"Rebuild in {remainingSeconds} s";
     }
 
+    public static string FormatPanelDismissCountdown(DateTimeOffset? dismissAtUtc, DateTimeOffset utcNow)
+    {
+        if (dismissAtUtc is not { } dismissAt)
+        {
+            return string.Empty;
+        }
+
+        var remainingMs = (int)Math.Max(0, (dismissAt - utcNow).TotalMilliseconds);
+        if (remainingMs <= 0)
+        {
+            return "Closing…";
+        }
+
+        var remainingSeconds = (remainingMs + 999) / 1000;
+        return remainingSeconds == 1
+            ? "Closing in 1 s"
+            : $"Closing in {remainingSeconds} s";
+    }
+
     public static string FormatPendingFileSample(IReadOnlyList<string>? paths, int totalCount)
     {
         if (paths is not { Count: > 0 })

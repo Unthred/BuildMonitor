@@ -22,7 +22,7 @@ internal sealed partial class ProjectRuntime
             fileWatcher = new DebouncedFileWatcher(
                 definition.RootFolder,
                 fileChangeDebounceMs,
-                WatchExcludeSegments.Parse(definition.RunOptions.WatchExcludeSegments));
+                GetEffectiveWatchIgnoreSegments());
             fileWatcher.Changed += OnFileWatcherChanged;
         }
         catch (Exception ex)
@@ -34,6 +34,25 @@ internal sealed partial class ProjectRuntime
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
         }
+    }
+
+    private void BeginRebuildDisplayReset()
+    {
+        lock (liveOutputSync)
+        {
+            liveBuildOutput.Clear();
+        }
+
+        watchRebuildInProgress = false;
+        Interlocked.Exchange(ref liveOutputRevision, 0);
+        lastErrorPreview = null;
+        buildProgressTracker = new BuildProgressTracker();
+        buildProgressTracker.Reset();
+        progressSteps = buildProgressTracker.Steps;
+        SetState(ProjectLifecycleState.Building);
+        SetProjectCurrentAction($"Building — {pendingBuildReason}");
+        NotifyProgressChanged(force: true);
+        RequestHealthCoalesce(immediate: true);
     }
 
     public async Task BuildAsync(CancellationToken cancellationToken)
@@ -185,8 +204,23 @@ internal sealed partial class ProjectRuntime
                 result.Output,
                 existingLogPath);
             var parsedErrors = BuildLogParser.ParseErrorCount(result.Output);
-            buildErrorCount = Math.Max(resolvedErrors, parsedErrors);
-            buildWarningCount = resolvedWarnings;
+            var parsedWarnings = BuildLogParser.ParseWarningCount(result.Output);
+            var mergedErrors = Math.Max(resolvedErrors, parsedErrors);
+            var mergedWarnings = Math.Max(resolvedWarnings, parsedWarnings);
+
+            if (IncrementalBuildDetector.WasCompileSkipped(result.Output))
+            {
+                buildErrorCount = Math.Max(buildErrorCount, mergedErrors);
+                buildWarningCount = Math.Max(buildWarningCount, mergedWarnings);
+            }
+            else
+            {
+                var issuesInOutput = BuildLogParser.ParseIssues(result.Output);
+                var issueErrors = issuesInOutput.Count(i => i.IsError);
+                var issueWarnings = issuesInOutput.Count(i => !i.IsError);
+                buildErrorCount = Math.Max(buildErrorCount, Math.Max(mergedErrors, issueErrors));
+                buildWarningCount = Math.Max(buildWarningCount, Math.Max(mergedWarnings, issueWarnings));
+            }
             if (result.ExitCode != 0 && buildErrorCount == 0)
             {
                 var (_, errorLines) = BuildLogParser.ParseErrors(result.Output);
@@ -199,10 +233,10 @@ internal sealed partial class ProjectRuntime
             var finishBanner = BuildMonitorLogBanner.FormatFinished(buildNumber, result.ExitCode);
             var logText = result.Output + Environment.NewLine + finishBanner;
             if (IncrementalBuildDetector.WasCompileSkipped(result.Output)
-                && (resolvedErrors > 0 || resolvedWarnings > 0))
+                && (buildErrorCount > 0 || buildWarningCount > 0))
             {
                 logText += Environment.NewLine
-                           + BuildMonitorLogBanner.FormatIncrementalNote(resolvedErrors, resolvedWarnings);
+                           + BuildMonitorLogBanner.FormatIncrementalNote(buildErrorCount, buildWarningCount);
             }
 
             var buildLog = await logStore.SaveAsync(
@@ -218,7 +252,10 @@ internal sealed partial class ProjectRuntime
             lastErrorPreview = buildLog.ErrorLines.FirstOrDefault();
             if (result.Duration.TotalMilliseconds > 0)
             {
-                burstStatsStore.RecordBuildDuration(definition.Id, (int)result.Duration.TotalMilliseconds);
+                burstStatsStore.RecordBuildDuration(
+                    definition.Id,
+                    (int)result.Duration.TotalMilliseconds,
+                    result.ExitCode == 0);
             }
 
             if (result.ExitCode == 0)
@@ -269,6 +306,7 @@ internal sealed partial class ProjectRuntime
             buildCancellationSource?.Dispose();
             buildCancellationSource = null;
             currentBuildReasonInFlight = null;
+            currentBuildTriggerId = null;
             Interlocked.Exchange(ref buildInProgress, 0);
             Interlocked.Exchange(ref buildTriggeredByFileChange, 0);
 
@@ -536,7 +574,7 @@ internal sealed partial class ProjectRuntime
 
         var meaningful = WatchIgnoreRules.FilterMeaningfulPaths(
             changedPaths,
-            WatchExcludeSegments.Parse(definition.RunOptions.WatchExcludeSegments));
+            GetEffectiveWatchIgnoreSegments());
         if (meaningful.Count == 0)
         {
             return;
@@ -553,12 +591,14 @@ internal sealed partial class ProjectRuntime
         if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
             QueuePendingRebuild(PendingRebuildHoldReason.PostBuildCooldown, meaningful, wasAlreadyPending);
+            SchedulePendingRebuildWhenReady("file change (queued)");
             return;
         }
 
         if (Volatile.Read(ref testInProgress) != 0)
         {
             QueuePendingRebuild(PendingRebuildHoldReason.TestsInProgress, meaningful, wasAlreadyPending);
+            SchedulePendingRebuildWhenReady("file change (queued)");
             return;
         }
 
@@ -600,6 +640,16 @@ internal sealed partial class ProjectRuntime
             UserNotificationCategory.FileChangeDetected);
 
         _ = BuildAsync(CancellationToken.None);
+    }
+
+    private void SchedulePendingRebuildWhenReady(string buildReason)
+    {
+        if (!pendingFileChangeRebuild)
+        {
+            return;
+        }
+
+        _ = WaitForEditQuietThenBuildAsync(buildReason);
     }
 
     private void QueuePendingRebuild(
