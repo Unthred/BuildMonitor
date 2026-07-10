@@ -144,7 +144,7 @@ Persisted at `%LOCALAPPDATA%/BuildMonitor/diagnostics/build-triggers.jsonl` (**t
 
 Turn learning off to keep verdicts and notes for review only.
 
-**Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds. Status panel **AI working?** appears in the header during a rebuild countdown (extends the wait) or on the card while a build is running (marks that trigger **Unexpected**).
+**Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds. Status panel **AI working?** appears in the **header** during a rebuild countdown (extends the wait) or while a build is running (marks that trigger **Unexpected**). The countdown auto-extends when Cursor/agent tooling is active (`useAgentTranscriptActivity`) and resets when meaningful source files (e.g. `.cs`) are saved.
 
 Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics — including trigger grid column widths — and status panel width — height auto-fits content up to 460 px).
 

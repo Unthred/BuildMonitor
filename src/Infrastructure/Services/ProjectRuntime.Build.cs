@@ -377,12 +377,7 @@ internal sealed partial class ProjectRuntime
 
         while (generation == Volatile.Read(ref fileChangeRebuildScheduleGeneration))
         {
-            var activity = EvaluateEditActivity();
-            var waitUntil = GetFileChangeQuietUntilUtc();
-            if (activity.IsActive && activity.QuietUntilUtc > waitUntil)
-            {
-                waitUntil = activity.QuietUntilUtc;
-            }
+            var waitUntil = GetEffectiveEditQuietUntilUtc();
 
             if (fileChangeBuildCooldownUntil > waitUntil)
             {
@@ -406,8 +401,7 @@ internal sealed partial class ProjectRuntime
                 return;
             }
 
-            activity = EvaluateEditActivity();
-            if (activity.IsActive || DateTimeOffset.UtcNow < GetFileChangeQuietUntilUtc())
+            if (EvaluateEditActivity().IsActive || DateTimeOffset.UtcNow < GetEffectiveEditQuietUntilUtc())
             {
                 continue;
             }
@@ -583,6 +577,7 @@ internal sealed partial class ProjectRuntime
         lastMeaningfulFileChangeUtc = DateTimeOffset.UtcNow;
         HeartbeatProjectWorker("file-watcher", $"{meaningful.Count} file(s)");
         SetProjectCurrentAction($"File change — rebuild pending ({meaningful.Count} file(s))");
+        RequestHealthCoalesce(immediate: true);
 
         lastFileChangePaths = RelativizePaths(meaningful);
         SyncFileWatcherDebounceMs();

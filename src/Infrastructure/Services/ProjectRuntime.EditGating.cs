@@ -56,15 +56,23 @@ internal sealed partial class ProjectRuntime
 
     private DateTimeOffset? GetEditGatingQuietUntilUtc()
     {
-        if (pendingFileChangeRebuild && lastMeaningfulFileChangeUtc != DateTimeOffset.MinValue)
-        {
-            return AdaptiveFileChangeDebounce.ComputeQuietUntilUtc(
-                lastMeaningfulFileChangeUtc,
-                GetSessionAdjustedFileChangeDebounceMs());
-        }
-
         var activity = EvaluateEditActivity();
-        return activity.IsActive ? activity.QuietUntilUtc : null;
+        return EditGatingQuietUntilResolver.Resolve(
+            pendingFileChangeRebuild,
+            lastMeaningfulFileChangeUtc,
+            GetSessionAdjustedFileChangeDebounceMs(),
+            activity);
+    }
+
+    private DateTimeOffset GetEffectiveEditQuietUntilUtc()
+    {
+        var activity = EvaluateEditActivity();
+        return EditGatingQuietUntilResolver.Resolve(
+                   pendingFileChangeRebuild,
+                   lastMeaningfulFileChangeUtc,
+                   GetSessionAdjustedFileChangeDebounceMs(),
+                   activity)
+               ?? DateTimeOffset.UtcNow;
     }
 
     private string? BuildEditGatingDetailText()
@@ -94,12 +102,15 @@ internal sealed partial class ProjectRuntime
         try
         {
             agentActivityWatcher = new AgentActivityWatcher(definition.RootFolder);
+            agentActivityWatcher.ActivityDetected += OnAgentActivityDetected;
         }
         catch
         {
             agentActivityWatcher = null;
         }
     }
+
+    private void OnAgentActivityDetected() => RequestHealthCoalesce(immediate: true);
 
     private void RequestBuildCancellation()
     {

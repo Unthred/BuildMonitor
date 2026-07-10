@@ -52,9 +52,12 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             now);
 
-        Assert.True(Assert.Single(waiting.Cards).ShowStillEditingButton);
-        Assert.Contains("extend", Assert.Single(waiting.Cards).StillEditingToolTip!, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Assert.Single(waiting.Cards).ShowStillEditingButton);
         Assert.Equal("p1", waiting.HeaderStillEditingProjectId);
+        Assert.Contains(
+            "extend",
+            waiting.HeaderStillEditingToolTip!,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -67,8 +70,12 @@ public sealed class StatusPanelPresentationBuilderTests
             now);
 
         var card = Assert.Single(building.Cards);
-        Assert.True(card.ShowStillEditingButton);
-        Assert.Contains("unexpected", card.StillEditingToolTip!, StringComparison.OrdinalIgnoreCase);
+        Assert.False(card.ShowStillEditingButton);
+        Assert.Equal("p1", building.HeaderStillEditingProjectId);
+        Assert.Contains(
+            "unexpected",
+            building.HeaderStillEditingToolTip!,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

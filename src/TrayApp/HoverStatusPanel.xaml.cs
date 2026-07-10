@@ -340,22 +340,6 @@ public partial class HoverStatusPanel : Window
                 actions.Children.Add(runTests);
             }
 
-            if (cardModel.ShowStillEditingButton)
-            {
-                var stillEditing = new WpfButton
-                {
-                    Content = "AI working?",
-                    ToolTip = cardModel.StillEditingToolTip,
-                    Padding = new Thickness(6, 2, 6, 2),
-                    FontSize = 10,
-                    Margin = new Thickness(0, 0, 0, 0),
-                    HorizontalAlignment = WpfHorizontalAlignment.Left,
-                    Tag = cardModel.ProjectId
-                };
-                WireActionButton(stillEditing, () => MarkStillEditingRequested?.Invoke(cardModel.ProjectId));
-                actions.Children.Add(stillEditing);
-            }
-
             panel.Children.Add(actions);
 
             card.Child = panel;
