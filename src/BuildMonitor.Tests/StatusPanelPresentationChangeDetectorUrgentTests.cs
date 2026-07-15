@@ -37,6 +37,22 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
         Assert.False(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(first, second));
     }
 
+    [Fact]
+    public void RequiresUrgentCardRebuild_when_lifecycle_moves_waiting_to_building()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var previous = StatusPanelPresentationBuilder.Build(
+            [Snapshot(ProjectLifecycleState.WaitingForEdits, rebuildQuietUntilUtc: now.AddSeconds(5))],
+            null,
+            now);
+        var current = StatusPanelPresentationBuilder.Build(
+            [Snapshot(ProjectLifecycleState.Building)],
+            null,
+            now);
+
+        Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
+    }
+
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,
         DateTimeOffset? rebuildQuietUntilUtc = null) =>

@@ -226,7 +226,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, ApplyPendingHealthUi);
+        // Normal (not ApplicationIdle): keep tray/status panel in step with build toasts.
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, ApplyPendingHealthUi);
     }
 
     private void ApplyPendingHealthUi()
@@ -248,7 +249,7 @@ public partial class App : System.Windows.Application
             if (pendingHealthSnapshots is not null
                 && Interlocked.CompareExchange(ref healthUiUpdateScheduled, 1, 0) == 0)
             {
-                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, ApplyPendingHealthUi);
+                Dispatcher.BeginInvoke(DispatcherPriority.Normal, ApplyPendingHealthUi);
             }
         }
 
