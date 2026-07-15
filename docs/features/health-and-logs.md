@@ -8,7 +8,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 |------|------|--------|
 | 1 | Build output appends lines and marks health dirty (no per-line parse) | `ProjectRuntime.OnBuildOutputLine` → `HealthCoalescer` |
 | 2 | Coalescer parses counts + progress on a background loop (~250 ms) | `HealthCoalescer`, `ProjectRuntime.CoalesceHealthCore`, `BuildLogParser` |
-| 3 | Tray receives immutable snapshot list at bounded rate | `ProjectOrchestrator.HealthUpdated` → `App.OnHealthUpdated` (`ApplicationIdle`, coalesced) |
+| 3 | Tray receives immutable snapshot list at bounded rate | `ProjectOrchestrator.HealthUpdated` → `App.OnHealthUpdated` (`DispatcherPriority.Normal`, coalesced) |
 | 4 | Run/watch output updates `runErrorCount` / `runWarningCount` | `DotNetRunOutputParser`, `OnRunProcessOutputLine` (coalesced same as build) |
 | 5 | Snapshot picks display counts by lifecycle state | `HealthIssueCountsFormatter.SelectPrimaryCounts` |
 | 5b | Incremental file builds with 0/0 MSBuild summary reuse counts from metadata, `.prev`, or the BuildMonitor incremental note | `IncrementalBuildDetector`, `BuildIssueCountResolver`, `BuildLogStore` |
@@ -33,7 +33,7 @@ During large builds MSBuild can emit thousands of lines. Parsing issue counts an
 
 **Builds and runs execute on thread-pool / process output threads**, not the WPF dispatcher. Auto-start and settings apply call `ApplySettingsAndStartAsync` via `Task.Run` so `dotnet build` continuations do not marshal back to the UI thread (manual **Rebuild** from the tray already used this pattern).
 
-The tray uses WinForms `NotifyIcon` with `ContextMenuStrip` assigned directly (same as `main`). Health snapshots are coalesced in `HealthCoalescer` (~250 ms) on a background thread. The UI applies them via a single coalesced `Dispatcher.BeginInvoke(ApplicationIdle)` pass: tray icon always updates; hover panel updates only when visible; toasts and sounds are skipped while the tray menu is open. `HealthCoalescer` also pauses publish while the menu is open.
+The tray uses WinForms `NotifyIcon` with `ContextMenuStrip` assigned directly (same as `main`). Health snapshots are coalesced in `HealthCoalescer` (~250 ms) on a background thread. The UI applies them via a single coalesced `Dispatcher.BeginInvoke(Normal)` pass so the tray stays in step with build toasts: tray icon always updates; hover panel updates only when visible; toasts and sounds are skipped while the tray menu is open. `HealthCoalescer` also pauses publish while the menu is open. Agent-tooling folder activity marks health dirty for the next coalesce tick (not an immediate publish) so Cursor writes do not flood the UI; lifecycle and meaningful source saves still request immediate coalesce.
 
 | Piece | Behaviour |
 |-------|-----------|

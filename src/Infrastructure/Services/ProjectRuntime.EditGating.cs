@@ -110,7 +110,13 @@ internal sealed partial class ProjectRuntime
         }
     }
 
-    private void OnAgentActivityDetected() => RequestHealthCoalesce(immediate: true);
+    private void OnAgentActivityDetected()
+    {
+        // Keep countdown in sync without an immediate UI flood on every .cursor write.
+        // Lifecycle transitions still use immediate coalesce via SetState / file watcher.
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(false);
+    }
 
     private void RequestBuildCancellation()
     {
