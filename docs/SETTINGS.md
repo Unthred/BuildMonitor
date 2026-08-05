@@ -24,6 +24,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
         "restartAppAfterRebuild": true,
         "runTests": "Off",
         "fileChanges": "WatchOnly",
+        "forceCompleteWarningCounts": true,
         "watchExcludeSegments": ".cursor;agent-transcripts;terminals;mcps;.idea;.vscode"
       }
     }
@@ -99,6 +100,10 @@ If test assemblies are missing or stale, Build Monitor stops run/watch briefly, 
 Output uses `--verbosity normal` and a detailed console logger (per-test pass/fail lines plus a summary in the finish banner).
 
 **Stop processes locking build output** applies before builds and when a full test rebuild is needed (or on lock-error retry). It is not used for the normal `--no-build` test path while the site stays up. Enable it when the app is started outside Build Monitor and locks `bin` output during rebuilds.
+
+## Warning counts
+
+- **`forceCompleteWarningCounts`** (per project, default **true**) — when enabled, every build (including file-change) passes `--no-incremental` so MSBuild re-emits the full warning/error summary. Turn off under **Settings → Projects** for faster file-change builds; those may show `0 Warning(s)` when nothing recompiled. **Startup**, **Rebuild**, and **Rebuild & restart** always force a full compile regardless of this setting.
 
 ## Build output repair
 

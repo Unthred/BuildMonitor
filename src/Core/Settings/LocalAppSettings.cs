@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 15;
+    public int SchemaVersion { get; set; } = 16;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -121,6 +121,11 @@ public sealed class ProjectRunOptions
     public TestRunTrigger RunTests { get; set; } = TestRunTrigger.Off;
     public FileChangeMode FileChanges { get; set; } = FileChangeMode.WatchOnly;
     public bool ReleaseOutputLocksBeforeBuild { get; set; }
+    /// <summary>
+    /// When true, every build passes <c>--no-incremental</c> so MSBuild re-emits the full warning/error summary.
+    /// When false, only startup / Rebuild / Rebuild &amp; restart force a full compile (file-change builds may report 0/0).
+    /// </summary>
+    public bool ForceCompleteWarningCounts { get; set; } = true;
     /// <summary>When build output indicates a poisoned artifacts/bin/obj tree, stop, clean output folders, and retry.</summary>
     public bool AutoRepairCorruptedOutput { get; set; } = true;
     /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>

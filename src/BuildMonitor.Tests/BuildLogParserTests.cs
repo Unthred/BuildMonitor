@@ -60,7 +60,7 @@ public class BuildLogParserTests
     }
 
     [Fact]
-    public void ParseWarningCount_reads_incremental_health_note()
+    public void ParseWarningCount_explicit_zero_summary_not_overridden_by_incremental_note()
     {
         const string log = """
             Build succeeded.
@@ -70,7 +70,25 @@ public class BuildLogParserTests
             [BuildMonitor] Incremental build — compiler skipped (outputs up-to-date). Tray health uses 1065 warning(s) from the previous full build log.
             """;
 
-        Assert.Equal(1065, BuildLogParser.ParseWarningCount(log));
+        Assert.Equal(0, BuildLogParser.ParseWarningCount(log));
+        Assert.Equal(0, BuildLogParser.ParseErrorCount(log));
+        Assert.Equal((0, 1065), BuildLogParser.TryParseIncrementalHealthNote(log));
+    }
+
+    [Fact]
+    public void ParseErrorCount_explicit_zero_summary_not_overridden_by_incremental_note_with_errors()
+    {
+        const string log = """
+            Build succeeded.
+                0 Warning(s)
+                0 Error(s)
+
+            [BuildMonitor] Incremental build — compiler skipped (outputs up-to-date). Tray health uses 6 error(s), 2000 warning(s) from the previous full build log.
+            """;
+
+        Assert.Equal(0, BuildLogParser.ParseErrorCount(log));
+        Assert.Equal(0, BuildLogParser.ParseWarningCount(log));
+        Assert.Equal((6, 2000), BuildLogParser.TryParseIncrementalHealthNote(log));
     }
 
     [Fact]
@@ -87,7 +105,7 @@ public class BuildLogParserTests
     }
 
     [Fact]
-    public void ResolveBuildIssues_falls_back_to_previous_log_when_incremental()
+    public void ResolveBuildIssues_uses_current_log_only()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"bm-prev-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -109,8 +127,39 @@ public class BuildLogParserTests
                 """);
 
             var issues = BuildLogParser.ResolveBuildIssues(File.ReadAllText(currentPath), currentPath);
-            Assert.Single(issues);
-            Assert.False(issues[0].IsError);
+            Assert.Empty(issues);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveBuildIssues_does_not_carry_forward_errors_from_previous_log()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"bm-prev-err-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var currentPath = Path.Combine(dir, "last-build.log");
+        var prevPath = currentPath + ".prev";
+        try
+        {
+            File.WriteAllText(prevPath, """
+                C:\app\Foo.cs(1,1): error CS1002: ; expected [C:\app\app.csproj]
+                C:\app\Bar.cs(1,1): warning CS8618: required [C:\app\app.csproj]
+
+                Build FAILED.
+                    1 Warning(s)
+                    1 Error(s)
+                """);
+            File.WriteAllText(currentPath, """
+                Build succeeded.
+                    0 Warning(s)
+                    0 Error(s)
+                """);
+
+            var issues = BuildLogParser.ResolveBuildIssues(File.ReadAllText(currentPath), currentPath);
+            Assert.Empty(issues);
         }
         finally
         {

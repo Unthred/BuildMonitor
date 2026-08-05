@@ -124,7 +124,10 @@ internal sealed partial class ProjectRuntime
             }
 
             SetProjectCurrentAction("Building — dotnet build");
-            var args = BuildProjectArgs(DotNetBuildArguments.RequiresFullRebuild(buildReason));
+            var forceFullRebuild = DotNetBuildArguments.ShouldForceFullRebuild(
+                buildReason,
+                definition.RunOptions.ForceCompleteWarningCounts);
+            var args = BuildProjectArgs(forceFullRebuild);
             var result = await RunBuildAttemptAsync(args, buildToken, buildBanner);
 
             if (result.WasCancelled)
@@ -199,45 +202,31 @@ internal sealed partial class ProjectRuntime
             lastExitCode = result.ExitCode;
             lastDuration = result.Duration;
 
-            var existingLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
-            var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(
-                result.Output,
-                existingLogPath);
+            // Always use this build's MSBuild summary — never Math.Max with prior counts or
+            // ParseIssues line caps (maxWarnings=2000), which previously stuck the tray at 2000.
             var parsedErrors = BuildLogParser.ParseErrorCount(result.Output);
             var parsedWarnings = BuildLogParser.ParseWarningCount(result.Output);
-            var mergedErrors = Math.Max(resolvedErrors, parsedErrors);
-            var mergedWarnings = Math.Max(resolvedWarnings, parsedWarnings);
-
-            if (IncrementalBuildDetector.WasCompileSkipped(result.Output))
+            if (result.ExitCode == 0)
             {
-                buildErrorCount = Math.Max(buildErrorCount, mergedErrors);
-                buildWarningCount = Math.Max(buildWarningCount, mergedWarnings);
+                buildErrorCount = 0;
+                buildWarningCount = parsedWarnings;
             }
             else
             {
-                var issuesInOutput = BuildLogParser.ParseIssues(result.Output);
-                var issueErrors = issuesInOutput.Count(i => i.IsError);
-                var issueWarnings = issuesInOutput.Count(i => !i.IsError);
-                buildErrorCount = Math.Max(buildErrorCount, Math.Max(mergedErrors, issueErrors));
-                buildWarningCount = Math.Max(buildWarningCount, Math.Max(mergedWarnings, issueWarnings));
-            }
-            if (result.ExitCode != 0 && buildErrorCount == 0)
-            {
-                var (_, errorLines) = BuildLogParser.ParseErrors(result.Output);
-                if (errorLines.Count > 0)
+                buildErrorCount = parsedErrors;
+                buildWarningCount = parsedWarnings;
+                if (buildErrorCount == 0)
                 {
-                    buildErrorCount = errorLines.Count;
+                    var (_, errorLines) = BuildLogParser.ParseErrors(result.Output);
+                    if (errorLines.Count > 0)
+                    {
+                        buildErrorCount = errorLines.Count;
+                    }
                 }
             }
 
             var finishBanner = BuildMonitorLogBanner.FormatFinished(buildNumber, result.ExitCode);
             var logText = result.Output + Environment.NewLine + finishBanner;
-            if (IncrementalBuildDetector.WasCompileSkipped(result.Output)
-                && (buildErrorCount > 0 || buildWarningCount > 0))
-            {
-                logText += Environment.NewLine
-                           + BuildMonitorLogBanner.FormatIncrementalNote(buildErrorCount, buildWarningCount);
-            }
 
             var buildLog = await logStore.SaveAsync(
                 definition.Id,
@@ -463,20 +452,16 @@ internal sealed partial class ProjectRuntime
         lastExitCode = metadata.ExitCode;
         lastDuration = metadata.FinishedAtUtc - metadata.StartedAtUtc;
         lastBuildFinishedAtUtc = metadata.FinishedAtUtc;
-        buildErrorCount = metadata.ErrorCount;
+        buildErrorCount = metadata.ExitCode == 0 ? 0 : metadata.ErrorCount;
         buildWarningCount = metadata.WarningCount;
-        lastErrorPreview = metadata.ErrorLines.FirstOrDefault();
-        if (buildWarningCount == 0)
+        lastErrorPreview = metadata.ExitCode == 0 ? null : metadata.ErrorLines.FirstOrDefault();
+        // Prefer counts re-parsed from the saved log so tray matches what the log viewer shows.
+        var logText = await logStore.LoadLogTextAsync(metadata, maxBytes: 512_000, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(logText))
         {
-            var logText = await logStore.LoadLogTextAsync(metadata, maxBytes: 512_000, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(logText))
-            {
-                var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(
-                    logText,
-                    metadata.LogFilePath);
-                buildErrorCount = Math.Max(buildErrorCount, resolvedErrors);
-                buildWarningCount = Math.Max(buildWarningCount, resolvedWarnings);
-            }
+            var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(logText);
+            buildWarningCount = resolvedWarnings;
+            buildErrorCount = metadata.ExitCode == 0 ? 0 : resolvedErrors;
         }
 
         RefreshHealth();

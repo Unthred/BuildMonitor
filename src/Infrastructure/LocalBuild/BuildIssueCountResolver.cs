@@ -4,40 +4,13 @@ namespace BuildMonitor.Infrastructure.LocalBuild;
 
 public static class BuildIssueCountResolver
 {
-    public static (int Errors, int Warnings) Resolve(string buildOutput, string? existingLogPath)
+    /// <summary>
+    /// Returns error/warning counts from the current build output only.
+    /// Tray, log store, and log viewer must all use this so numbers stay in sync.
+    /// </summary>
+    public static (int Errors, int Warnings) Resolve(string buildOutput, string? existingLogPath = null)
     {
-        if (!IncrementalBuildDetector.WasCompileSkipped(buildOutput))
-        {
-            return (
-                BuildLogParser.ParseErrorCount(buildOutput),
-                BuildLogParser.ParseWarningCount(buildOutput));
-        }
-
-        if (!string.IsNullOrWhiteSpace(existingLogPath))
-        {
-            var prevPath = existingLogPath + ".prev";
-            if (File.Exists(prevPath))
-            {
-                var fromPrev = ReadCountsFromLogText(File.ReadAllText(prevPath));
-                if (fromPrev.Errors > 0 || fromPrev.Warnings > 0)
-                {
-                    return fromPrev;
-                }
-            }
-
-            var fromMeta = TryReadMetadataCounts(existingLogPath);
-            if (fromMeta.Errors > 0 || fromMeta.Warnings > 0)
-            {
-                return fromMeta;
-            }
-        }
-
-        var fromNote = BuildLogParser.TryParseIncrementalHealthNote(buildOutput);
-        if (fromNote.Errors > 0 || fromNote.Warnings > 0)
-        {
-            return fromNote;
-        }
-
+        _ = existingLogPath;
         return (
             BuildLogParser.ParseErrorCount(buildOutput),
             BuildLogParser.ParseWarningCount(buildOutput));
@@ -46,6 +19,7 @@ public static class BuildIssueCountResolver
     /// <summary>
     /// Watch/run console output often lacks a full MSBuild summary. Avoid clearing persisted build counts
     /// when the parsed result is zero but the output does not contain a definitive build outcome.
+    /// When MSBuild reports Build succeeded / FAILED (with or without a 0/0 summary), apply the counts.
     /// </summary>
     public static bool ShouldApplyWatchOutputCounts(
         string normalizedOutput,
@@ -64,26 +38,25 @@ public static class BuildIssueCountResolver
             return true;
         }
 
-        // Parsed 0/0 must never clear existing build issues from watch/run console output.
+        if (HasDefinitiveBuildOutcome(normalizedOutput))
+        {
+            return true;
+        }
+
+        // Parsed 0/0 with no build outcome must not clear existing counts from host/run noise.
         if (currentErrors > 0 || currentWarnings > 0)
         {
             return false;
         }
 
-        return normalizedOutput.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase);
+        return false;
     }
 
-    private static (int Errors, int Warnings) ReadCountsFromLogText(string logText)
-    {
-        var errors = BuildLogParser.ParseErrorCount(logText);
-        var warnings = BuildLogParser.ParseWarningCount(logText);
-        if (errors > 0 || warnings > 0)
-        {
-            return (errors, warnings);
-        }
-
-        return BuildLogParser.TryParseIncrementalHealthNote(logText);
-    }
+    public static bool HasDefinitiveBuildOutcome(string logText) =>
+        !string.IsNullOrWhiteSpace(logText)
+        && (logText.Contains("Build succeeded", StringComparison.OrdinalIgnoreCase)
+            || logText.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase)
+            || logText.Contains("Build failed", StringComparison.OrdinalIgnoreCase));
 
     public static (int Errors, int Warnings) ReadPersistedMetadataCounts(string? logFilePath) =>
         string.IsNullOrWhiteSpace(logFilePath) ? (0, 0) : TryReadMetadataCounts(logFilePath);

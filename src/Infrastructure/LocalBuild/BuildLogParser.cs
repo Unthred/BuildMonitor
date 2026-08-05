@@ -104,7 +104,9 @@ public static class BuildLogParser
     {
         var segment = ExtractLatestBuildResultSegment(logText);
         var summary = ParseBuildSummaryCount(segment, warnings: true);
-        if (summary > 0)
+        // Explicit MSBuild summary (including 0) wins — do not let a BuildMonitor
+        // incremental note override "0 Warning(s)".
+        if (summary >= 0)
         {
             return summary;
         }
@@ -115,15 +117,16 @@ public static class BuildLogParser
             return fromIssues;
         }
 
-        var fromNote = TryParseIncrementalHealthNote(logText);
-        return fromNote.Warnings > 0 ? fromNote.Warnings : summary >= 0 ? summary : 0;
+        return TryParseIncrementalHealthNote(logText).Warnings;
     }
 
     public static int ParseErrorCount(string logText)
     {
         var segment = ExtractLatestBuildResultSegment(logText);
         var summary = ParseBuildSummaryCount(segment, warnings: false);
-        if (summary > 0)
+        // Explicit MSBuild summary (including 0) wins — do not let a BuildMonitor
+        // incremental note override "0 Error(s)".
+        if (summary >= 0)
         {
             return summary;
         }
@@ -138,8 +141,7 @@ public static class BuildLogParser
             return fromIssues;
         }
 
-        var fromNote = TryParseIncrementalHealthNote(logText);
-        return fromNote.Errors > 0 ? fromNote.Errors : summary >= 0 ? summary : 0;
+        return TryParseIncrementalHealthNote(logText).Errors;
     }
 
     /// <summary>Reads resolved tray-health counts from a BuildMonitor incremental-build note line.</summary>
@@ -164,29 +166,12 @@ public static class BuildLogParser
     }
 
     /// <summary>
-    /// Returns compiler issues from the log, or from the previous on-disk build log when this build was incremental.
+    /// Returns compiler issues from the current log only (no carry-forward from previous builds).
     /// </summary>
     public static IReadOnlyList<LogIssue> ResolveBuildIssues(string logText, string? logFilePath)
     {
-        var issues = ParseIssues(logText);
-        if (issues.Count > 0 || !IncrementalBuildDetector.WasCompileSkipped(logText))
-        {
-            return issues;
-        }
-
-        if (string.IsNullOrWhiteSpace(logFilePath))
-        {
-            return issues;
-        }
-
-        var prevPath = logFilePath + ".prev";
-        if (!File.Exists(prevPath))
-        {
-            return issues;
-        }
-
-        var previousIssues = ParseIssues(File.ReadAllText(prevPath));
-        return previousIssues.Count > 0 ? previousIssues : issues;
+        _ = logFilePath;
+        return ParseIssues(logText);
     }
 
     internal static IEnumerable<string> CandidatePreviousLogPaths(string? logFilePath)

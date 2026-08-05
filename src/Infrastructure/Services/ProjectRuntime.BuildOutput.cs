@@ -242,9 +242,11 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
+        // Mid-build: don't clear existing counts until MSBuild prints a definitive outcome.
         if (parsedWarnings == 0
             && parsedErrors == 0
-            && (buildWarningCount > 0 || buildErrorCount > 0))
+            && (buildWarningCount > 0 || buildErrorCount > 0)
+            && !BuildIssueCountResolver.HasDefinitiveBuildOutcome(normalized))
         {
             return false;
         }
