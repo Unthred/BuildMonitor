@@ -116,6 +116,17 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 15;
         }
 
+        if (settings.SchemaVersion < 16)
+        {
+            // New default: always force full warning counts on every build.
+            foreach (var project in settings.Projects)
+            {
+                project.RunOptions.ForceCompleteWarningCounts = true;
+            }
+
+            settings.SchemaVersion = 16;
+        }
+
         return settings;
     }
 
@@ -194,7 +205,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 15;
+        settings.SchemaVersion = 16;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

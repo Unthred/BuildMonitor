@@ -160,6 +160,7 @@ public partial class SettingsWindow : Window
             FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
             WatchExcludeSegmentsText.Text = project.RunOptions.WatchExcludeSegments;
             ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
+            ForceCompleteWarningCountsCheck.IsChecked = project.RunOptions.ForceCompleteWarningCounts;
             AutoRepairCorruptedOutputCheck.IsChecked = project.RunOptions.AutoRepairCorruptedOutput;
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
@@ -329,6 +330,7 @@ public partial class SettingsWindow : Window
         selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
         selectedProject.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
         selectedProject.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
+        selectedProject.RunOptions.ForceCompleteWarningCounts = ForceCompleteWarningCountsCheck.IsChecked == true;
         selectedProject.RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
     }
 

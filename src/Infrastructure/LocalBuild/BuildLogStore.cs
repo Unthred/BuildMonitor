@@ -41,7 +41,6 @@ public sealed class BuildLogStore(string logsRootDirectory)
 
         var logPath = Path.Combine(projectDir, fileName);
         var prevPath = logPath + ".prev";
-        var priorPersisted = BuildIssueCountResolver.ReadPersistedMetadataCounts(logPath);
         if (File.Exists(logPath))
         {
             File.Copy(logPath, prevPath, overwrite: true);
@@ -49,22 +48,17 @@ public sealed class BuildLogStore(string logsRootDirectory)
 
         await File.WriteAllTextAsync(logPath, logText, cancellationToken);
 
-        var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(logText, logPath);
+        var (resolvedErrors, resolvedWarnings) = BuildIssueCountResolver.Resolve(logText);
         var (parsedErrors, errorLines) = BuildLogParser.ParseErrors(logText);
-        if (resolvedErrors == 0 && resolvedWarnings == 0
-            && IncrementalBuildDetector.WasCompileSkipped(logText)
-            && File.Exists(prevPath))
-        {
-            var prevText = await File.ReadAllTextAsync(prevPath, cancellationToken);
-            (parsedErrors, errorLines) = BuildLogParser.ParseErrors(prevText);
-            resolvedErrors = parsedErrors;
-            resolvedWarnings = BuildLogParser.ParseWarningCount(prevText);
-        }
 
-        var errorCount = Math.Max(Math.Max(parsedErrors, resolvedErrors), priorPersisted.Errors);
-        var warningCount = Math.Max(
-            Math.Max(BuildLogParser.ParseWarningCount(logText), resolvedWarnings),
-            priorPersisted.Warnings);
+        // Always persist the counts from this log — never ratchet with prior metadata.
+        var errorCount = exitCode == 0 ? 0 : Math.Max(parsedErrors, resolvedErrors);
+        var warningCount = Math.Max(BuildLogParser.ParseWarningCount(logText), resolvedWarnings);
+
+        if (exitCode == 0)
+        {
+            errorLines = Array.Empty<string>();
+        }
         var finishedAt = DateTimeOffset.UtcNow;
         var record = new BuildLogRecord(
             projectId,

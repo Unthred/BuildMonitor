@@ -11,8 +11,8 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 3 | Tray receives immutable snapshot list at bounded rate | `ProjectOrchestrator.HealthUpdated` → `App.OnHealthUpdated` (`DispatcherPriority.Normal`, coalesced) |
 | 4 | Run/watch output updates `runErrorCount` / `runWarningCount` | `DotNetRunOutputParser`, `OnRunProcessOutputLine` (coalesced same as build) |
 | 5 | Snapshot picks display counts by lifecycle state | `HealthIssueCountsFormatter.SelectPrimaryCounts` |
-| 5b | Incremental file builds with 0/0 MSBuild summary reuse counts from metadata, `.prev`, or the BuildMonitor incremental note | `IncrementalBuildDetector`, `BuildIssueCountResolver`, `BuildLogStore` |
-| 5c | **Startup**, **Rebuild**, and **Rebuild & restart** pass `--no-incremental` so MSBuild recompiles and reports real warning/error counts | `DotNetBuildArguments` |
+| 5b | Tray, log store, and log viewer all use the **current** MSBuild summary (`BuildIssueCountResolver` / `ParseErrorCount` / `ParseWarningCount`) — no carry-forward from previous builds | `BuildIssueCountResolver`, `BuildLogStore`, `ProjectRuntime.Build` |
+| 5c | When **Force complete warning counts** is on (default), every `dotnet build` passes `--no-incremental`. When off, only startup / Rebuild / Rebuild & restart do (file-change builds may report 0/0) | `DotNetBuildArguments`, `ProjectRunOptions.ForceCompleteWarningCounts` |
 | 5d | Post-build tests no longer clear build warning/error counts used for tray health | `ProjectRuntime.TestAsync` |
 | 5e | **Agent-aware build suppression** — defer startup until edits settle; cancel superseded startup/file-change builds; optional agent-transcript activity signal | `EditActivityEvaluator`, `BuildSuppressionPolicy`, `ProjectRuntime` |
 | 5f | Edit gating auto-shows status panel with hold detail + countdown | `App.AutoShowStatusPanelForEditGating`, `HoverStatusPanel` |
@@ -20,7 +20,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 7 | Status panel shows `IssueCountsText` (build vs run context) | `HoverStatusPanel` |
 | 7b | **AI working?** (header only) — extends rebuild wait when countdown is active; marks in-flight build **Unexpected** while building. Countdown auto-extends on agent tooling activity and resets on meaningful source saves. | `HoverStatusPanel`, `ProjectRuntime.HandleStillEditingClick`, `EditGatingQuietUntilResolver` |
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
-| 8b | Log viewer footer and issues summary use the same resolved counts (metadata, `.prev`, incremental note); incremental 0/0 builds show a carry-forward note in the issues pane | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
+| 8b | Log viewer footer uses the same MSBuild summary counts as the tray (`BuildIssueCountResolver`) | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
 | 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`) | `App.AutoOpenLogsOnTransition`, `AutoOpenLogTransitionEvaluator` |
 | 9b | Auto-show status panel while building (per project, default off) | `App.AutoShowStatusPanelWhileBuilding`, `StatusPanelBuildVisibilityEvaluator` |
 | 10 | **Restart app** stops run/watch and starts with `--no-build` | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: false)` |

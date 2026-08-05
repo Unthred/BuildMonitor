@@ -462,35 +462,20 @@ public partial class BuildLogViewerWindow : Window
 
     private void RefreshResolvedIssueCounts(LiveBuildLogView? live = null)
     {
-        var parsedErrors = allIssues.Count(i => i.IsError);
-        var parsedWarnings = allIssues.Count(i => !i.IsError);
-
+        _ = live;
         if (currentLogKind is BuildLogKind.Test or BuildLogKind.Run)
         {
             issuesCarriedFromPreviousBuild = false;
-            resolvedDisplayErrorCount = parsedErrors;
-            resolvedDisplayWarningCount = parsedWarnings;
+            resolvedDisplayErrorCount = allIssues.Count(i => i.IsError);
+            resolvedDisplayWarningCount = allIssues.Count(i => !i.IsError);
             return;
         }
 
-        var logPath = currentRecord?.LogFilePath ?? logStore.GetLogPath(projectId, currentLogKind);
-        var resolved = BuildIssueCountResolver.Resolve(currentLogText, logPath);
-        var metaErrors = live?.ErrorCount ?? currentRecord?.ErrorCount ?? 0;
-        var metaWarnings = live?.WarningCount ?? currentRecord?.WarningCount ?? 0;
-        var note = BuildLogParser.TryParseIncrementalHealthNote(currentLogText);
-
-        resolvedDisplayErrorCount = Math.Max(
-            parsedErrors,
-            Math.Max(metaErrors, Math.Max(note.Errors, resolved.Errors)));
-        resolvedDisplayWarningCount = Math.Max(
-            parsedWarnings,
-            Math.Max(metaWarnings, Math.Max(note.Warnings, resolved.Warnings)));
-
-        issuesCarriedFromPreviousBuild =
-            IncrementalBuildDetector.WasCompileSkipped(currentLogText)
-            && resolvedDisplayWarningCount + resolvedDisplayErrorCount > 0
-            && BuildLogParser.ParseWarningCount(currentLogText) == 0
-            && BuildLogParser.ParseErrorCount(currentLogText) == 0;
+        var resolved = BuildIssueCountResolver.Resolve(currentLogText);
+        // Footer counts always follow the MSBuild summary in this log — same source as the tray.
+        resolvedDisplayErrorCount = resolved.Errors;
+        resolvedDisplayWarningCount = resolved.Warnings;
+        issuesCarriedFromPreviousBuild = false;
     }
 
     private string FormatFooterText(int errorCount, int warningCount, bool isLive)

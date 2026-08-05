@@ -433,6 +433,11 @@
 
                                               ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually." />
 
+                                    <CheckBox x:Name="ForceCompleteWarningCountsCheck"
+                                              Content="Always report full warning counts (--no-incremental)"
+                                              Margin="0,8,0,0"
+                                              ToolTip="Forces a full compile on every build (including file-change) so MSBuild re-emits the complete warning/error summary. Turn off for faster file-change builds — those may show 0/0 when nothing recompiled. Startup and Rebuild always use a full compile." />
+
                                     <CheckBox x:Name="AutoRepairCorruptedOutputCheck"
                                               Content="Auto-repair corrupted build output (artifacts/bin/obj)"
                                               Margin="0,8,0,0"
