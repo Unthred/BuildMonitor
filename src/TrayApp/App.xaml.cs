@@ -552,18 +552,23 @@ public partial class App : System.Windows.Application
             previousProjectLifecycleState.TryGetValue(snapshot.ProjectId, out var previousState);
             var isBusy = StatusPanelBuildVisibilityEvaluator.IsBusyWorkState(snapshot.State);
 
-            if (StatusPanelBuildVisibilityEvaluator.ShouldHideWhenBuildStartsWithoutShowSetting(
+            if (StatusPanelBuildVisibilityEvaluator.ShouldContinueThroughBuildFromEditGating(
                     showWhileBuilding,
                     previousState,
                     snapshot.State,
                     statusPanelAutoShownForEditGating && !statusPanelAutoShownForBuild))
             {
-                HideAutoStatusPanel();
-                statusPanelAutoShownForEditGating = false;
-                continue;
-            }
+                // Keep the panel up from the quiet countdown into the build itself.
+                if (hoverPanel is not { IsVisible: true })
+                {
+                    ShowStatusPanel();
+                }
 
-            if (StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForEditGating(
+                statusPanelAutoShownForBuild = true;
+                statusPanelAutoShownForEditGating = true;
+                MarkStatusPanelAutoPinned();
+            }
+            else if (StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForEditGating(
                     suppressionEnabled,
                     snapshot.IsEditGatingActive,
                     wasGating))

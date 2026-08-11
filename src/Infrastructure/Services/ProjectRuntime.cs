@@ -116,7 +116,7 @@ internal sealed partial class ProjectRuntime : IDisposable
                 lastChangedUtc,
                 lastBuildFinishedAtUtc,
                 definition.IsActiveInSession,
-                progressSteps,
+                progressSteps.Count == 0 ? progressSteps : progressSteps.ToArray(),
                 ResolveDisplayListenUrl(),
                 listenUrlReady,
                 definition.RunOptions.RunMode != ProjectRunMode.None,

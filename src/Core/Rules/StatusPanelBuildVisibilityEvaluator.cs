@@ -95,6 +95,21 @@ public static class StatusPanelBuildVisibilityEvaluator
         && currentState == ProjectLifecycleState.Building
         && previousState != ProjectLifecycleState.Building;
 
+    /// <summary>
+    /// When the panel was opened for edit-gating, keep it through the following build even if
+    /// <c>ShowStatusPanelWhileBuilding</c> is off — otherwise the countdown disappears as work starts.
+    /// </summary>
+    public static bool ShouldContinueThroughBuildFromEditGating(
+        bool showStatusPanelWhileBuilding,
+        ProjectLifecycleState previousState,
+        ProjectLifecycleState currentState,
+        bool autoShownForEditGatingOnly) =>
+        ShouldHideWhenBuildStartsWithoutShowSetting(
+            showStatusPanelWhileBuilding,
+            previousState,
+            currentState,
+            autoShownForEditGatingOnly);
+
     public static bool ShouldAutoHideForBusyWork(
         bool autoShown,
         IEnumerable<ProjectLifecycleState> activeStates) =>
