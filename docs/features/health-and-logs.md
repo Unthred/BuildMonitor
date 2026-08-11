@@ -22,7 +22,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
 | 8b | Log viewer footer uses the same MSBuild summary counts as the tray (`BuildIssueCountResolver`) | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
 | 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`) | `App.AutoOpenLogsOnTransition`, `AutoOpenLogTransitionEvaluator` |
-| 9b | Auto-show status panel while building (per project, default off) | `App.AutoShowStatusPanelWhileBuilding`, `StatusPanelBuildVisibilityEvaluator` |
+| 9b | Auto-show status panel while building (per project, default **on**); panel opened for edit-gating stays open through the following build | `App.AutoShowStatusPanelWhileBuilding`, `App.AutoShowStatusPanelForEditGating`, `StatusPanelBuildVisibilityEvaluator` |
 | 10 | **Restart app** stops run/watch and starts with `--no-build` | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: false)` |
 | 11 | **Rebuild & restart** runs full build then starts app | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: true)` |
 | 12 | Hot-reload “requires restart/rebuild” lines trigger auto-restart when enabled | `HotReloadRestartDetector`, `ProjectRuntime.TryHandleHotReloadRestartRequest` |

@@ -66,12 +66,38 @@ public static class StatusPanelPresentationChangeDetector
                 || prev.ActivityState != card.ActivityState
                 || !string.Equals(prev.StatusLine, card.StatusLine, StringComparison.Ordinal)
                 || prev.ShowActivityIndicator != card.ShowActivityIndicator
-                || prev.ShowProgressChart != card.ShowProgressChart)
+                || prev.ShowProgressChart != card.ShowProgressChart
+                || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps))
             {
                 return true;
             }
         }
 
         return previous.Cards.Count != current.Cards.Count;
+    }
+
+    private static bool ProgressStepsEqual(
+        IReadOnlyList<BuildProgressStep> left,
+        IReadOnlyList<BuildProgressStep> right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            if (left[i] != right[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

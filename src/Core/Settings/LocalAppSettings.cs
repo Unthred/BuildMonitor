@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 16;
+    public int SchemaVersion { get; set; } = 17;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -134,7 +134,7 @@ public sealed class ProjectRunOptions
     /// <summary>When to open the log viewer automatically after builds or tests.</summary>
     public AutoOpenLogMode AutoOpenLog { get; set; } = AutoOpenLogMode.Never;
     /// <summary>When true, open the hover status panel when a build starts and hide it when the build finishes.</summary>
-    public bool ShowStatusPanelWhileBuilding { get; set; }
+    public bool ShowStatusPanelWhileBuilding { get; set; } = true;
 }
 
 public enum FileChangeDebounceMode

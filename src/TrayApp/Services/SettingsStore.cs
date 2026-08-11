@@ -127,6 +127,16 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 16;
         }
 
+        if (settings.SchemaVersion < 17)
+        {
+            foreach (var project in settings.Projects)
+            {
+                project.RunOptions.ShowStatusPanelWhileBuilding = true;
+            }
+
+            settings.SchemaVersion = 17;
+        }
+
         return settings;
     }
 
@@ -205,7 +215,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 16;
+        settings.SchemaVersion = 17;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

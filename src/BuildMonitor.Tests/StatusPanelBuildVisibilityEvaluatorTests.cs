@@ -84,6 +84,24 @@ public sealed class StatusPanelBuildVisibilityEvaluatorTests
     [InlineData(false, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, true, true)]
     [InlineData(true, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, true, false)]
     [InlineData(false, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, false, false)]
+    public void ShouldContinueThroughBuildFromEditGating(
+        bool showWhileBuilding,
+        ProjectLifecycleState previous,
+        ProjectLifecycleState current,
+        bool autoShownForEditGatingOnly,
+        bool expected) =>
+        Assert.Equal(
+            expected,
+            StatusPanelBuildVisibilityEvaluator.ShouldContinueThroughBuildFromEditGating(
+                showWhileBuilding,
+                previous,
+                current,
+                autoShownForEditGatingOnly));
+
+    [Theory]
+    [InlineData(false, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, true, true)]
+    [InlineData(true, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, true, false)]
+    [InlineData(false, ProjectLifecycleState.Watching, ProjectLifecycleState.Building, false, false)]
     public void ShouldHideWhenBuildStartsWithoutShowSetting(
         bool showWhileBuilding,
         ProjectLifecycleState previous,

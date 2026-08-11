@@ -181,4 +181,4 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 - **Restart app after rebuild** — when run mode is Watch or Run, start (or restart) the app after a successful rebuild, including the first successful build after a prior failure.
 - **Restart app** — stop and start run/watch with `--no-build` (no full rebuild).
 - **Rebuild & restart** — full `dotnet build`, then start run/watch (shows build progress in status panel).
-- **Show status panel while building** (default **off**) — per project. Opens the hover status panel when a build starts and hides it when the build finishes. Does not auto-hide if you already had the panel open before the build started.
+- **Show status panel while building** (default **on**) — per project. Opens the hover status panel when a build starts and hides it when the build finishes. If the panel was already opened for the edit-gating countdown, it stays open through the build even when this is off. Does not auto-hide if you already had the panel open before the build started.

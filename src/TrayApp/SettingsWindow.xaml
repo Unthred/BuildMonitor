@@ -403,7 +403,7 @@
 
                                     <CheckBox x:Name="ShowStatusPanelWhileBuildingCheck"
                                               Content="Show status panel while building"
-                                              ToolTip="Opens the hover status panel when a build starts and hides it when the build finishes." />
+                                              ToolTip="Opens the hover status panel when a build starts and hides it when the build finishes. Also keeps the panel open from the edit quiet countdown into the build." />
 
                                 </StackPanel>
 

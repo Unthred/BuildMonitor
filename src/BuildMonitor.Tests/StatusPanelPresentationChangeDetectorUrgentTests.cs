@@ -53,9 +53,34 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
         Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
     }
 
+    [Fact]
+    public void RequiresUrgentCardRebuild_when_progress_steps_advance()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var previous = StatusPanelPresentationBuilder.Build(
+            [Snapshot(
+                ProjectLifecycleState.Building,
+                progressSteps: [new BuildProgressStep("Restore packages", BuildStepStatus.Active)])],
+            null,
+            now);
+        var current = StatusPanelPresentationBuilder.Build(
+            [Snapshot(
+                ProjectLifecycleState.Building,
+                progressSteps:
+                [
+                    new BuildProgressStep("Restore packages", BuildStepStatus.Complete),
+                    new BuildProgressStep("WitherbyConnect", BuildStepStatus.Complete)
+                ])],
+            null,
+            now);
+
+        Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
+    }
+
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,
-        DateTimeOffset? rebuildQuietUntilUtc = null) =>
+        DateTimeOffset? rebuildQuietUntilUtc = null,
+        IReadOnlyList<BuildProgressStep>? progressSteps = null) =>
         new(
             ProjectId: "p1",
             DisplayName: "Demo",
@@ -70,6 +95,6 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
             LastChangedUtc: DateTimeOffset.UtcNow,
             LastBuildFinishedAtUtc: DateTimeOffset.UtcNow,
             IsActive: true,
-            ProgressSteps: [],
+            ProgressSteps: progressSteps ?? [],
             RebuildQuietUntilUtc: rebuildQuietUntilUtc);
 }
