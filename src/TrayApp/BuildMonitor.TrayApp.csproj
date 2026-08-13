@@ -15,4 +15,10 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\docs\ops\agent-skills\buildmonitor-control-plane\SKILL.md"
+             Link="AgentSkills\buildmonitor-control-plane\SKILL.md"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

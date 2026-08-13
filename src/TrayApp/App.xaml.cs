@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Services;
@@ -18,6 +19,7 @@ public partial class App : System.Windows.Application
     private Forms.NotifyIcon? notifyIcon;
     private Forms.ContextMenuStrip? trayContextMenu;
     private ProjectOrchestrator? orchestrator;
+    private ControlPlaneHostService? controlPlaneHost;
     private BuildDiagnosticsWindow? diagnosticsWindow;
     private BuildMonitorHealthWindow? buildMonitorHealthWindow;
     private DispatcherHealthProbe? dispatcherHealthProbe;
@@ -100,6 +102,7 @@ public partial class App : System.Windows.Application
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
+        controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory);
 
         WorkerHealthRegistry.Shared.Register(
             "ui.health-callback",
@@ -156,6 +159,7 @@ public partial class App : System.Windows.Application
             ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
             await orchestrator.StopAllAsync();
             orchestrator.ApplySettings(currentSettings);
+            ApplyControlPlaneHost();
 
             if (ShouldAutoStartAnyProjectsOnLaunch())
             {
@@ -663,12 +667,35 @@ public partial class App : System.Windows.Application
         return BuildLogKind.Build;
     }
 
+    private void ApplyControlPlaneHost()
+    {
+        if (controlPlaneHost is null)
+        {
+            return;
+        }
+
+        try
+        {
+            controlPlaneHost.Apply(currentSettings.Monitor);
+        }
+        catch (Exception ex)
+        {
+            ToastNotificationService.ShowIfEnabled(
+                "Control plane failed to start",
+                $"Could not bind http://127.0.0.1:{currentSettings.Monitor.ControlPlanePort}/ — {ex.Message}",
+                ToastKind.Warning,
+                UserNotificationCategory.Warning);
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         buildIconAnimationTimer?.Stop();
         buildIconAnimationTimer = null;
         dispatcherHealthProbe?.Dispose();
         dispatcherHealthProbe = null;
+        controlPlaneHost?.Dispose();
+        controlPlaneHost = null;
         orchestrator?.Dispose();
         orchestrator = null;
 
@@ -1462,6 +1489,8 @@ public partial class App : System.Windows.Application
                     // proceed with exit even if child processes are still stopping
                 }
 
+                controlPlaneHost?.Dispose();
+                controlPlaneHost = null;
                 orchestrator.Dispose();
                 orchestrator = null;
             }
@@ -1558,8 +1587,29 @@ public partial class App : System.Windows.Application
         ShowSettings = () => _ = ShowSettingsAsync(),
         RequestExit = RequestExit,
         OpenLogViewerForProject = OpenLogViewerForProject,
-        StartRunTestsForProjects = StartRunTestsForProjects
+        StartRunTestsForProjects = StartRunTestsForProjects,
+        InstallControlPlaneAgentSkill = InstallControlPlaneAgentSkill
     };
+
+    private void InstallControlPlaneAgentSkill(string projectRootFolder, string displayName)
+    {
+        var result = ControlPlaneAgentSkillInstaller.Install(projectRootFolder);
+        if (result.Ok)
+        {
+            System.Windows.MessageBox.Show(
+                $"Installed Cursor skill for {displayName}:\n\n{result.DestinationPath}\n\nStart a new agent chat in that workspace so the skill is picked up.",
+                "Control plane skill",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        System.Windows.MessageBox.Show(
+            result.Error ?? "Install failed.",
+            "Control plane skill",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
 
     private void ApplyTrayMenuTheme()
     {

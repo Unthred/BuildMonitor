@@ -263,6 +263,12 @@ internal sealed partial class ProjectRuntime
     {
         var args = new List<string> { "build", ResolveProjectFileArg() };
         DotNetBuildArguments.ApplyFullRebuildFlag(args, forceFullRebuild);
+        if (!string.IsNullOrWhiteSpace(shipCheckConfiguration))
+        {
+            args.Add("-c");
+            args.Add(shipCheckConfiguration);
+        }
+
         AppendExtraArgs(args);
         return args;
     }

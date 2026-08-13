@@ -1,0 +1,137 @@
+using BuildMonitor.Core.Models;
+using BuildMonitor.Infrastructure.ControlPlane;
+
+namespace BuildMonitor.Infrastructure.Services;
+
+public sealed partial class ProjectOrchestrator
+{
+    public IReadOnlyList<ControlPlaneProjectInfo> ListControlPlaneProjects()
+    {
+        lock (sync)
+        {
+            return settings.Projects
+                .Select(p => new ControlPlaneProjectInfo(
+                    p.Id,
+                    p.DisplayName,
+                    p.RootFolder,
+                    p.ProjectFile,
+                    p.IsActiveInSession))
+                .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    public bool ControlPlaneProjectExists(string projectId)
+    {
+        lock (sync)
+        {
+            return settings.Projects.Any(p =>
+                string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public ControlPlaneWatchStatus GetControlPlaneWatch(string projectId)
+    {
+        lock (sync)
+        {
+            if (!runtimes.TryGetValue(projectId, out var runtime))
+            {
+                return new ControlPlaneWatchStatus(ControlPlaneWatchState.Stopped, Pid: null);
+            }
+
+            return runtime.GetWatchStatus();
+        }
+    }
+
+    public async Task<ControlPlaneWatchStatus> PauseControlPlaneWatchAsync(
+        string projectId,
+        CancellationToken cancellationToken)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+        }
+
+        if (runtime is null)
+        {
+            return new ControlPlaneWatchStatus(ControlPlaneWatchState.Stopped, Pid: null);
+        }
+
+        return await runtime.PauseWatchAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public ControlPlaneWatchStatus ResumeControlPlaneWatch(string projectId)
+    {
+        lock (sync)
+        {
+            if (!runtimes.TryGetValue(projectId, out var runtime))
+            {
+                return new ControlPlaneWatchStatus(ControlPlaneWatchState.Stopped, Pid: null);
+            }
+
+            return runtime.ResumeWatch();
+        }
+    }
+
+    public ControlPlaneMetricsSnapshot GetControlPlaneMetrics(string projectId) =>
+        metricsStore.GetSnapshot(projectId, sessionStore.GetStatus(projectId));
+
+    public async Task<ControlPlaneShipCheckResult> RunControlPlaneShipCheckAsync(
+        ControlPlaneShipCheckRequest request,
+        CancellationToken cancellationToken)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(request.ProjectId, out runtime);
+        }
+
+        if (runtime is null)
+        {
+            // Ensure a runtime exists for inactive-but-configured projects so ship-check can still build.
+            lock (sync)
+            {
+                var project = settings.Projects.FirstOrDefault(p =>
+                    string.Equals(p.Id, request.ProjectId, StringComparison.OrdinalIgnoreCase));
+                if (project is null)
+                {
+                    throw new InvalidOperationException($"Unknown projectId '{request.ProjectId}'.");
+                }
+
+                if (!runtimes.TryGetValue(project.Id, out runtime))
+                {
+                    runtime = new ProjectRuntime(
+                        project,
+                        logStore,
+                        cliRunner,
+                        triggerJournal,
+                        burstStatsStore,
+                        trainingStore,
+                        RaiseUserNotification);
+                    runtime.SetSessionStore(sessionStore);
+                    runtime.SetMetricsStore(metricsStore);
+                    runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
+                    runtime.UpdateDefinition(project, settings.Monitor);
+                    runtimes[project.Id] = runtime;
+                }
+            }
+        }
+
+        var started = DateTimeOffset.UtcNow;
+        try
+        {
+            var result = await runtime.RunShipCheckAsync(
+                request.Configuration,
+                request.Filter,
+                cancellationToken).ConfigureAwait(false);
+            metricsStore.RecordShipCheck(request.ProjectId, result.Ok, DateTimeOffset.UtcNow - started);
+            return result;
+        }
+        catch
+        {
+            metricsStore.RecordShipCheck(request.ProjectId, ok: false, DateTimeOffset.UtcNow - started);
+            throw;
+        }
+    }
+}

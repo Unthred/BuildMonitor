@@ -30,7 +30,7 @@
                            TextWrapping="Wrap"
                            Opacity="0.8"
                            FontSize="11"
-                           Text="One tab per active project — rebuild timing at the top, today's triggers below. Mark unexpected triggers to train ignore rules and debounce learning." />
+                           Text="One tab per active project — rebuild timing and agent control-plane metrics at the top, today's triggers below. Mark unexpected triggers to train ignore rules and debounce learning." />
             </StackPanel>
         </DockPanel>
 
@@ -47,10 +47,14 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <local:BuildIntelligencePanel Snapshot="{Binding Intelligence}" Margin="0,0,0,8" />
-                        <DataGrid Grid.Row="1"
+                        <local:ControlPlaneMetricsPanel Grid.Row="1"
+                                                       Snapshot="{Binding ControlPlaneMetrics}"
+                                                       Margin="0,0,0,8" />
+                        <DataGrid Grid.Row="2"
                                   ItemsSource="{Binding Triggers}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"

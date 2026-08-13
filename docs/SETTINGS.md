@@ -78,6 +78,10 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 - **`cancelSupersededBuilds`** (default **true**) — cancel in-flight **startup** or **file-change** builds when newer saves arrive; coalesce into one rebuild after edits settle. Manual tray rebuilds are never cancelled.
 - **`useAgentTranscriptActivity`** (default **true**) — treat writes under `agent-transcripts` / `.cursor` as “agent still active” for gating (signal only; does not trigger rebuilds).
 - **`learnFromDiagnosticsVerdicts`** (default **true**) — when you mark a build trigger **Unexpected** in **Build diagnostics**, suggest watch-ignore folders and apply debounce feedback for file-change triggers. Learned excludes persist in `build-training.json`.
+- **`controlPlaneEnabled`** (default **true**) — listen on `http://127.0.0.1:{controlPlanePort}/` for agent busy/idle and ship-check. See [ops/control-plane.md](ops/control-plane.md).
+- **`controlPlanePort`** (default **7700**) — loopback port only (1024–65535).
+- **`controlPlaneBusyTimeoutSeconds`** (default **120**) — if busy and no idle for this long, treat as idle.
+- **`suppressAutoBuildTests`** (default **true**) — skip `OnBuildSuccess` tests after auto-builds; ship-check and tray **Run tests** still run. Overridable via the control-plane API.
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
 

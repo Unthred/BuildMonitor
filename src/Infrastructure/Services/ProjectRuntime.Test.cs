@@ -423,6 +423,18 @@ internal sealed partial class ProjectRuntime
             args.Add("--no-build");
         }
 
+        if (!string.IsNullOrWhiteSpace(shipCheckConfiguration))
+        {
+            args.Add("-c");
+            args.Add(shipCheckConfiguration);
+        }
+
+        if (!string.IsNullOrWhiteSpace(shipCheckFilter))
+        {
+            args.Add("--filter");
+            args.Add(shipCheckFilter);
+        }
+
         AppendExtraArgs(args);
         return args;
     }

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.TrayApp.Services;
 using Microsoft.Win32;
@@ -62,6 +63,10 @@ public partial class SettingsWindow : Window
         PlaySoundOnErrorCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildError;
         PlaySoundOnSuccessCheck.IsChecked = Settings.Monitor.PlaySoundOnBuildSuccess;
         MaxLogBytesText.Text = Settings.Monitor.MaxLogDisplayBytes.ToString();
+        ControlPlaneEnabledCheck.IsChecked = Settings.Monitor.ControlPlaneEnabled;
+        ControlPlanePortText.Text = Settings.Monitor.ControlPlanePort.ToString();
+        ControlPlaneBusyTimeoutText.Text = Settings.Monitor.ControlPlaneBusyTimeoutSeconds.ToString();
+        SuppressAutoBuildTestsCheck.IsChecked = Settings.Monitor.SuppressAutoBuildTests;
         StartMinimizedCheck.IsChecked = Settings.AppBehavior.StartMinimizedToTray;
         RunOnLogonCheck.IsChecked = Settings.AppBehavior.RunOnLogon;
         FollowStatusPanelDesktopCheck.IsChecked = Settings.AppBehavior.FollowStatusPanelToVirtualDesktop;
@@ -374,6 +379,34 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void InstallAgentSkillClicked(object sender, RoutedEventArgs e)
+    {
+        var root = RootFolderText.Text.Trim();
+        if (string.IsNullOrWhiteSpace(root) && selectedProject is not null)
+        {
+            root = selectedProject.RootFolder;
+        }
+
+        var result = ControlPlaneAgentSkillInstaller.Install(root);
+        if (result.Ok)
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                $"Installed Cursor skill for agents in this repo:\n\n{result.DestinationPath}\n\nStart a new agent chat in that workspace so the skill is picked up.",
+                "Control plane skill",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        System.Windows.MessageBox.Show(
+            this,
+            result.Error ?? "Install failed.",
+            "Control plane skill",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
     private void BrowseProjectFileClicked(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
@@ -436,6 +469,18 @@ public partial class SettingsWindow : Window
         Settings.Monitor.CancelSupersededBuilds = CancelSupersededBuildsCheck.IsChecked == true;
         Settings.Monitor.UseAgentTranscriptActivity = UseAgentTranscriptActivityCheck.IsChecked == true;
         Settings.Monitor.LearnFromDiagnosticsVerdicts = LearnFromDiagnosticsVerdictsCheck.IsChecked == true;
+        Settings.Monitor.ControlPlaneEnabled = ControlPlaneEnabledCheck.IsChecked == true;
+        if (int.TryParse(ControlPlanePortText.Text, out var controlPlanePort))
+        {
+            Settings.Monitor.ControlPlanePort = controlPlanePort;
+        }
+
+        if (int.TryParse(ControlPlaneBusyTimeoutText.Text, out var busyTimeout))
+        {
+            Settings.Monitor.ControlPlaneBusyTimeoutSeconds = busyTimeout;
+        }
+
+        Settings.Monitor.SuppressAutoBuildTests = SuppressAutoBuildTestsCheck.IsChecked == true;
         Settings.Monitor.AutoOpenBuildMonitorHealthOnStartup = AutoOpenBuildMonitorHealthCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildError = PlaySoundOnErrorCheck.IsChecked == true;
         Settings.Monitor.PlaySoundOnBuildSuccess = PlaySoundOnSuccessCheck.IsChecked == true;
