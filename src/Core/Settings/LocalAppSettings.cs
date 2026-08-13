@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 17;
+    public int SchemaVersion { get; set; } = 18;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -167,6 +167,21 @@ public sealed class GlobalMonitorSettings
     public bool UseAgentTranscriptActivity { get; set; } = true;
     /// <summary>Learn from Unexpected verdicts in Build diagnostics (exclude suggestions and debounce feedback).</summary>
     public bool LearnFromDiagnosticsVerdicts { get; set; } = true;
+
+    /// <summary>Listen for the loopback HTTP control plane (Cursor agent busy/idle + ship-check).</summary>
+    public bool ControlPlaneEnabled { get; set; } = true;
+
+    /// <summary>Port for http://127.0.0.1:{port}/ (loopback only).</summary>
+    public int ControlPlanePort { get; set; } = 7700;
+
+    /// <summary>If busy and no idle for this many seconds, treat as idle (agent crash).</summary>
+    public int ControlPlaneBusyTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// When true, file-change / coalesced auto-builds skip OnBuildSuccess tests.
+    /// Explicit ship-check and tray Run tests are unchanged. Overridable per project via the control-plane API.
+    /// </summary>
+    public bool SuppressAutoBuildTests { get; set; } = true;
 }
 
 public enum AppThemePreference

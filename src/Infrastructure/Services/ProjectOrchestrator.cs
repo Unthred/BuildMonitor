@@ -2,18 +2,21 @@ using System.Text;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 
 namespace BuildMonitor.Infrastructure.Services;
 
-public sealed class ProjectOrchestrator : IDisposable
+public sealed partial class ProjectOrchestrator : IDisposable
 {
     private readonly DotNetCliRunner cliRunner = new();
     private readonly BuildLogStore logStore;
     private readonly BuildTriggerJournal triggerJournal;
     private readonly FileChangeBurstStatsStore burstStatsStore;
     private readonly BuildTrainingStore trainingStore;
+    private readonly ControlPlaneSessionStore sessionStore;
+    private readonly ControlPlaneMetricsStore metricsStore = new();
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
@@ -31,6 +34,7 @@ public sealed class ProjectOrchestrator : IDisposable
         triggerJournal = new BuildTriggerJournal(dataRoot);
         burstStatsStore = new FileChangeBurstStatsStore(dataRoot);
         trainingStore = new BuildTrainingStore(dataRoot);
+        sessionStore = new ControlPlaneSessionStore(metricsStore);
         WorkerHealthRegistry.Shared.Register(
             "health.event.raise",
             "HealthUpdated event (background → UI)",
@@ -38,6 +42,10 @@ public sealed class ProjectOrchestrator : IDisposable
             "Background");
         healthCoalescer = new HealthCoalescer(GetCoalescerState, PublishHealthFromCoalescer);
     }
+
+    public ControlPlaneSessionStore SessionStore => sessionStore;
+
+    public ControlPlaneMetricsStore MetricsStore => metricsStore;
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
@@ -165,6 +173,10 @@ public sealed class ProjectOrchestrator : IDisposable
         lock (sync)
         {
             settings = newSettings;
+            sessionStore.ApplyMonitorDefaults(
+                newSettings.Monitor.ControlPlaneBusyTimeoutSeconds,
+                newSettings.Monitor.SuppressAutoBuildTests);
+
             var activeIds = newSettings.Projects
                 .Where(p => p.IsActiveInSession)
                 .Select(p => p.Id)
@@ -184,10 +196,14 @@ public sealed class ProjectOrchestrator : IDisposable
                         burstStatsStore,
                         trainingStore,
                         RaiseUserNotification);
+                    runtime.SetSessionStore(sessionStore);
+                    runtime.SetMetricsStore(metricsStore);
                     runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
                     runtimes[project.Id] = runtime;
                 }
 
+                runtimes[project.Id].SetSessionStore(sessionStore);
+                runtimes[project.Id].SetMetricsStore(metricsStore);
                 runtimes[project.Id].UpdateDefinition(project, newSettings.Monitor);
                 runtimes[project.Id].SetUserNotifier(RaiseUserNotification);
             }

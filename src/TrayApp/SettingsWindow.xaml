@@ -179,6 +179,13 @@
 
                                     </DockPanel>
 
+                                    <Button Content="Install Cursor agent skill in this folder"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,0,0,10"
+                                            Padding="10,4"
+                                            Click="InstallAgentSkillClicked"
+                                            ToolTip="Copies the BuildMonitor busy/idle/ship-check skill into {root}\.cursor\skills\ so agents in this repo can discover the control plane." />
+
                                     <TextBlock Text="Project file (.csproj / .sln)" />
 
                                     <DockPanel Margin="0,4,0,0">
@@ -512,6 +519,24 @@
                             <TextBlock Text="Max log display size (bytes)" />
 
                             <TextBox x:Name="MaxLogBytesText" Margin="0,4,0,12" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Text="Agent control plane (loopback HTTP)" FontWeight="SemiBold" Margin="0,8,0,6" />
+
+                            <CheckBox x:Name="ControlPlaneEnabledCheck"
+                                      Content="Enable localhost control plane"
+                                      ToolTip="Bind http://127.0.0.1:{port}/ for Cursor agents (busy/idle + ship-check). Loopback only." />
+
+                            <TextBlock Text="Control plane port" Margin="0,8,0,0"
+                                       ToolTip="Port for http://127.0.0.1:{port}/ (1024–65535)." />
+                            <TextBox x:Name="ControlPlanePortText" Margin="0,4,0,8" Width="120" HorizontalAlignment="Left" />
+
+                            <TextBlock Text="Busy timeout (seconds)"
+                                       ToolTip="If busy and no idle for this long, treat as idle (agent crash)." />
+                            <TextBox x:Name="ControlPlaneBusyTimeoutText" Margin="0,4,0,8" Width="120" HorizontalAlignment="Left" />
+
+                            <CheckBox x:Name="SuppressAutoBuildTestsCheck"
+                                      Content="Skip tests on auto-build (ship-check / tray Run tests still run)"
+                                      ToolTip="When enabled, OnBuildSuccess tests are skipped after file-change builds. Override per project via the control-plane API." />
 
                             <TextBlock x:Name="ProjectStartBlockedHint"
                                        TextWrapping="Wrap"

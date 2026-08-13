@@ -44,6 +44,16 @@ public static class AppSettingsValidator
             errors.Add("Monitor.MaxConcurrentActiveProjects must be >= 1.");
         }
 
+        if (settings.Monitor.ControlPlanePort is < 1024 or > 65535)
+        {
+            errors.Add("Monitor.ControlPlanePort must be between 1024 and 65535.");
+        }
+
+        if (settings.Monitor.ControlPlaneBusyTimeoutSeconds is < 30 or > 3600)
+        {
+            errors.Add("Monitor.ControlPlaneBusyTimeoutSeconds must be between 30 and 3600.");
+        }
+
         if (settings.AppBehavior.ToastDurationSeconds is < 2 or > 120)
         {
             errors.Add("AppBehavior.ToastDurationSeconds must be between 2 and 120.");

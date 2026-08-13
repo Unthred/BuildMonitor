@@ -251,11 +251,12 @@ internal sealed partial class ProjectRuntime
             {
                 progressSteps = [];
                 SetState(ProjectLifecycleState.BuildOk);
-                if (definition.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess)
-                {
-                    PrepareTest("build success");
-                    await TestAsync(cancellationToken);
-                }
+            if (definition.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess
+                && !ShouldSkipAutoBuildTests())
+            {
+                PrepareTest("build success");
+                await TestAsync(cancellationToken);
+            }
             }
             else
             {
@@ -277,7 +278,9 @@ internal sealed partial class ProjectRuntime
             if (definition.RunOptions.RestartAppAfterRebuild
                 && definition.RunOptions.RunMode != ProjectRunMode.None
                 && result.ExitCode == 0
-                && runProcess?.IsRunning != true)
+                && runProcess?.IsRunning != true
+                && Volatile.Read(ref shipCheckInProgress) == 0
+                && !watchPausedByControlPlane)
             {
                 if (triggeredByFileChange)
                 {
@@ -388,6 +391,12 @@ internal sealed partial class ProjectRuntime
                     wasAlreadyPending: true,
                     pathsAlreadyRelative: true);
                 return;
+            }
+
+            if (IsControlPlaneBusyBlockingAutoBuild())
+            {
+                await Task.Delay(500);
+                continue;
             }
 
             if (EvaluateEditActivity().IsActive || DateTimeOffset.UtcNow < GetEffectiveEditQuietUntilUtc())
@@ -594,6 +603,14 @@ internal sealed partial class ProjectRuntime
                 Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
             }
 
+            return;
+        }
+
+        if (IsControlPlaneBusyBlockingAutoBuild())
+        {
+            NoteAutoBuildBlockedByControlPlane();
+            QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
+            _ = WaitForEditQuietThenBuildAsync("file change (queued)");
             return;
         }
 

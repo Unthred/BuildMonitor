@@ -11,10 +11,11 @@
 
 1. User configures projects and marks active session projects in settings.
 2. `ProjectOrchestrator` starts active projects (build, then run/watch).
-3. `DotNetCliRunner` captures stdout/stderr; `BuildLogStore` persists last logs.
-4. `ProjectRuntime` updates health snapshots on state transitions.
-5. Tray icon and hover panel subscribe to `HealthUpdated`.
-6. User opens `BuildLogViewerWindow` for full log + error navigation.
+3. Optional loopback **control plane** (`http://127.0.0.1:{port}/`) lets agents signal busy/idle and run ship-check — see [ops/control-plane.md](ops/control-plane.md).
+4. `DotNetCliRunner` captures stdout/stderr; `BuildLogStore` persists last logs.
+5. `ProjectRuntime` updates health snapshots on state transitions.
+6. Tray icon and hover panel subscribe to `HealthUpdated`.
+7. User opens `BuildLogViewerWindow` for full log + error navigation.
 
 ## Status panel (tray)
 

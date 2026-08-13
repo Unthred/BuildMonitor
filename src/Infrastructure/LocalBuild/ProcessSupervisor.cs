@@ -11,6 +11,7 @@ public sealed class SupervisedProcess : IDisposable
     public string ProjectId { get; }
     public string CommandLine { get; private set; } = string.Empty;
     public bool IsRunning => process is { HasExited: false };
+    public int? ProcessId => process is { HasExited: false } ? process.Id : null;
     public string Output => output.ToString();
 
     public event Action<string, int>? Exited;

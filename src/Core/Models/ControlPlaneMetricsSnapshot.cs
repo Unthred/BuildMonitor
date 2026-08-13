@@ -1,0 +1,56 @@
+namespace BuildMonitor.Core.Models;
+
+/// <summary>Process-lifetime control-plane metrics for one project (display-ready).</summary>
+public sealed record ControlPlaneMetricsSnapshot(
+    string ProjectId,
+    bool SessionApiUsed,
+    string SessionStateText,
+    int BusyCalls,
+    int IdleCalls,
+    string TotalBusyTimeText,
+    string LastBusyLocal,
+    string LastIdleLocal,
+    int AutoBuildsBlocked,
+    int ShipCheckTotal,
+    int ShipCheckPassed,
+    int ShipCheckFailed,
+    string ShipCheckSuccessRateText,
+    string AvgShipCheckDurationText,
+    string LastShipCheckLocal,
+    string LastShipCheckResultText,
+    int WatchPauseCalls,
+    int WatchResumeCalls,
+    int HttpRequests,
+    int HttpClientErrors,
+    int HttpServerErrors,
+    int CallsLastHour,
+    string CallRateText,
+    string SummaryLine)
+{
+    public static ControlPlaneMetricsSnapshot Empty(string projectId) =>
+        new(
+            projectId,
+            SessionApiUsed: false,
+            SessionStateText: "idle (no session API yet)",
+            BusyCalls: 0,
+            IdleCalls: 0,
+            TotalBusyTimeText: "—",
+            LastBusyLocal: "—",
+            LastIdleLocal: "—",
+            AutoBuildsBlocked: 0,
+            ShipCheckTotal: 0,
+            ShipCheckPassed: 0,
+            ShipCheckFailed: 0,
+            ShipCheckSuccessRateText: "—",
+            AvgShipCheckDurationText: "—",
+            LastShipCheckLocal: "—",
+            LastShipCheckResultText: "—",
+            WatchPauseCalls: 0,
+            WatchResumeCalls: 0,
+            HttpRequests: 0,
+            HttpClientErrors: 0,
+            HttpServerErrors: 0,
+            CallsLastHour: 0,
+            CallRateText: "0 / h",
+            SummaryLine: "No control-plane calls yet this process.");
+}

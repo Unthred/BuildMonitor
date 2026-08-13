@@ -21,6 +21,7 @@ public sealed class TrayContextMenuBuilder
         public required Action RequestExit { get; init; }
         public required Action<string, string?> OpenLogViewerForProject { get; init; }
         public required Action<IReadOnlyList<LocalProjectDefinition>> StartRunTestsForProjects { get; init; }
+        public required Action<string, string> InstallControlPlaneAgentSkill { get; init; }
     }
 
     public void Rebuild(
@@ -51,6 +52,7 @@ public sealed class TrayContextMenuBuilder
             menu.Items.Add(BuildStopMenu(active, orchestrator, host));
             menu.Items.Add(BuildViewLogsMenu(active, host));
             menu.Items.Add(BuildCleanOutputMenu(active, orchestrator, host));
+            menu.Items.Add(BuildInstallAgentSkillMenu(active, host));
         }
 
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -111,6 +113,11 @@ public sealed class TrayContextMenuBuilder
                 host.RunUi(() => host.OpenLogViewerForProject(id, null))));
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Clean build output", null, (_, _) =>
                 host.RunBackground(() => orchestrator.RepairBuildOutputAsync(id, CancellationToken.None))));
+            submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            var root = project.RootFolder;
+            var name = project.DisplayName;
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Install Cursor agent skill…", null, (_, _) =>
+                host.RunUi(() => host.InstallControlPlaneAgentSkill(root, name))));
 
             items.Add(submenu);
         }
@@ -275,6 +282,22 @@ public sealed class TrayContextMenuBuilder
             var id = project.Id;
             menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
                 host.RunBackground(() => orchestrator.RepairBuildOutputAsync(id, CancellationToken.None))));
+        }
+
+        return menu;
+    }
+
+    private static Forms.ToolStripMenuItem BuildInstallAgentSkillMenu(
+        List<LocalProjectDefinition> active,
+        Host host)
+    {
+        var menu = new Forms.ToolStripMenuItem("Install Cursor agent skill") { Enabled = active.Count > 0 };
+        foreach (var project in active)
+        {
+            var root = project.RootFolder;
+            var name = project.DisplayName;
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
+                host.RunUi(() => host.InstallControlPlaneAgentSkill(root, name))));
         }
 
         return menu;

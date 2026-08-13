@@ -198,6 +198,7 @@ public partial class BuildDiagnosticsWindow : Window
                     },
                     new GlobalMonitorSettings(),
                     new FileChangeBurstStats());
+                tab.ControlPlaneMetrics = orchestrator.GetControlPlaneMetrics(projectId);
 
                 if (!IsNoteEditorFocused())
                 {
@@ -335,6 +336,7 @@ public partial class BuildDiagnosticsWindow : Window
     {
         private string displayName;
         private BuildIntelligenceSnapshot? intelligence;
+        private ControlPlaneMetricsSnapshot? controlPlaneMetrics;
 
         public ProjectDiagnosticsTabViewModel(string projectId, string displayName)
         {
@@ -371,6 +373,16 @@ public partial class BuildDiagnosticsWindow : Window
                 intelligence = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(TabTitle));
+            }
+        }
+
+        public ControlPlaneMetricsSnapshot? ControlPlaneMetrics
+        {
+            get => controlPlaneMetrics;
+            set
+            {
+                controlPlaneMetrics = value;
+                OnPropertyChanged();
             }
         }
 

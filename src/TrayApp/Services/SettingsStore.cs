@@ -137,6 +137,15 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 17;
         }
 
+        if (settings.SchemaVersion < 18)
+        {
+            settings.Monitor.ControlPlaneEnabled = true;
+            settings.Monitor.ControlPlanePort = 7700;
+            settings.Monitor.ControlPlaneBusyTimeoutSeconds = 120;
+            settings.Monitor.SuppressAutoBuildTests = true;
+            settings.SchemaVersion = 18;
+        }
+
         return settings;
     }
 
@@ -215,7 +224,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 17;
+        settings.SchemaVersion = 18;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }
