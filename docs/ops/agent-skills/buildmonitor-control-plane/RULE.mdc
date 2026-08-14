@@ -1,0 +1,29 @@
+---
+description: >-
+  When working in this .NET repo, use BuildMonitor's localhost control plane for
+  edit bursts and ship build/test instead of asking the user to run raw
+  dotnet build / test / watch commands.
+alwaysApply: true
+---
+
+# BuildMonitor control plane (required in this repo)
+
+BuildMonitor watches this folder and owns local build / test / watch. **Do not** ask the user to run:
+
+- `dotnet build`
+- `dotnet test`
+- `dotnet watch run`
+
+unless the control plane is unreachable.
+
+## Handshake (loopback HTTP only — no MCP)
+
+1. Read `%LocalAppData%\BuildMonitor\control-plane.json` when present; else `GET http://127.0.0.1:7700/projects`.
+2. Match `projectId` by `rootFolder` to this workspace (case-insensitive path; parent/child OK).
+3. Before multi-file edits: `POST /session/busy` with `{ "projectId": "…" }`.
+4. After edits: `POST /session/idle` with `{ "projectId": "…" }` (auto-build may run; idle ≠ tests passed).
+5. Before claiming build/test success: `POST /run/ship-check` with `{ "projectId": "…", "configuration": "Debug" }` and optional `"filter"`.
+6. If `ok` is false, read failures/log and fix — do not claim success.
+7. Prefer pause/ship-check over starting a second `dotnet watch` or killing processes.
+
+If the control plane cannot be reached, say so briefly and continue with normal editing; BuildMonitor falls back to its own debounce.

@@ -179,12 +179,29 @@
 
                                     </DockPanel>
 
-                                    <Button Content="Install Cursor agent skill in this folder"
-                                            HorizontalAlignment="Left"
-                                            Margin="0,0,0,10"
-                                            Padding="10,4"
-                                            Click="InstallAgentSkillClicked"
-                                            ToolTip="Copies the BuildMonitor busy/idle/ship-check skill into {root}\.cursor\skills\ so agents in this repo can discover the control plane." />
+                                    <TextBlock Text="Cursor agent integration" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="AgentSkillStatusSummary"
+                                               Text="Not checked"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,2"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock x:Name="AgentSkillStatusDetail"
+                                               Text="Select a project to see whether the control-plane skill and always-on rule are installed."
+                                               Opacity="0.85"
+                                               Margin="0,0,0,6"
+                                               TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="InstallAgentSkillButton"
+                                                Content="Install / Update"
+                                                Padding="10,4"
+                                                Click="InstallAgentSkillClicked"
+                                                ToolTip="Copies the BuildMonitor skill and an always-on Cursor rule into this project's .cursor folder so agents use busy/idle/ship-check without paste." />
+                                        <Button Content="Refresh"
+                                                Margin="8,0,0,0"
+                                                Padding="10,4"
+                                                Click="RefreshAgentSkillStatusClicked"
+                                                ToolTip="Re-check whether the installed skill and rule match this BuildMonitor version." />
+                                    </StackPanel>
 
                                     <TextBlock Text="Project file (.csproj / .sln)" />
 

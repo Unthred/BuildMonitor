@@ -1585,7 +1585,10 @@ public partial class App : System.Windows.Application
         if (result.Ok)
         {
             System.Windows.MessageBox.Show(
-                $"Installed Cursor skill for {displayName}:\n\n{result.DestinationPath}\n\nStart a new agent chat in that workspace so the skill is picked up.",
+                $"Installed Cursor agent integration for {displayName}:\n\n"
+                + $"Skill: {result.DestinationPath}\n"
+                + $"Always-on rule: {result.RuleDestinationPath}\n\n"
+                + "New agent chats in that workspace use BuildMonitor automatically — no paste required.",
                 "Control plane skill",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);

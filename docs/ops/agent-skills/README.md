@@ -14,7 +14,12 @@ With the project selected in **Settings → Projects**, click **Install Cursor a
 
 Or tray menu: **Install Cursor agent skill → &lt;project&gt;** (or under the project submenu when layout is By project).
 
-That copies the skill to `{rootFolder}\.cursor\skills\buildmonitor-control-plane\SKILL.md`.
+That copies:
+
+- `{rootFolder}\.cursor\skills\buildmonitor-control-plane\SKILL.md`
+- `{rootFolder}\.cursor\rules\buildmonitor-control-plane.mdc` (always-on — agents handshake without paste)
+
+Settings shows **Cursor agent integration** status for the selected project: Not installed / Partially installed / Outdated / Ready.
 
 ### Install via script
 

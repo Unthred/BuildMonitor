@@ -19,6 +19,9 @@
     <Content Include="..\..\docs\ops\agent-skills\buildmonitor-control-plane\SKILL.md"
              Link="AgentSkills\buildmonitor-control-plane\SKILL.md"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\ops\agent-skills\buildmonitor-control-plane\RULE.mdc"
+             Link="AgentSkills\buildmonitor-control-plane\RULE.mdc"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
