@@ -52,11 +52,26 @@ public static class BuildIssueCountResolver
         return false;
     }
 
-    public static bool HasDefinitiveBuildOutcome(string logText) =>
-        !string.IsNullOrWhiteSpace(logText)
-        && (logText.Contains("Build succeeded", StringComparison.OrdinalIgnoreCase)
-            || logText.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase)
-            || logText.Contains("Build failed", StringComparison.OrdinalIgnoreCase));
+    public static bool HasDefinitiveBuildOutcome(string logText)
+    {
+        if (string.IsNullOrWhiteSpace(logText))
+        {
+            return false;
+        }
+
+        foreach (var rawLine in logText.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.TrimStart();
+            if (line.StartsWith("Build succeeded", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("Build FAILED", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("Build failed", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public static (int Errors, int Warnings) ReadPersistedMetadataCounts(string? logFilePath) =>
         string.IsNullOrWhiteSpace(logFilePath) ? (0, 0) : TryReadMetadataCounts(logFilePath);

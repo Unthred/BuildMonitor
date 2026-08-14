@@ -101,7 +101,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 buildErrorCount,
                 buildWarningCount,
                 runErrorCount,
-                runWarningCount);
+                runWarningCount,
+                lastBuildExitCode);
             return new ProjectHealthSnapshot(
                 definition.Id,
                 definition.DisplayName,
@@ -125,12 +126,14 @@ internal sealed partial class ProjectRuntime : IDisposable
                     buildErrorCount,
                     buildWarningCount,
                     runErrorCount,
-                    runWarningCount),
-                HealthIssueCountsFormatter.FormatFailurePhase(state),
+                    runWarningCount,
+                    lastBuildExitCode),
+                HealthIssueCountsFormatter.FormatFailurePhase(state, lastBuildExitCode),
                 isRestarting,
                 IsEditGatingActive(),
                 BuildEditGatingDetailText(),
-                GetEditGatingQuietUntilUtc());
+                GetEditGatingQuietUntilUtc(),
+                lastBuildExitCode);
     }
 
     public void MarkHealthDirty() => Interlocked.Exchange(ref healthDirty, 1);
@@ -485,7 +488,8 @@ internal sealed partial class ProjectRuntime : IDisposable
             buildErrorCount,
             buildWarningCount,
             runErrorCount,
-            runWarningCount);
+            runWarningCount,
+            lastBuildExitCode);
         health = ProjectHealthEvaluator.Evaluate(
             state,
             lastBuildExitCode,

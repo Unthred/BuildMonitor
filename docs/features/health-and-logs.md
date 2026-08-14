@@ -10,7 +10,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 2 | Coalescer parses counts + progress on a background loop (~250 ms) | `HealthCoalescer`, `ProjectRuntime.CoalesceHealthCore`, `BuildLogParser` |
 | 3 | Tray receives immutable snapshot list at bounded rate | `ProjectOrchestrator.HealthUpdated` → `App.OnHealthUpdated` (`DispatcherPriority.Normal`, coalesced) |
 | 4 | Run/watch output updates `runErrorCount` / `runWarningCount` | `DotNetRunOutputParser`, `OnRunProcessOutputLine` (coalesced same as build) |
-| 5 | Snapshot picks display counts by lifecycle state | `HealthIssueCountsFormatter.SelectPrimaryCounts` |
+| 5 | Snapshot picks display counts by lifecycle state; a failed current build (`lastBuildExitCode != 0`) dominates even while lifecycle stays `Watching` because the watch host is still alive | `HealthIssueCountsFormatter.SelectPrimaryCounts`, `ProjectHealthEvaluator` |
 | 5b | Tray, log store, and log viewer all use the **current** MSBuild summary (`BuildIssueCountResolver` / `ParseErrorCount` / `ParseWarningCount`) — no carry-forward from previous builds | `BuildIssueCountResolver`, `BuildLogStore`, `ProjectRuntime.Build` |
 | 5c | When **Force complete warning counts** is on (default), every `dotnet build` passes `--no-incremental`. When off, only startup / Rebuild / Rebuild & restart do (file-change builds may report 0/0) | `DotNetBuildArguments`, `ProjectRunOptions.ForceCompleteWarningCounts` |
 | 5d | Post-build tests no longer clear build warning/error counts used for tray health | `ProjectRuntime.TestAsync` |
@@ -21,8 +21,9 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 7b | **AI working?** (header only) — extends rebuild wait when countdown is active; marks in-flight build **Unexpected** while building. Countdown auto-extends on agent tooling activity and resets on meaningful source saves. | `HoverStatusPanel`, `ProjectRuntime.HandleStillEditingClick`, `EditGatingQuietUntilResolver` |
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
 | 8b | Log viewer footer uses the same MSBuild summary counts as the tray (`BuildIssueCountResolver`) | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
-| 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`) | `App.AutoOpenLogsOnTransition`, `AutoOpenLogTransitionEvaluator` |
+| 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`). **Errors** opens on a newly completed failed build result, including watch rebuilds that stay `Watching` | `App.AutoOpenLogsOnTransition`, `AutoOpenLogSession`, `AutoOpenLogTransitionEvaluator`, `BuildResultTransitionEvaluator` |
 | 9b | Auto-show status panel while building (per project, default **on**); panel opened for edit-gating stays open through the following build | `App.AutoShowStatusPanelWhileBuilding`, `App.AutoShowStatusPanelForEditGating`, `StatusPanelBuildVisibilityEvaluator` |
+| 9c | Build-failure toasts use the same completed-build-result transition (not `Building → BuildFailed` alone) | `BuildLifecycleToastEvaluator`, `BuildLifecycleToastNotifier` |
 | 10 | **Restart app** stops run/watch and starts with `--no-build` | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: false)` |
 | 11 | **Rebuild & restart** runs full build then starts app | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: true)` |
 | 12 | Hot-reload “requires restart/rebuild” lines trigger auto-restart when enabled | `HotReloadRestartDetector`, `ProjectRuntime.TryHandleHotReloadRestartRequest` |
@@ -47,6 +48,8 @@ Per-project dirty flags; up to `MaxConcurrentActiveProjects` (default 3) share o
 **Extension points:** add run-error heuristics in `DotNetRunOutputParser`; adjust status formatting in `HealthIssueCountsFormatter`.
 
 **Failure / fallback:** native shell tooltip is suppressed via empty `NotifyIcon.Text` (custom hint only). `TrayIconShellInterop` resolves icon bounds for hint dismiss. Issue scroll uses text-match fallback when line index drifts after log truncation.
+
+**Watch rebuild vs process-alive:** `dotnet watch` can stay running after a compile failure. Lifecycle may remain `Watching` (host alive) while `lastBuildExitCode != 0`. Health must be **Failed/red**, `FailurePhase` **Build failed**, and current build error counts visible. A newly completed failed watch rebuild raises the normal build-failure toast and satisfies **Auto-open log = Errors** once per completed result (`LastBuildFinishedAtUtc` change). A later successful watch rebuild may return to healthy/warning as appropriate. Do not treat “process is alive” as “build is healthy”.
 
 ## Watch excludes (dotnet watch)
 

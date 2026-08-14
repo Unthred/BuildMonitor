@@ -109,6 +109,20 @@ public sealed class BuildIssueCountResolverTests
     }
 
     [Fact]
+    public void ShouldApplyWatchOutputCounts_false_when_watch_host_failed_line_would_clear_counts()
+    {
+        const string segment = "dotnet watch ⌚ The build failed. Fix the error then save the file to try building again.";
+
+        Assert.False(BuildIssueCountResolver.HasDefinitiveBuildOutcome(segment));
+        Assert.False(BuildIssueCountResolver.ShouldApplyWatchOutputCounts(
+            segment,
+            currentErrors: 1,
+            currentWarnings: 0,
+            parsedErrors: 0,
+            parsedWarnings: 0));
+    }
+
+    [Fact]
     public void ShouldApplyWatchOutputCounts_false_when_parsed_matches_current()
     {
         Assert.False(BuildIssueCountResolver.ShouldApplyWatchOutputCounts(

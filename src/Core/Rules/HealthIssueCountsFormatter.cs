@@ -9,8 +9,14 @@ public static class HealthIssueCountsFormatter
         int buildErrors,
         int buildWarnings,
         int runErrors,
-        int runWarnings)
+        int runWarnings,
+        int lastBuildExitCode = -1)
     {
+        if (FailedBuildDominates(state, lastBuildExitCode))
+        {
+            return $"Build: {buildErrors} errors | {buildWarnings} warnings";
+        }
+
         if (state is ProjectLifecycleState.Crashed
             or ProjectLifecycleState.Running
             or ProjectLifecycleState.Watching)
@@ -47,8 +53,14 @@ public static class HealthIssueCountsFormatter
         int buildErrors,
         int buildWarnings,
         int runErrors,
-        int runWarnings)
+        int runWarnings,
+        int lastBuildExitCode = -1)
     {
+        if (FailedBuildDominates(state, lastBuildExitCode))
+        {
+            return (buildErrors, buildWarnings);
+        }
+
         var isRunPhase = state is ProjectLifecycleState.Crashed
             or ProjectLifecycleState.Running
             or ProjectLifecycleState.Watching;
@@ -61,8 +73,14 @@ public static class HealthIssueCountsFormatter
         return (buildErrors, buildWarnings);
     }
 
-    public static string FormatFailurePhase(ProjectLifecycleState state) =>
-        state switch
+    public static string FormatFailurePhase(ProjectLifecycleState state, int lastBuildExitCode = -1)
+    {
+        if (FailedBuildDominates(state, lastBuildExitCode))
+        {
+            return "Build failed";
+        }
+
+        return state switch
         {
             ProjectLifecycleState.Crashed => "Run failed",
             ProjectLifecycleState.BuildFailed => "Build failed",
@@ -73,4 +91,16 @@ public static class HealthIssueCountsFormatter
             ProjectLifecycleState.Running => "Running",
             _ => string.Empty
         };
+    }
+
+    public static bool HasFailedCurrentBuild(int lastBuildExitCode) =>
+        lastBuildExitCode >= 0 && lastBuildExitCode != 0;
+
+    private static bool FailedBuildDominates(ProjectLifecycleState state, int lastBuildExitCode) =>
+        HasFailedCurrentBuild(lastBuildExitCode)
+        && state is not (ProjectLifecycleState.Crashed
+            or ProjectLifecycleState.Building
+            or ProjectLifecycleState.Testing
+            or ProjectLifecycleState.TestFailed
+            or ProjectLifecycleState.WaitingForEdits);
 }

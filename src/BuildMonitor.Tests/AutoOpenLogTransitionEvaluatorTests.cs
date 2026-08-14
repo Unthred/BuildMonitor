@@ -33,6 +33,42 @@ public sealed class AutoOpenLogTransitionEvaluatorTests
                 errorCount: 0));
 
     [Fact]
+    public void ShouldOpen_errors_mode_on_newly_completed_failed_watch_rebuild()
+    {
+        var t1 = DateTimeOffset.UtcNow;
+        Assert.True(
+            AutoOpenLogTransitionEvaluator.ShouldOpen(
+                AutoOpenLogMode.Errors,
+                MonitorHealth.Green,
+                MonitorHealth.Red,
+                ProjectLifecycleState.Watching,
+                ProjectLifecycleState.Watching,
+                errorCount: 2,
+                hadPreviousBuildResult: true,
+                previousBuildFinishedAtUtc: t1,
+                currentBuildExitCode: 1,
+                currentBuildFinishedAtUtc: t1.AddSeconds(2)));
+    }
+
+    [Fact]
+    public void ShouldOpen_errors_mode_false_for_repeat_watch_failure_snapshot()
+    {
+        var t1 = DateTimeOffset.UtcNow;
+        Assert.False(
+            AutoOpenLogTransitionEvaluator.ShouldOpen(
+                AutoOpenLogMode.Errors,
+                MonitorHealth.Red,
+                MonitorHealth.Red,
+                ProjectLifecycleState.Watching,
+                ProjectLifecycleState.Watching,
+                errorCount: 2,
+                hadPreviousBuildResult: true,
+                previousBuildFinishedAtUtc: t1,
+                currentBuildExitCode: 1,
+                currentBuildFinishedAtUtc: t1));
+    }
+
+    [Fact]
     public void ShouldOpen_errors_mode_on_run_crash()
     {
         Assert.True(

@@ -54,7 +54,7 @@ public class ProjectHealthEvaluatorTests
     }
 
     [Fact]
-    public void Evaluate_returns_green_when_watching_despite_failed_last_build_exit_code()
+    public void Evaluate_returns_red_when_watching_despite_failed_last_build_exit_code()
     {
         var health = ProjectHealthEvaluator.Evaluate(
             ProjectLifecycleState.Watching,
@@ -62,7 +62,7 @@ public class ProjectHealthEvaluatorTests
             errorCount: 0,
             warningCount: 0);
 
-        Assert.Equal(MonitorHealth.Green, health);
+        Assert.Equal(MonitorHealth.Red, health);
     }
 
     [Fact]

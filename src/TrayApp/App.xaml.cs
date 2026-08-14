@@ -36,7 +36,7 @@ public partial class App : System.Windows.Application
     private bool pointerOverStatusPanel;
     private readonly Dictionary<string, MonitorHealth> previousProjectHealth = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BuildLogViewerWindow> openLogViewers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> autoOpenedLogForTransition = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AutoOpenLogSession autoOpenLogSession = new();
     private readonly Dictionary<string, ProjectLifecycleState> previousProjectLifecycleState =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> fileChangeBuildStarts = new(StringComparer.OrdinalIgnoreCase);
@@ -152,7 +152,7 @@ public partial class App : System.Windows.Application
 
             previousProjectHealth.Clear();
             buildLifecycleToastNotifier.Reset();
-            autoOpenedLogForTransition.Clear();
+            autoOpenLogSession.Reset();
             previousProjectLifecycleState.Clear();
             statusPanelAutoShownForBuild = false;
             fileChangeBuildStarts.Clear();
@@ -315,36 +315,24 @@ public partial class App : System.Windows.Application
                 continue;
             }
 
-            previousProjectHealth.TryGetValue(snapshot.ProjectId, out var previousHealth);
             previousProjectLifecycleState.TryGetValue(snapshot.ProjectId, out var previousState);
 
-            if (AutoOpenLogTransitionEvaluator.ShouldOpen(
-                    mode,
-                    previousHealth,
-                    snapshot.Health,
-                    previousState,
-                    snapshot.State,
-                    snapshot.ErrorCount))
+            if (autoOpenLogSession.ShouldOpenViewer(mode, snapshot))
             {
-                var useLatch = mode is AutoOpenLogMode.Errors or AutoOpenLogMode.Warnings;
-                if (!useLatch || autoOpenedLogForTransition.Add(snapshot.ProjectId))
-                {
-                    var logKind = LogKindForAutoOpen(snapshot.State, previousState);
-                    var (selectErrorsFilter, selectWarningsFilter) =
-                        AutoOpenLogTransitionEvaluator.ResolveIssueFilters(mode, snapshot);
-                    OpenLogViewer(
-                        snapshot.ProjectId,
-                        snapshot.DisplayName,
-                        logKind,
-                        selectErrorsFilter,
-                        selectWarningsFilter);
-                }
-            }
-            else if (AutoOpenLogTransitionEvaluator.ShouldResetOpenLatch(mode, snapshot.Health))
-            {
-                autoOpenedLogForTransition.Remove(snapshot.ProjectId);
+                var logKind = LogKindForAutoOpen(snapshot.State, previousState);
+                var (selectErrorsFilter, selectWarningsFilter) =
+                    AutoOpenLogTransitionEvaluator.ResolveIssueFilters(mode, snapshot);
+                OpenLogViewer(
+                    snapshot.ProjectId,
+                    snapshot.DisplayName,
+                    logKind,
+                    selectErrorsFilter,
+                    selectWarningsFilter);
             }
         }
+
+        autoOpenLogSession.ForgetInactive(
+            snapshots.Where(s => s.IsActive).Select(s => s.ProjectId).ToList());
     }
 
     private void AutoShowStatusPanelWhileBuilding(IReadOnlyList<ProjectHealthSnapshot> snapshots)
