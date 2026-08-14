@@ -222,9 +222,18 @@ public static class BuildLogParser
         }
 
         var lastSucceeded = normalized.LastIndexOf("Build succeeded", StringComparison.OrdinalIgnoreCase);
-        var lastFailed = normalized.LastIndexOf("Build FAILED", StringComparison.OrdinalIgnoreCase);
+        var lastFailed = Math.Max(
+            normalized.LastIndexOf("Build FAILED", StringComparison.Ordinal),
+            normalized.LastIndexOf("Build failed with", StringComparison.OrdinalIgnoreCase));
         var lastFailedSentence = normalized.LastIndexOf("The build failed", StringComparison.OrdinalIgnoreCase);
-        var start = Math.Max(Math.Max(lastSucceeded, lastFailed), lastFailedSentence);
+        // Watch host appends "The build failed" after MSBuild. Prefer the MSBuild
+        // "Build FAILED" block so diagnostics and the error summary are not dropped.
+        var start = Math.Max(lastSucceeded, lastFailed);
+        if (lastFailedSentence > start)
+        {
+            start = lastFailed >= 0 ? lastFailed : lastFailedSentence;
+        }
+
         if (start < 0)
         {
             return normalized;
@@ -243,7 +252,9 @@ public static class BuildLogParser
                 Math.Max(
                     normalized.LastIndexOf("Build succeeded", lastFailed, StringComparison.OrdinalIgnoreCase),
                     lastFailed > 0
-                        ? normalized.LastIndexOf("Build FAILED", previousFailedEnd, StringComparison.OrdinalIgnoreCase)
+                        ? Math.Max(
+                            normalized.LastIndexOf("Build FAILED", previousFailedEnd, StringComparison.Ordinal),
+                            normalized.LastIndexOf("Build failed with", previousFailedEnd, StringComparison.OrdinalIgnoreCase))
                         : -1));
             if (previousBoundary >= 0 && previousBoundary < lastFailed)
             {

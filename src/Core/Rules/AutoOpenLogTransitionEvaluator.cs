@@ -10,7 +10,11 @@ public static class AutoOpenLogTransitionEvaluator
         MonitorHealth currentHealth,
         ProjectLifecycleState previousState,
         ProjectLifecycleState currentState,
-        int errorCount = 0)
+        int errorCount = 0,
+        bool hadPreviousBuildResult = false,
+        DateTimeOffset? previousBuildFinishedAtUtc = null,
+        int currentBuildExitCode = -1,
+        DateTimeOffset? currentBuildFinishedAtUtc = null)
     {
         if (mode == AutoOpenLogMode.Never)
         {
@@ -28,6 +32,15 @@ public static class AutoOpenLogTransitionEvaluator
             if (currentState is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
             {
                 return false;
+            }
+
+            if (BuildResultTransitionEvaluator.IsNewlyCompletedFailedBuild(
+                    hadPreviousBuildResult,
+                    previousBuildFinishedAtUtc,
+                    currentBuildExitCode,
+                    currentBuildFinishedAtUtc))
+            {
+                return true;
             }
 
             if (previousState == ProjectLifecycleState.Building

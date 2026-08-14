@@ -77,4 +77,43 @@ public class HealthIssueCountsFormatterTests
     {
         Assert.Equal("Run failed", HealthIssueCountsFormatter.FormatFailurePhase(ProjectLifecycleState.Crashed));
     }
+
+    [Fact]
+    public void FormatFailurePhase_building_keeps_building_despite_previous_failed_exit()
+    {
+        Assert.Equal(
+            "Building",
+            HealthIssueCountsFormatter.FormatFailurePhase(ProjectLifecycleState.Building, lastBuildExitCode: 1));
+    }
+
+    [Fact]
+    public void FormatFailurePhase_watching_with_failed_build_is_build_failed()
+    {
+        Assert.Equal(
+            "Build failed",
+            HealthIssueCountsFormatter.FormatFailurePhase(ProjectLifecycleState.Watching, lastBuildExitCode: 1));
+    }
+
+    [Fact]
+    public void FormatFailurePhase_watching_with_successful_build_stays_watching()
+    {
+        Assert.Equal(
+            "Watching",
+            HealthIssueCountsFormatter.FormatFailurePhase(ProjectLifecycleState.Watching, lastBuildExitCode: 0));
+    }
+
+    [Fact]
+    public void SelectPrimaryCounts_uses_build_counts_when_watch_rebuild_failed()
+    {
+        var (errors, warnings) = HealthIssueCountsFormatter.SelectPrimaryCounts(
+            ProjectLifecycleState.Watching,
+            buildErrors: 1,
+            buildWarnings: 0,
+            runErrors: 0,
+            runWarnings: 4,
+            lastBuildExitCode: 1);
+
+        Assert.Equal(1, errors);
+        Assert.Equal(0, warnings);
+    }
 }

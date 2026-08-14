@@ -8,10 +8,10 @@ namespace BuildMonitor.TrayApp.Services;
 /// </summary>
 public sealed class BuildLifecycleToastNotifier
 {
-    private readonly Dictionary<string, ProjectLifecycleState> previousProjectState =
+    private readonly Dictionary<string, ObservedBuild> previousByProject =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public void Reset() => previousProjectState.Clear();
+    public void Reset() => previousByProject.Clear();
 
     public void Process(
         IReadOnlyList<ProjectHealthSnapshot> snapshots,
@@ -19,74 +19,90 @@ public sealed class BuildLifecycleToastNotifier
     {
         foreach (var snapshot in snapshots.Where(s => s.IsActive))
         {
-            previousProjectState.TryGetValue(snapshot.ProjectId, out var previousState);
-            var currentState = snapshot.State;
-
-            if (currentState == ProjectLifecycleState.Building && previousState != ProjectLifecycleState.Building)
+            var hadPrevious = previousByProject.TryGetValue(snapshot.ProjectId, out var previous);
+            var previousState = hadPrevious ? previous.State : ProjectLifecycleState.Idle;
+            var suppressStart = false;
+            if (snapshot.State == ProjectLifecycleState.Building
+                && previousState != ProjectLifecycleState.Building)
             {
-                if (!fileChangeBuildStarts.Remove(snapshot.ProjectId))
-                {
-                    ToastNotificationService.ShowIfEnabled(
-                        $"Building — {snapshot.DisplayName}",
-                        "Build started.",
-                        ToastKind.Info,
-                        UserNotificationCategory.BuildStart);
-                }
+                suppressStart = fileChangeBuildStarts.Remove(snapshot.ProjectId);
             }
 
-            if (previousState == ProjectLifecycleState.Building
-                && BuildLifecycleFormatting.IsSuccessfulBuildEndState(currentState))
-            {
-                var message = snapshot.LastDuration is { } duration
+            var kind = BuildLifecycleToastEvaluator.Evaluate(
+                hadPrevious,
+                previousState,
+                hadPrevious ? previous.LastBuildFinishedAtUtc : null,
+                snapshot.State,
+                snapshot.LastBuildExitCode,
+                snapshot.LastBuildFinishedAtUtc,
+                suppressStart);
+
+            Show(kind, snapshot);
+
+            previousByProject[snapshot.ProjectId] = new ObservedBuild(
+                snapshot.State,
+                snapshot.LastBuildExitCode,
+                snapshot.LastBuildFinishedAtUtc);
+        }
+
+        var activeIds = snapshots.Where(s => s.IsActive).Select(s => s.ProjectId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var staleId in previousByProject.Keys.Where(id => !activeIds.Contains(id)).ToList())
+        {
+            previousByProject.Remove(staleId);
+        }
+    }
+
+    private static void Show(BuildLifecycleToastKind kind, ProjectHealthSnapshot snapshot)
+    {
+        switch (kind)
+        {
+            case BuildLifecycleToastKind.BuildStarted:
+                ToastNotificationService.ShowIfEnabled(
+                    $"Building — {snapshot.DisplayName}",
+                    "Build started.",
+                    ToastKind.Info,
+                    UserNotificationCategory.BuildStart);
+                break;
+            case BuildLifecycleToastKind.BuildSucceeded:
+                var successMessage = snapshot.LastDuration is { } duration
                     ? $"Completed in {BuildLifecycleFormatting.FormatBuildDuration(duration)}."
                     : "Build completed successfully.";
                 ToastNotificationService.ShowIfEnabled(
                     $"Build succeeded — {snapshot.DisplayName}",
-                    message,
+                    successMessage,
                     ToastKind.Success,
                     UserNotificationCategory.BuildSuccess);
-            }
-            else if (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestOk)
-            {
+                break;
+            case BuildLifecycleToastKind.BuildFailed:
+                ToastNotificationService.ShowIfEnabled(
+                    $"Build failed — {snapshot.DisplayName}",
+                    string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
+                        ? "See build log for details."
+                        : snapshot.LastErrorPreview,
+                    ToastKind.Error,
+                    UserNotificationCategory.BuildFailure);
+                break;
+            case BuildLifecycleToastKind.TestsPassed:
                 ToastNotificationService.ShowIfEnabled(
                     $"Tests passed — {snapshot.DisplayName}",
                     "Tests completed successfully.",
                     ToastKind.Success,
                     UserNotificationCategory.BuildSuccess);
-            }
-
-            if ((previousState == ProjectLifecycleState.Building
-                    || previousState == ProjectLifecycleState.Watching)
-                && currentState == ProjectLifecycleState.BuildFailed)
-            {
-                var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
-                    ? "See build log for details."
-                    : snapshot.LastErrorPreview;
-                ToastNotificationService.ShowIfEnabled(
-                    $"Build failed — {snapshot.DisplayName}",
-                    message,
-                    ToastKind.Error,
-                    UserNotificationCategory.BuildFailure);
-            }
-            else if (previousState == ProjectLifecycleState.Testing && currentState == ProjectLifecycleState.TestFailed)
-            {
-                var message = string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
-                    ? "See test log for details."
-                    : snapshot.LastErrorPreview;
+                break;
+            case BuildLifecycleToastKind.TestsFailed:
                 ToastNotificationService.ShowIfEnabled(
                     $"Tests failed — {snapshot.DisplayName}",
-                    message,
+                    string.IsNullOrWhiteSpace(snapshot.LastErrorPreview)
+                        ? "See test log for details."
+                        : snapshot.LastErrorPreview,
                     ToastKind.Error,
                     UserNotificationCategory.BuildFailure);
-            }
-
-            previousProjectState[snapshot.ProjectId] = currentState;
-        }
-
-        var activeIds = snapshots.Where(s => s.IsActive).Select(s => s.ProjectId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var staleId in previousProjectState.Keys.Where(id => !activeIds.Contains(id)).ToList())
-        {
-            previousProjectState.Remove(staleId);
+                break;
         }
     }
+
+    private readonly record struct ObservedBuild(
+        ProjectLifecycleState State,
+        int LastBuildExitCode,
+        DateTimeOffset? LastBuildFinishedAtUtc);
 }

@@ -41,6 +41,13 @@ public static class ProjectHealthEvaluator
             return MonitorHealth.Red;
         }
 
+        // A failed current build dominates even when the watch/run host is still alive.
+        // Lifecycle Watching/Running means the process is up — not that the last compile succeeded.
+        if (lastBuildExitCode >= 0 && lastBuildExitCode != 0)
+        {
+            return MonitorHealth.Red;
+        }
+
         if (state is ProjectLifecycleState.Running or ProjectLifecycleState.Watching)
         {
             if (errorCount > 0)
@@ -54,11 +61,6 @@ public static class ProjectHealthEvaluator
             }
 
             return MonitorHealth.Green;
-        }
-
-        if (lastBuildExitCode >= 0 && lastBuildExitCode != 0)
-        {
-            return MonitorHealth.Red;
         }
 
         if (errorCount > 0)
