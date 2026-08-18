@@ -19,12 +19,18 @@ request an explicit ship build/test. **Do not invent MCP** — HTTP only.
 | Moment | Action |
 |--------|--------|
 | About to edit several files / a burst | `POST /session/busy` |
-| Edit burst finished | `POST /session/idle` — BuildMonitor may auto-rebuild after debounce; do **not** expect a callback |
+| Still editing after a pause | `POST /session/busy` again (extends the hold) |
+| Edit burst finished | `POST /session/idle` — **this starts auto-rebuild after debounce**. Do not send idle until every file for this turn is written. |
+| Run tests only | `POST /run/tests` — optional `"filter"`; does not rebuild first |
 | Before claiming the change builds / tests | `POST /run/ship-check` — do not assume idle ran tests |
 | Clean rebuild needed (optional) | `POST /run/rebuild` — only when watch host must exit, output is locked, or incremental state is unreliable |
-| Agent crash / forgotten idle | Busy auto-expires after ~2 minutes |
+| Agent crash / forgotten idle | Busy auto-expires **120s after the last busy POST or file change while busy** |
 
-**Normal workflow:** `busy → edits → idle` — then let BuildMonitor debounce and rebuild. For final verification before claiming success: `busy → edits → idle → ship-check`. Do **not** call `/run/rebuild` after every edit burst.
+**Normal workflow:** `busy → edits → idle` — then let BuildMonitor debounce and rebuild. For final verification: `busy → edits → idle → ship-check`. For tests without a full ship-check: `idle` then `POST /run/tests`.
+
+Do **not** send `/session/idle` after the first file (or first tool batch) if you still have more edits. Idle is the resume signal. There is **no separate resume endpoint** — idle means “editing finished; automatic builds may run”.
+
+Do **not** call `/run/rebuild` after every edit burst.
 
 If the control plane is unreachable, continue editing; BuildMonitor falls back to its own debounce. Say briefly that the handshake was skipped.
 
@@ -61,6 +67,7 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/session/idle` | `{ "projectId": "…" }` |
 | GET | `/session` | `?projectId=` |
 | POST | `/run/rebuild` | `{ "projectId": "…", "configuration": "Debug" }` optional — pause watch, build, resume |
+| POST | `/run/tests` | `{ "projectId": "…", "filter": "FullyQualifiedName~MyTest", "configuration": "Debug" }` optional |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
 
@@ -78,7 +85,11 @@ Invoke-RestMethod -Method Post -Uri "$base/session/busy" -ContentType "applicati
 Invoke-RestMethod -Method Post -Uri "$base/session/idle" -ContentType "application/json" `
   -Body (@{ projectId = $projectId } | ConvertTo-Json)
 
-# BuildMonitor may auto-rebuild after debounce. Before claiming tests passed:
+# BuildMonitor may auto-rebuild after debounce. Tests only (no rebuild):
+# $tests = Invoke-RestMethod -Method Post -Uri "$base/run/tests" -ContentType "application/json" `
+#   -Body (@{ projectId = $projectId; filter = "FullyQualifiedName~MyTest" } | ConvertTo-Json)
+
+# Before claiming tests passed:
 $result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentType "application/json" `
   -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
 
@@ -94,7 +105,10 @@ Treat `ok: false` on ship-check as a failed verification — read `failures` / `
 - Bind is loopback only; no auth.
 - Never require WitherbyConnect or a hard-coded product path — match `rootFolder` only.
 - Idle must **not** be treated as “tests passed”.
+- **Do not** send idle until all files for this turn are written. Idle starts the auto-rebuild; it is not a timer tick.
+- If you need more edits after idle, send **busy** again first.
 - **Do not** call `/run/rebuild` after ordinary edit bursts — use `idle` and let BuildMonitor debounce.
+- Use **`POST /run/tests`** to run the test suite (or a `filter`) without a full ship-check.
 - Use **`POST /run/rebuild`** only when the watch/run host must exit (locked DLLs, clean build required, recovery).
 - Use **`POST /run/ship-check`** before claiming tests passed.
 - Prefer control-plane pause/rebuild/ship-check over killing watch processes yourself.

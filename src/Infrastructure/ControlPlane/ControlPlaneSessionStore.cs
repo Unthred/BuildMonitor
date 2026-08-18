@@ -42,7 +42,7 @@ public sealed class ControlPlaneSessionStore
 
             var effective = ControlPlaneSessionPolicy.ResolveEffectiveState(
                 entry.State,
-                entry.SinceUtc,
+                entry.LastActivityUtc,
                 busyTimeoutSeconds,
                 now);
             if (effective == ControlPlaneSessionState.Idle && entry.State == ControlPlaneSessionState.Busy)
@@ -50,15 +50,11 @@ public sealed class ControlPlaneSessionStore
                 expiredBusy = now - entry.SinceUtc;
                 entry.State = ControlPlaneSessionState.Idle;
                 entry.SinceUtc = now;
+                entry.LastActivityUtc = now;
+                entry.IdleCause = ControlPlaneIdleCause.Timeout;
             }
 
-            status = new ControlPlaneSessionStatus(
-                effective,
-                entry.SinceUtc,
-                entry.SessionApiUsed,
-                ControlPlaneSessionPolicy.ResolveSuppressAutoBuildTests(
-                    entry.SuppressAutoBuildTestsOverride,
-                    suppressAutoBuildTestsDefault));
+            status = SnapshotLocked(entry, now);
         }
 
         if (expiredBusy is { } duration)
@@ -79,16 +75,44 @@ public sealed class ControlPlaneSessionStore
             entry.SessionApiUsed = true;
             entry.State = ControlPlaneSessionState.Busy;
             entry.SinceUtc = now;
+            entry.LastActivityUtc = now;
+            entry.IdleCause = ControlPlaneIdleCause.None;
             if (suppressAutoBuildTests.HasValue)
             {
                 entry.SuppressAutoBuildTestsOverride = suppressAutoBuildTests;
             }
 
-            status = Snapshot(entry, now);
+            status = SnapshotLocked(entry, now);
         }
 
         metrics?.MarkSessionApiUsed(projectId);
         return status;
+    }
+
+    /// <summary>
+    /// Extends the busy timeout without restarting the visible busy duration.
+    /// No-op when the project is not effectively busy.
+    /// </summary>
+    public ControlPlaneSessionStatus TouchBusy(string projectId, DateTimeOffset? utcNow = null)
+    {
+        var now = utcNow ?? DateTimeOffset.UtcNow;
+        var status = GetStatus(projectId, now);
+        if (status.State != ControlPlaneSessionState.Busy)
+        {
+            return status;
+        }
+
+        lock (sync)
+        {
+            if (!entries.TryGetValue(projectId, out var entry)
+                || entry.State != ControlPlaneSessionState.Busy)
+            {
+                return status;
+            }
+
+            entry.LastActivityUtc = now;
+            return SnapshotLocked(entry, now);
+        }
     }
 
     public ControlPlaneSessionStatus MarkIdle(string projectId, bool? suppressAutoBuildTests = null)
@@ -107,12 +131,14 @@ public sealed class ControlPlaneSessionStore
             entry.SessionApiUsed = true;
             entry.State = ControlPlaneSessionState.Idle;
             entry.SinceUtc = now;
+            entry.LastActivityUtc = now;
+            entry.IdleCause = ControlPlaneIdleCause.Agent;
             if (suppressAutoBuildTests.HasValue)
             {
                 entry.SuppressAutoBuildTestsOverride = suppressAutoBuildTests;
             }
 
-            status = Snapshot(entry, now);
+            status = SnapshotLocked(entry, now);
         }
 
         metrics?.MarkSessionApiUsed(projectId);
@@ -132,7 +158,7 @@ public sealed class ControlPlaneSessionStore
             var entry = GetOrCreate(projectId, now);
             entry.SessionApiUsed = true;
             entry.SuppressAutoBuildTestsOverride = suppressAutoBuildTests;
-            return Snapshot(entry, now);
+            return SnapshotLocked(entry, now);
         }
     }
 
@@ -159,30 +185,41 @@ public sealed class ControlPlaneSessionStore
         {
             State = ControlPlaneSessionState.Idle,
             SinceUtc = now,
-            SessionApiUsed = false
+            LastActivityUtc = now,
+            SessionApiUsed = false,
+            IdleCause = ControlPlaneIdleCause.None
         };
         entries[projectId] = created;
         return created;
     }
 
-    private ControlPlaneSessionStatus Snapshot(Entry entry, DateTimeOffset now) =>
-        new(
-            ControlPlaneSessionPolicy.ResolveEffectiveState(
-                entry.State,
-                entry.SinceUtc,
-                busyTimeoutSeconds,
-                now),
+    private ControlPlaneSessionStatus SnapshotLocked(Entry entry, DateTimeOffset now)
+    {
+        var effective = ControlPlaneSessionPolicy.ResolveEffectiveState(
+            entry.State,
+            entry.LastActivityUtc,
+            busyTimeoutSeconds,
+            now);
+        return new ControlPlaneSessionStatus(
+            effective,
             entry.SinceUtc,
             entry.SessionApiUsed,
             ControlPlaneSessionPolicy.ResolveSuppressAutoBuildTests(
                 entry.SuppressAutoBuildTestsOverride,
-                suppressAutoBuildTestsDefault));
+                suppressAutoBuildTestsDefault),
+            effective == ControlPlaneSessionState.Busy
+                ? ControlPlaneIdleCause.None
+                : entry.IdleCause,
+            entry.LastActivityUtc);
+    }
 
     private sealed class Entry
     {
         public ControlPlaneSessionState State { get; set; }
         public DateTimeOffset SinceUtc { get; set; }
+        public DateTimeOffset LastActivityUtc { get; set; }
         public bool SessionApiUsed { get; set; }
         public bool? SuppressAutoBuildTestsOverride { get; set; }
+        public ControlPlaneIdleCause IdleCause { get; set; }
     }
 }

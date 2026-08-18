@@ -15,12 +15,15 @@ internal sealed partial class ProjectRuntime
     private string? shipCheckFilter;
     private int shipCheckInProgress;
     private int agentRebuildInProgress;
+    private int agentTestsInProgress;
     private ControlPlaneShipCheckPhase shipCheckPhase = ControlPlaneShipCheckPhase.None;
     private ControlPlaneShipCheckPhase agentRebuildPhase = ControlPlaneShipCheckPhase.None;
     private ControlPlaneShipCheckOutcome lastShipCheckOutcome = ControlPlaneShipCheckOutcome.None;
     private ControlPlaneShipCheckOutcome lastAgentRebuildOutcome = ControlPlaneShipCheckOutcome.None;
+    private ControlPlaneShipCheckOutcome lastAgentTestsOutcome = ControlPlaneShipCheckOutcome.None;
     private DateTimeOffset? lastShipCheckCompletedUtc;
     private DateTimeOffset? lastAgentRebuildCompletedUtc;
+    private DateTimeOffset? lastAgentTestsCompletedUtc;
     private ControlPlaneSessionState? lastPublishedSessionState;
 
     public void NotifyControlPlaneChanged(bool immediate = true)
@@ -57,7 +60,11 @@ internal sealed partial class ProjectRuntime
                 ? agentRebuildPhase
                 : ControlPlaneShipCheckPhase.None,
             LastAgentRebuildOutcome: lastAgentRebuildOutcome,
-            LastAgentRebuildCompletedUtc: lastAgentRebuildCompletedUtc);
+            LastAgentRebuildCompletedUtc: lastAgentRebuildCompletedUtc,
+            IdleCause: sessionStatus?.IdleCause ?? ControlPlaneIdleCause.None,
+            AgentTestsInProgress: Volatile.Read(ref agentTestsInProgress) != 0,
+            LastAgentTestsOutcome: lastAgentTestsOutcome,
+            LastAgentTestsCompletedUtc: lastAgentTestsCompletedUtc);
     }
 
     internal void RefreshControlPlaneHealthIfNeeded()
@@ -76,6 +83,7 @@ internal sealed partial class ProjectRuntime
             || snapshot.EffectiveSessionState == ControlPlaneSessionState.Busy
             || snapshot.ShipCheckInProgress
             || snapshot.AgentRebuildInProgress
+            || snapshot.AgentTestsInProgress
             || snapshot.ShipCheckPhase != ControlPlaneShipCheckPhase.None
             || snapshot.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
         {
@@ -115,7 +123,7 @@ internal sealed partial class ProjectRuntime
         NotifyControlPlaneChanged(immediate: true);
     }
 
-    private static void EnsureNoOtherControlPlaneRun(int shipCheckInProgress, int rebuildInProgress)
+    private static void EnsureNoOtherControlPlaneRun(int shipCheckInProgress, int rebuildInProgress, int testsInProgress)
     {
         if (shipCheckInProgress != 0)
         {
@@ -126,6 +134,11 @@ internal sealed partial class ProjectRuntime
         {
             throw new InvalidOperationException("Rebuild already running for this project.");
         }
+
+        if (testsInProgress != 0)
+        {
+            throw new InvalidOperationException("Tests already running for this project.");
+        }
     }
 
     public async Task<ControlPlaneRebuildResult> RunAgentRebuildAsync(
@@ -134,7 +147,8 @@ internal sealed partial class ProjectRuntime
     {
         EnsureNoOtherControlPlaneRun(
             Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress));
+            Volatile.Read(ref agentRebuildInProgress),
+            Volatile.Read(ref agentTestsInProgress));
 
         if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
         {
@@ -270,7 +284,8 @@ internal sealed partial class ProjectRuntime
     {
         EnsureNoOtherControlPlaneRun(
             Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress));
+            Volatile.Read(ref agentRebuildInProgress),
+            Volatile.Read(ref agentTestsInProgress));
 
         if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
         {
@@ -393,6 +408,87 @@ internal sealed partial class ProjectRuntime
         }
     }
 
+    private void CompleteAgentTests(bool ok)
+    {
+        lastAgentTestsOutcome = ok
+            ? ControlPlaneShipCheckOutcome.Passed
+            : ControlPlaneShipCheckOutcome.Failed;
+        lastAgentTestsCompletedUtc = DateTimeOffset.UtcNow;
+        NotifyControlPlaneChanged(immediate: true);
+    }
+
+    public async Task<ControlPlaneRunTestsResult> RunAgentTestsAsync(
+        string? configuration,
+        string? filter,
+        CancellationToken cancellationToken)
+    {
+        EnsureNoOtherControlPlaneRun(
+            Volatile.Read(ref shipCheckInProgress),
+            Volatile.Read(ref agentRebuildInProgress),
+            Volatile.Read(ref agentTestsInProgress));
+
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            throw new InvalidOperationException("Build already running for this project.");
+        }
+
+        if (Interlocked.CompareExchange(ref agentTestsInProgress, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("Tests already running for this project.");
+        }
+
+        shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
+        shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
+        ControlPlaneRunTestsResult? result = null;
+
+        try
+        {
+            NotifyControlPlaneChanged(immediate: true);
+            PrepareTest("agent tests");
+            await TestAsync(cancellationToken).ConfigureAwait(false);
+
+            var projectLabel = definition.ProjectFile;
+            var testLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Test);
+            var failures = new List<string>();
+            var meta = await logStore.LoadMetadataAsync(definition.Id, BuildLogKind.Test, cancellationToken)
+                .ConfigureAwait(false);
+            var testText = meta is null
+                ? string.Empty
+                : await logStore.LoadLogTextAsync(meta, maxBytes: 1_000_000, cancellationToken)
+                    .ConfigureAwait(false);
+
+            var summary = DotNetTestOutputParser.TryParseSummary(testText);
+            var issues = DotNetTestOutputParser.ParseIssues(testText);
+            foreach (var issue in issues.Where(i => i.IsError))
+            {
+                failures.Add(issue.Text);
+            }
+
+            var counts = summary is null
+                ? new ControlPlaneTestCounts(
+                    Failed: Snapshot.State == ProjectLifecycleState.TestOk ? 0 : 1,
+                    Passed: 0,
+                    Skipped: 0)
+                : new ControlPlaneTestCounts(summary.Failed, summary.Passed, summary.Skipped);
+
+            var testsOk = Snapshot.State == ProjectLifecycleState.TestOk && counts.Failed == 0;
+            result = new ControlPlaneRunTestsResult(
+                Ok: testsOk,
+                Project: projectLabel,
+                Tests: counts,
+                Failures: failures,
+                Log: testLogPath);
+            return result;
+        }
+        finally
+        {
+            shipCheckConfiguration = null;
+            shipCheckFilter = null;
+            Interlocked.Exchange(ref agentTestsInProgress, 0);
+            CompleteAgentTests(result?.Ok == true);
+        }
+    }
+
     private bool IsControlPlaneBusyBlockingAutoBuild() =>
         sessionStore?.ShouldBlockAutoBuild(definition.Id) == true;
 
@@ -402,5 +498,6 @@ internal sealed partial class ProjectRuntime
     private bool ShouldSkipAutoBuildTests() =>
         Volatile.Read(ref shipCheckInProgress) != 0
         || Volatile.Read(ref agentRebuildInProgress) != 0
+        || Volatile.Read(ref agentTestsInProgress) != 0
         || sessionStore?.ShouldSuppressAutoBuildTests(definition.Id) == true;
 }

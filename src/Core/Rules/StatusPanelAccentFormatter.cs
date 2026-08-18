@@ -7,7 +7,8 @@ public static class StatusPanelAccentFormatter
     public static bool ShouldShowAccentRail(ProjectHealthSnapshot snapshot)
     {
         var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
-        if (controlPlane.AgentRebuildInProgress
+        if (controlPlane.AgentTestsInProgress
+            || controlPlane.AgentRebuildInProgress
             || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None
             || controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
             || controlPlane.ShipCheckInProgress)
@@ -24,6 +25,11 @@ public static class StatusPanelAccentFormatter
     public static string FormatActivityLabel(ProjectHealthSnapshot snapshot)
     {
         var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
+        if (controlPlane.AgentTestsInProgress)
+        {
+            return "Tests — running";
+        }
+
         if (controlPlane.AgentRebuildInProgress
             || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
         {

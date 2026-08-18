@@ -76,7 +76,11 @@ public static class StatusPanelCardUiChangeDetector
                && left.AgentRebuildInProgress == right.AgentRebuildInProgress
                && left.AgentRebuildPhase == right.AgentRebuildPhase
                && left.LastAgentRebuildOutcome == right.LastAgentRebuildOutcome
-               && left.LastAgentRebuildCompletedUtc == right.LastAgentRebuildCompletedUtc;
+               && left.LastAgentRebuildCompletedUtc == right.LastAgentRebuildCompletedUtc
+               && left.IdleCause == right.IdleCause
+               && left.AgentTestsInProgress == right.AgentTestsInProgress
+               && left.LastAgentTestsOutcome == right.LastAgentTestsOutcome
+               && left.LastAgentTestsCompletedUtc == right.LastAgentTestsCompletedUtc;
     }
 
     private static bool ProgressStepsEqual(

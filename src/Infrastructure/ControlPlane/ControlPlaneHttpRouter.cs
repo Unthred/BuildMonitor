@@ -176,6 +176,50 @@ internal static class ControlPlaneHttpRouter
             }
         }
 
+        if (method == "POST" && path == "/run/tests")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? configuration = null;
+            string? filter = null;
+            if (payload is not null)
+            {
+                if (payload.Value.TryGetProperty("configuration", out var cfg)
+                    && cfg.ValueKind == JsonValueKind.String)
+                {
+                    configuration = cfg.GetString();
+                }
+
+                if (payload.Value.TryGetProperty("filter", out var filterEl)
+                    && filterEl.ValueKind == JsonValueKind.String)
+                {
+                    filter = filterEl.GetString();
+                }
+            }
+
+            try
+            {
+                var result = await actions.RunTestsAsync(
+                    new ControlPlaneRunTestsRequest(projectId!, configuration, filter),
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(ToRunTestsJson(result), projectId);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("already running", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ControlPlaneHttpResponse(409, new { error = ex.Message }, projectId);
+            }
+        }
+
         if (method == "POST" && path == "/run/ship-check")
         {
             var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
@@ -235,7 +279,9 @@ internal static class ControlPlaneHttpRouter
         state = session.State.ToString().ToLowerInvariant(),
         since = session.Since.ToString("O"),
         sessionApiUsed = session.SessionApiUsed,
-        suppressAutoBuildTests = session.SuppressAutoBuildTests
+        suppressAutoBuildTests = session.SuppressAutoBuildTests,
+        idleCause = session.IdleCause.ToString().ToLowerInvariant(),
+        lastActivity = session.LastActivityUtc?.ToString("O")
     };
 
     private static object WatchJson(ControlPlaneWatchStatus watch) => new
@@ -253,6 +299,34 @@ internal static class ControlPlaneHttpRouter
         failures = result.Failures,
         log = result.Log
     };
+
+    private static object ToRunTestsJson(ControlPlaneRunTestsResult result)
+    {
+        if (result.Tests is null)
+        {
+            return new
+            {
+                ok = result.Ok,
+                project = result.Project,
+                failures = result.Failures,
+                log = result.Log
+            };
+        }
+
+        return new
+        {
+            ok = result.Ok,
+            project = result.Project,
+            tests = new
+            {
+                failed = result.Tests.Failed,
+                passed = result.Tests.Passed,
+                skipped = result.Tests.Skipped
+            },
+            failures = result.Failures,
+            log = result.Log
+        };
+    }
 
     private static object ToShipCheckJson(ControlPlaneShipCheckResult result)
     {

@@ -34,8 +34,9 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | GET | `/projects` | List configured projects (`id`, `displayName`, `rootFolder`, …) |
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — do not auto-build |
 | POST | `/session/idle` | Edit burst done — auto-build may run after debounce |
-| GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since": "<iso>" }` |
+| GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since", "idleCause": "none"\|"agent"\|"timeout", "lastActivity" }` |
 | POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch |
+| POST | `/run/tests` | Mark idle → run tests (`filter` optional) — no full ship-check |
 | POST | `/run/ship-check` | Pause watch → build → test (if any) → resume |
 | GET | `/watch?projectId=` | `{ "watch": "running"\|"paused"\|"stopped", "pid": n\|null }` |
 | POST | `/watch/pause` | Stop run/watch child (unlock DLLs) |
@@ -44,12 +45,15 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": null, "suppressAutoBuildTests": true }`.
 
 Optional rebuild body: `{ "projectId", "configuration": "Debug" }`.
+Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQualifiedName~MyTest" }`.
 
 ## Behaviour
 
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
 - Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective.
 - **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running.
+- **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first. **409** if tests, rebuild, or ship-check is already running.
+- Busy timeout (default **120s**) is measured from the last **busy POST or file-change while busy**, not from the original busy start. If timeout fires, the status card says **Agent busy timed out · build allowed** (as opposed to **Agent finished editing** when `/session/idle` arrived).
 - Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project.
 - Pause = stop the supervised `dotnet run`/`watch` process (preferred over kill-as-default).
 
@@ -66,6 +70,8 @@ After the session API has been used for a project this process lifetime, the hov
 | Ship-check result | **Ship check passed** or **Ship check failed** (shown briefly after completion) |
 | Agent rebuild | **Rebuild — preparing / building / resuming watch** (watch host paused) |
 | Rebuild result | **Rebuild passed** or **Rebuild failed** (shown briefly after completion) |
+| Agent tests | **Tests — running** then **Tests passed** / **Tests failed** |
+| Busy timeout | **Agent busy timed out · build allowed** (distinct from agent `/session/idle`) |
 
 Build health (Green/Failed), watch host activity, and agent session state are independent dimensions on the same card.
 

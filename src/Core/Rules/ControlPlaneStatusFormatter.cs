@@ -24,6 +24,11 @@ public static class ControlPlaneStatusFormatter
             return new Presentation(null, null, null, false);
         }
 
+        if (controlPlane.AgentTestsInProgress)
+        {
+            return new Presentation("Tests — running", "Agent: Tests", null, true);
+        }
+
         if (controlPlane.AgentRebuildInProgress
             || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
         {
@@ -34,6 +39,16 @@ public static class ControlPlaneStatusFormatter
             || controlPlane.ShipCheckInProgress)
         {
             return FormatShipCheckActive(controlPlane);
+        }
+
+        if (controlPlane.LastAgentTestsOutcome != ControlPlaneShipCheckOutcome.None
+            && controlPlane.LastAgentTestsCompletedUtc is { } testsCompleted
+            && utcNow - testsCompleted <= ShipCheckResultWindow)
+        {
+            var headline = controlPlane.LastAgentTestsOutcome == ControlPlaneShipCheckOutcome.Passed
+                ? "Tests passed"
+                : "Tests failed";
+            return new Presentation(headline, "Agent: Connected · Idle", null, true);
         }
 
         if (controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None
@@ -64,8 +79,10 @@ public static class ControlPlaneStatusFormatter
         || controlPlane.AgentRebuildInProgress
         || controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
         || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None
-        || controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
-        || controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None;
+        ||         controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
+        || controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None
+        || controlPlane.AgentTestsInProgress
+        || controlPlane.LastAgentTestsOutcome != ControlPlaneShipCheckOutcome.None;
 
     private static Presentation FormatRebuildActive(ProjectControlPlaneSnapshot controlPlane)
     {
@@ -146,11 +163,21 @@ public static class ControlPlaneStatusFormatter
         {
             var detailParts = new List<string> { "Build allowed" };
             AppendPendingChanges(detailParts, controlPlane);
+            var headline = controlPlane.IdleCause == ControlPlaneIdleCause.Timeout
+                ? "Agent busy timed out · build allowed"
+                : "Agent finished editing · build allowed";
+            var detail = controlPlane.IdleCause == ControlPlaneIdleCause.Timeout
+                ? "Timeout (no idle from agent)"
+                : null;
+            if (detail is not null)
+            {
+                detailParts.Insert(0, detail);
+            }
 
             return new Presentation(
-                ActivityHeadline: "Agent finished editing · build allowed",
+                ActivityHeadline: headline,
                 AgentStatusLine: "Agent: Connected · Idle",
-                DetailLine: detailParts.Count > 1 ? string.Join(" · ", detailParts) : null,
+                DetailLine: string.Join(" · ", detailParts),
                 ShowControlPlaneSection: true);
         }
 

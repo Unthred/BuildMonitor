@@ -117,6 +117,26 @@ public sealed partial class ProjectOrchestrator
         }
     }
 
+    public async Task<ControlPlaneRunTestsResult> RunControlPlaneTestsAsync(
+        ControlPlaneRunTestsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var runtime = EnsureControlPlaneRuntime(request.ProjectId);
+
+        try
+        {
+            return await runtime.RunAgentTestsAsync(
+                    request.Configuration,
+                    request.Filter,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            healthCoalescer.Request(immediate: true);
+        }
+    }
+
     private ProjectRuntime EnsureControlPlaneRuntime(string projectId)
     {
         ProjectRuntime? runtime;

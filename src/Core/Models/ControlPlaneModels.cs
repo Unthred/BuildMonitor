@@ -6,6 +6,14 @@ public enum ControlPlaneSessionState
     Busy = 1
 }
 
+/// <summary>Why the session is currently idle after the API has been used.</summary>
+public enum ControlPlaneIdleCause
+{
+    None = 0,
+    Agent = 1,
+    Timeout = 2
+}
+
 public enum ControlPlaneWatchState
 {
     Stopped = 0,
@@ -24,7 +32,9 @@ public sealed record ControlPlaneSessionStatus(
     ControlPlaneSessionState State,
     DateTimeOffset Since,
     bool SessionApiUsed,
-    bool SuppressAutoBuildTests);
+    bool SuppressAutoBuildTests,
+    ControlPlaneIdleCause IdleCause = ControlPlaneIdleCause.None,
+    DateTimeOffset? LastActivityUtc = null);
 
 public sealed record ControlPlaneWatchStatus(
     ControlPlaneWatchState Watch,
@@ -45,6 +55,18 @@ public sealed record ControlPlaneRebuildResult(
     string Project,
     string Build,
     int ExitCode,
+    IReadOnlyList<string> Failures,
+    string? Log);
+
+public sealed record ControlPlaneRunTestsRequest(
+    string ProjectId,
+    string? Configuration,
+    string? Filter);
+
+public sealed record ControlPlaneRunTestsResult(
+    bool Ok,
+    string Project,
+    ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
     string? Log);
 
@@ -89,7 +111,11 @@ public sealed record ProjectControlPlaneSnapshot(
     bool AgentRebuildInProgress = false,
     ControlPlaneShipCheckPhase AgentRebuildPhase = ControlPlaneShipCheckPhase.None,
     ControlPlaneShipCheckOutcome LastAgentRebuildOutcome = ControlPlaneShipCheckOutcome.None,
-    DateTimeOffset? LastAgentRebuildCompletedUtc = null)
+    DateTimeOffset? LastAgentRebuildCompletedUtc = null,
+    ControlPlaneIdleCause IdleCause = ControlPlaneIdleCause.None,
+    bool AgentTestsInProgress = false,
+    ControlPlaneShipCheckOutcome LastAgentTestsOutcome = ControlPlaneShipCheckOutcome.None,
+    DateTimeOffset? LastAgentTestsCompletedUtc = null)
 {
     public static ProjectControlPlaneSnapshot Unused { get; } = new(
         SessionApiUsed: false,
@@ -105,5 +131,9 @@ public sealed record ProjectControlPlaneSnapshot(
         AgentRebuildInProgress: false,
         AgentRebuildPhase: ControlPlaneShipCheckPhase.None,
         LastAgentRebuildOutcome: ControlPlaneShipCheckOutcome.None,
-        LastAgentRebuildCompletedUtc: null);
+        LastAgentRebuildCompletedUtc: null,
+        IdleCause: ControlPlaneIdleCause.None,
+        AgentTestsInProgress: false,
+        LastAgentTestsOutcome: ControlPlaneShipCheckOutcome.None,
+        LastAgentTestsCompletedUtc: null);
 }

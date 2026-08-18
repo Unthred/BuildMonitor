@@ -59,6 +59,16 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
             .ConfigureAwait(false);
     }
 
+    public async Task<ControlPlaneRunTestsResult> RunTestsAsync(
+        ControlPlaneRunTestsRequest request,
+        CancellationToken cancellationToken)
+    {
+        sessions.MarkIdle(request.ProjectId);
+        orchestrator.NotifyControlPlaneSessionChanged(request.ProjectId);
+        return await orchestrator.RunControlPlaneTestsAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken)

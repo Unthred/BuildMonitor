@@ -72,6 +72,22 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Equal("abc", actions.LastRebuildProjectId);
     }
 
+    [Fact]
+    public async Task Post_tests_runs_tests()
+    {
+        var actions = new FakeActions { Exists = true };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc","filter":"FullyQualifiedName~Foo"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/tests"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
@@ -130,6 +146,16 @@ public sealed class ControlPlaneHttpRouterTests
 
         public ControlPlaneWatchStatus ResumeWatch(string projectId) =>
             new(ControlPlaneWatchState.Running, 1234);
+
+        public Task<ControlPlaneRunTestsResult> RunTestsAsync(
+            ControlPlaneRunTestsRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new ControlPlaneRunTestsResult(
+                true,
+                "Demo.csproj",
+                new ControlPlaneTestCounts(0, 2, 0),
+                [],
+                null));
 
         public Task<ControlPlaneShipCheckResult> ShipCheckAsync(
             ControlPlaneShipCheckRequest request,

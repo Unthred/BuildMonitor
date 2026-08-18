@@ -195,6 +195,43 @@ public sealed class ControlPlaneStatusFormatterTests
         Assert.Equal("Rebuild passed", presentation.ActivityHeadline);
     }
 
+    [Fact]
+    public void Format_timeout_idle_is_distinct_from_agent_idle()
+    {
+        var controlPlane = new ProjectControlPlaneSnapshot(
+            SessionApiUsed: true,
+            EffectiveSessionState: ControlPlaneSessionState.Idle,
+            SessionSinceUtc: Now.AddSeconds(-10),
+            AutoBuildBlockedBySession: false,
+            HasPendingFileChangeRebuild: true,
+            PendingFileChangeCount: 2,
+            ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+            LastShipCheckCompletedUtc: null,
+            ShipCheckInProgress: false,
+            IdleCause: ControlPlaneIdleCause.Timeout);
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Agent busy timed out · build allowed", presentation.ActivityHeadline);
+        Assert.Contains("Timeout (no idle from agent)", presentation.DetailLine);
+    }
+
+    [Fact]
+    public void Format_tests_running()
+    {
+        var controlPlane = BusyControlPlane with
+        {
+            AgentTestsInProgress = true,
+            EffectiveSessionState = ControlPlaneSessionState.Idle,
+            AutoBuildBlockedBySession = false
+        };
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Tests — running", presentation.ActivityHeadline);
+    }
+
     private static ProjectControlPlaneSnapshot BusyControlPlane => new(
         SessionApiUsed: true,
         EffectiveSessionState: ControlPlaneSessionState.Busy,

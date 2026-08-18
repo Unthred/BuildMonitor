@@ -61,7 +61,8 @@ public static class StatusPanelPresentationBuilder
         var showErrorPreview = !showProgressChart && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview);
         var shipCheckDominates = controlPlanePresentation.ActivityHeadline is not null
             && (controlPlanePresentation.ActivityHeadline.StartsWith("Ship check", StringComparison.Ordinal)
-                || controlPlanePresentation.ActivityHeadline.StartsWith("Rebuild", StringComparison.Ordinal));
+                || controlPlanePresentation.ActivityHeadline.StartsWith("Rebuild", StringComparison.Ordinal)
+                || controlPlanePresentation.ActivityHeadline.StartsWith("Tests", StringComparison.Ordinal));
         var showActivityIndicator = !showProgressChart
             && !showErrorPreview
             && !shipCheckDominates

@@ -613,6 +613,7 @@ internal sealed partial class ProjectRuntime
         if (IsControlPlaneBusyBlockingAutoBuild())
         {
             NoteAutoBuildBlockedByControlPlane();
+            sessionStore?.TouchBusy(definition.Id);
             QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
             NotifyControlPlaneChanged(immediate: true);
             _ = WaitForEditQuietThenBuildAsync("file change (queued)");
