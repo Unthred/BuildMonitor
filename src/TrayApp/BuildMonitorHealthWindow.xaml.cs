@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
 using BuildMonitor.Infrastructure.Diagnostics;
+using BuildMonitor.Infrastructure.Services;
 using BuildMonitor.TrayApp.Services;
 
 namespace BuildMonitor.TrayApp;
@@ -18,6 +19,7 @@ public partial class BuildMonitorHealthWindow : Window
     ];
 
     private readonly AppWindowsLayoutStore windowsLayoutStore;
+    private readonly ProjectOrchestrator orchestrator;
     private readonly ObservableCollection<WorkerHealthRowViewModel> rows = [];
     private readonly ObservableCollection<CurrentActivityItem> currentActions = [];
     private readonly Dictionary<string, WorkerHealthRowViewModel> rowById = new(StringComparer.Ordinal);
@@ -26,12 +28,16 @@ public partial class BuildMonitorHealthWindow : Window
     private readonly TaskCompletionSource initialLoadTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool refreshPausedForResize;
     private bool? lastHasActivity;
+    private string baseFooterText = string.Empty;
+    private string identityFooterText = string.Empty;
+    private string? lastControlPlaneFooter;
 
     public Task WaitForInitialLoadAsync() => initialLoadTcs.Task;
 
-    public BuildMonitorHealthWindow(AppWindowsLayoutStore windowsLayoutStore)
+    public BuildMonitorHealthWindow(AppWindowsLayoutStore windowsLayoutStore, ProjectOrchestrator orchestrator)
     {
         this.windowsLayoutStore = windowsLayoutStore;
+        this.orchestrator = orchestrator;
         InitializeComponent();
         WorkersGrid.ItemsSource = rows;
         CurrentActionsList.ItemsSource = currentActions;
@@ -56,6 +62,12 @@ public partial class BuildMonitorHealthWindow : Window
         {
             TrayScreenPlacement.PlaceWindowCentered(this);
         }
+
+        baseFooterText = BuildIdentityFooterText.Text;
+        identityFooterText = BuildIdentityProvider.FormatFooterText();
+        BuildIdentityFooterText.Text = string.IsNullOrWhiteSpace(identityFooterText)
+            ? baseFooterText
+            : $"{identityFooterText} | {baseFooterText}";
 
         RefreshRows();
         refreshTimer.Start();
@@ -131,6 +143,52 @@ public partial class BuildMonitorHealthWindow : Window
         var desiredActions = BuildCurrentActivityItems(snapshots);
 
         SyncCurrentActions(desiredActions);
+
+        UpdateControlPlaneFooter();
+    }
+
+    private void UpdateControlPlaneFooter()
+    {
+        // Surface “AI is starting/stopping monitoring via API” so we can confirm
+        // whether /session/busy and /session/idle are being honored.
+        var active = orchestrator
+            .ListControlPlaneProjects()
+            .Where(p => p.IsActiveInSession)
+            .ToList();
+
+        if (active.Count == 0)
+        {
+            lastControlPlaneFooter = null;
+            var full =
+                string.IsNullOrWhiteSpace(identityFooterText)
+                    ? baseFooterText
+                    : $"{identityFooterText} | {baseFooterText}";
+            BuildIdentityFooterText.Text = full;
+            return;
+        }
+
+        var parts = new List<string>(Math.Min(active.Count, 3));
+        foreach (var p in active.Take(3))
+        {
+            var metrics = orchestrator.GetControlPlaneMetrics(p.Id);
+            parts.Add($"{p.DisplayName}: {metrics.SessionStateText}");
+        }
+
+        var extra = active.Count > 3 ? $" (+{active.Count - 3} more)" : string.Empty;
+        var controlPlaneFooter = $"AI session: {string.Join(" · ", parts)}{extra}";
+
+        if (string.Equals(controlPlaneFooter, lastControlPlaneFooter, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        lastControlPlaneFooter = controlPlaneFooter;
+        var full =
+            string.IsNullOrWhiteSpace(identityFooterText)
+                ? $"{baseFooterText} | {controlPlaneFooter}"
+                : $"{identityFooterText} | {baseFooterText} | {controlPlaneFooter}";
+
+        BuildIdentityFooterText.Text = full;
     }
 
     private static List<CurrentActivityItem> BuildCurrentActivityItems(IReadOnlyList<WorkerHealthSnapshot> snapshots)

@@ -8,12 +8,26 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Version>$(VersionPrefix)</Version>
+    <GitCommitShort Condition="'$(GitCommitShort)' == ''">unknown</GitCommitShort>
+    <GitBranch Condition="'$(GitBranch)' == ''">unknown</GitBranch>
+    <BuiltUtc Condition="'$(BuiltUtc)' == ''">unknown</BuiltUtc>
+    <GitDirty Condition="'$(GitDirty)' == ''">false</GitDirty>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildMonitor.Version" Value="$(Version)" />
+    <AssemblyMetadata Include="BuildMonitor.GitCommit" Value="$(GitCommitShort)" />
+    <AssemblyMetadata Include="BuildMonitor.GitBranch" Value="$(GitBranch)" />
+    <AssemblyMetadata Include="BuildMonitor.BuiltUtc" Value="$(BuiltUtc)" />
+    <AssemblyMetadata Include="BuildMonitor.IsGitDirty" Value="$(GitDirty)" />
+  </ItemGroup>
 
   <ItemGroup>
     <Content Include="..\..\docs\ops\agent-skills\buildmonitor-control-plane\SKILL.md"

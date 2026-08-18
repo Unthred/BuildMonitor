@@ -22,6 +22,10 @@ internal sealed partial class ProjectRuntime
         if (buildProgressTracker is not null && buildProgressTracker.OnOutputLine(line))
         {
             progressSteps = buildProgressTracker.Steps;
+            // Regression guardrail:
+            // Even when progress-tracking consumes build output (instead of the general "live output dirty"
+            // path), we still need the health coalescer to publish an updated snapshot.
+            MarkHealthDirty();
             RequestHealthCoalesce(immediate: false);
         }
         else

@@ -59,6 +59,9 @@ internal sealed partial class ProjectRuntime
     {
         if (Interlocked.CompareExchange(ref buildInProgress, 1, 0) != 0)
         {
+            // Rejected rebuild: force a user-visible refresh now so the status panel
+            // can't lag behind live build activity.
+            RequestHealthCoalesce(immediate: true);
             return;
         }
 

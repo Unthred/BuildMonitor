@@ -16,6 +16,17 @@ public class BuildLogParserTests
     }
 
     [Fact]
+    public void ParseErrorCount_recognizes_common_razor_compiler_errors_CS8780_and_CS0165()
+    {
+        const string log = """
+            C:\src\WitherbyConnectDotNet9\Shared\AccountInfoSection.razor(174,42): error CS8780: A variable may not be declared within a 'not' or 'or' pattern. [C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj]
+            C:\src\WitherbyConnectDotNet9\Shared\AccountInfoSection.razor(181,66): error CS0165: Use of unassigned local variable 'unlockId' [C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj]
+            """;
+
+        Assert.Equal(2, BuildLogParser.ParseErrorCount(log));
+    }
+
+    [Fact]
     public void ParseWarningCount_counts_compiler_warnings()
     {
         const string log = """

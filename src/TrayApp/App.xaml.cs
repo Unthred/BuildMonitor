@@ -1323,7 +1323,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        buildMonitorHealthWindow = new BuildMonitorHealthWindow(windowsLayoutStore);
+        buildMonitorHealthWindow = new BuildMonitorHealthWindow(windowsLayoutStore, orchestrator!);
         buildMonitorHealthWindow.Closed += (_, _) => buildMonitorHealthWindow = null;
         buildMonitorHealthWindow.Show();
     }
