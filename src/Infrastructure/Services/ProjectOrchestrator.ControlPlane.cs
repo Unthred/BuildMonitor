@@ -81,42 +81,7 @@ public sealed partial class ProjectOrchestrator
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken)
     {
-        ProjectRuntime? runtime;
-        lock (sync)
-        {
-            runtimes.TryGetValue(request.ProjectId, out runtime);
-        }
-
-        if (runtime is null)
-        {
-            // Ensure a runtime exists for inactive-but-configured projects so ship-check can still build.
-            lock (sync)
-            {
-                var project = settings.Projects.FirstOrDefault(p =>
-                    string.Equals(p.Id, request.ProjectId, StringComparison.OrdinalIgnoreCase));
-                if (project is null)
-                {
-                    throw new InvalidOperationException($"Unknown projectId '{request.ProjectId}'.");
-                }
-
-                if (!runtimes.TryGetValue(project.Id, out runtime))
-                {
-                    runtime = new ProjectRuntime(
-                        project,
-                        logStore,
-                        cliRunner,
-                        triggerJournal,
-                        burstStatsStore,
-                        trainingStore,
-                        RaiseUserNotification);
-                    runtime.SetSessionStore(sessionStore);
-                    runtime.SetMetricsStore(metricsStore);
-                    runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
-                    runtime.UpdateDefinition(project, settings.Monitor);
-                    runtimes[project.Id] = runtime;
-                }
-            }
-        }
+        var runtime = EnsureControlPlaneRuntime(request.ProjectId);
 
         var started = DateTimeOffset.UtcNow;
         try
@@ -132,6 +97,66 @@ public sealed partial class ProjectOrchestrator
         {
             metricsStore.RecordShipCheck(request.ProjectId, ok: false, DateTimeOffset.UtcNow - started);
             throw;
+        }
+    }
+
+    public async Task<ControlPlaneRebuildResult> RunControlPlaneRebuildAsync(
+        ControlPlaneRebuildRequest request,
+        CancellationToken cancellationToken)
+    {
+        var runtime = EnsureControlPlaneRuntime(request.ProjectId);
+
+        try
+        {
+            return await runtime.RunAgentRebuildAsync(request.Configuration, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            healthCoalescer.Request(immediate: true);
+        }
+    }
+
+    private ProjectRuntime EnsureControlPlaneRuntime(string projectId)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+        }
+
+        if (runtime is not null)
+        {
+            return runtime;
+        }
+
+        lock (sync)
+        {
+            var project = settings.Projects.FirstOrDefault(p =>
+                string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase));
+            if (project is null)
+            {
+                throw new InvalidOperationException($"Unknown projectId '{projectId}'.");
+            }
+
+            if (!runtimes.TryGetValue(project.Id, out runtime))
+            {
+                runtime = new ProjectRuntime(
+                    project,
+                    logStore,
+                    cliRunner,
+                    triggerJournal,
+                    burstStatsStore,
+                    trainingStore,
+                    RaiseUserNotification);
+                runtime.SetSessionStore(sessionStore);
+                runtime.SetMetricsStore(metricsStore);
+                runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
+                runtime.UpdateDefinition(project, settings.Monitor);
+                runtimes[project.Id] = runtime;
+            }
+
+            return runtime;
         }
     }
 }

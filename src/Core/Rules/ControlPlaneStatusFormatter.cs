@@ -24,10 +24,23 @@ public static class ControlPlaneStatusFormatter
             return new Presentation(null, null, null, false);
         }
 
+        if (controlPlane.AgentRebuildInProgress
+            || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
+        {
+            return FormatRebuildActive(controlPlane);
+        }
+
         if (controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
             || controlPlane.ShipCheckInProgress)
         {
             return FormatShipCheckActive(controlPlane);
+        }
+
+        if (controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None
+            && controlPlane.LastAgentRebuildCompletedUtc is { } rebuildCompleted
+            && utcNow - rebuildCompleted <= ShipCheckResultWindow)
+        {
+            return FormatRebuildResult(controlPlane);
         }
 
         if (controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
@@ -47,9 +60,34 @@ public static class ControlPlaneStatusFormatter
 
     public static bool ShouldShowControlPlaneSection(ProjectControlPlaneSnapshot controlPlane) =>
         controlPlane.SessionApiUsed
-        || controlPlane.ShipCheckInProgress
+        ||         controlPlane.ShipCheckInProgress
+        || controlPlane.AgentRebuildInProgress
         || controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
-        || controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None;
+        || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None
+        || controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
+        || controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None;
+
+    private static Presentation FormatRebuildActive(ProjectControlPlaneSnapshot controlPlane)
+    {
+        var headline = controlPlane.AgentRebuildPhase switch
+        {
+            ControlPlaneShipCheckPhase.Preparing => "Rebuild — preparing",
+            ControlPlaneShipCheckPhase.Building => "Rebuild — building",
+            ControlPlaneShipCheckPhase.ResumingWatch => "Rebuild — resuming watch",
+            _ => "Rebuild — running"
+        };
+
+        return new Presentation(headline, "Agent: Rebuild", "Watch host paused for build", true);
+    }
+
+    private static Presentation FormatRebuildResult(ProjectControlPlaneSnapshot controlPlane)
+    {
+        var headline = controlPlane.LastAgentRebuildOutcome == ControlPlaneShipCheckOutcome.Passed
+            ? "Rebuild passed"
+            : "Rebuild failed";
+
+        return new Presentation(headline, "Agent: Connected · Idle", null, true);
+    }
 
     private static Presentation FormatShipCheckActive(ProjectControlPlaneSnapshot controlPlane)
     {

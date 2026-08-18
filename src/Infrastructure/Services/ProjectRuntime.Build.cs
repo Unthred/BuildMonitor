@@ -283,6 +283,7 @@ internal sealed partial class ProjectRuntime
                 && result.ExitCode == 0
                 && runProcess?.IsRunning != true
                 && Volatile.Read(ref shipCheckInProgress) == 0
+                && Volatile.Read(ref agentRebuildInProgress) == 0
                 && !watchPausedByControlPlane)
             {
                 if (triggeredByFileChange)

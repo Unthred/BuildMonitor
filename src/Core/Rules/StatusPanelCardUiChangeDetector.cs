@@ -72,7 +72,11 @@ public static class StatusPanelCardUiChangeDetector
                && left.ShipCheckPhase == right.ShipCheckPhase
                && left.LastShipCheckOutcome == right.LastShipCheckOutcome
                && left.LastShipCheckCompletedUtc == right.LastShipCheckCompletedUtc
-               && left.ShipCheckInProgress == right.ShipCheckInProgress;
+               && left.ShipCheckInProgress == right.ShipCheckInProgress
+               && left.AgentRebuildInProgress == right.AgentRebuildInProgress
+               && left.AgentRebuildPhase == right.AgentRebuildPhase
+               && left.LastAgentRebuildOutcome == right.LastAgentRebuildOutcome
+               && left.LastAgentRebuildCompletedUtc == right.LastAgentRebuildCompletedUtc;
     }
 
     private static bool ProgressStepsEqual(

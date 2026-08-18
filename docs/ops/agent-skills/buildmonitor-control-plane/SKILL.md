@@ -20,6 +20,7 @@ request an explicit ship build/test. **Do not invent MCP** — HTTP only.
 |--------|--------|
 | About to edit several files / a burst | `POST /session/busy` |
 | Edit burst finished | `POST /session/idle` (auto-build may run after debounce; do **not** expect a callback) |
+| Need clean rebuild without tests | `POST /run/rebuild` — exits watch host, builds, resumes watch |
 | Before claiming the change builds / tests | `POST /run/ship-check` only — do not assume idle ran tests |
 | Agent crash / forgotten idle | Busy auto-expires after ~2 minutes |
 
@@ -57,6 +58,7 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/session/busy` | `{ "projectId": "…" }` |
 | POST | `/session/idle` | `{ "projectId": "…" }` |
 | GET | `/session` | `?projectId=` |
+| POST | `/run/rebuild` | `{ "projectId": "…", "configuration": "Debug" }` optional — pause watch, build, resume |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
 
@@ -74,6 +76,10 @@ Invoke-RestMethod -Method Post -Uri "$base/session/busy" -ContentType "applicati
 Invoke-RestMethod -Method Post -Uri "$base/session/idle" -ContentType "application/json" `
   -Body (@{ projectId = $projectId } | ConvertTo-Json)
 
+# Optional: build-only check (exits watch host, rebuilds, resumes — no tests)
+$rebuild = Invoke-RestMethod -Method Post -Uri "$base/run/rebuild" -ContentType "application/json" `
+  -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
+
 $result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentType "application/json" `
   -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
 ```
@@ -85,5 +91,6 @@ Treat `ok: false` on ship-check as a failed verification — read `failures` / `
 - Bind is loopback only; no auth.
 - Never require WitherbyConnect or a hard-coded product path — match `rootFolder` only.
 - Idle must **not** be treated as “tests passed”.
-- Prefer pause/ship-check over killing watch processes yourself.
+- Use **`POST /run/rebuild`** when you need the watch/run host to exit for a clean build without running tests. Use **`POST /run/ship-check`** before claiming tests passed.
+- Prefer pause/rebuild/ship-check over killing watch processes yourself.
 - Keep calls short; do not poll forever.

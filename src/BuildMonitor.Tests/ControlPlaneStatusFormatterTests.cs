@@ -154,6 +154,47 @@ public sealed class ControlPlaneStatusFormatterTests
         Assert.Equal("Ship check failed", presentation.ActivityHeadline);
     }
 
+    [Fact]
+    public void Format_rebuild_build_phase()
+    {
+        var controlPlane = BusyControlPlane with
+        {
+            AgentRebuildInProgress = true,
+            AgentRebuildPhase = ControlPlaneShipCheckPhase.Building,
+            EffectiveSessionState = ControlPlaneSessionState.Idle,
+            AutoBuildBlockedBySession = false
+        };
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Rebuild — building", presentation.ActivityHeadline);
+        Assert.Equal("Agent: Rebuild", presentation.AgentStatusLine);
+    }
+
+    [Fact]
+    public void Format_rebuild_passed()
+    {
+        var controlPlane = new ProjectControlPlaneSnapshot(
+            SessionApiUsed: true,
+            EffectiveSessionState: ControlPlaneSessionState.Idle,
+            SessionSinceUtc: Now.AddMinutes(-1),
+            AutoBuildBlockedBySession: false,
+            HasPendingFileChangeRebuild: false,
+            PendingFileChangeCount: 0,
+            ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+            LastShipCheckCompletedUtc: null,
+            ShipCheckInProgress: false,
+            AgentRebuildInProgress: false,
+            AgentRebuildPhase: ControlPlaneShipCheckPhase.None,
+            LastAgentRebuildOutcome: ControlPlaneShipCheckOutcome.Passed,
+            LastAgentRebuildCompletedUtc: Now.AddSeconds(-10));
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Rebuild passed", presentation.ActivityHeadline);
+    }
+
     private static ProjectControlPlaneSnapshot BusyControlPlane => new(
         SessionApiUsed: true,
         EffectiveSessionState: ControlPlaneSessionState.Busy,

@@ -11,6 +11,9 @@ public interface IControlPlaneActions
     ControlPlaneWatchStatus GetWatch(string projectId);
     ControlPlaneWatchStatus PauseWatch(string projectId);
     ControlPlaneWatchStatus ResumeWatch(string projectId);
+    Task<ControlPlaneRebuildResult> RebuildAsync(
+        ControlPlaneRebuildRequest request,
+        CancellationToken cancellationToken);
     Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken);

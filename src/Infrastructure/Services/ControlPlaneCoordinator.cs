@@ -49,6 +49,16 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
     public ControlPlaneWatchStatus ResumeWatch(string projectId) =>
         orchestrator.ResumeControlPlaneWatch(projectId);
 
+    public async Task<ControlPlaneRebuildResult> RebuildAsync(
+        ControlPlaneRebuildRequest request,
+        CancellationToken cancellationToken)
+    {
+        sessions.MarkIdle(request.ProjectId);
+        orchestrator.NotifyControlPlaneSessionChanged(request.ProjectId);
+        return await orchestrator.RunControlPlaneRebuildAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken)

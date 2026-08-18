@@ -36,6 +36,18 @@ public sealed record ControlPlaneShipCheckRequest(
     string? Filter,
     bool? SuppressAutoBuildTests);
 
+public sealed record ControlPlaneRebuildRequest(
+    string ProjectId,
+    string? Configuration);
+
+public sealed record ControlPlaneRebuildResult(
+    bool Ok,
+    string Project,
+    string Build,
+    int ExitCode,
+    IReadOnlyList<string> Failures,
+    string? Log);
+
 public sealed record ControlPlaneTestCounts(int Failed, int Passed, int Skipped);
 
 public sealed record ControlPlaneShipCheckResult(
@@ -73,7 +85,11 @@ public sealed record ProjectControlPlaneSnapshot(
     ControlPlaneShipCheckPhase ShipCheckPhase,
     ControlPlaneShipCheckOutcome LastShipCheckOutcome,
     DateTimeOffset? LastShipCheckCompletedUtc,
-    bool ShipCheckInProgress)
+    bool ShipCheckInProgress,
+    bool AgentRebuildInProgress = false,
+    ControlPlaneShipCheckPhase AgentRebuildPhase = ControlPlaneShipCheckPhase.None,
+    ControlPlaneShipCheckOutcome LastAgentRebuildOutcome = ControlPlaneShipCheckOutcome.None,
+    DateTimeOffset? LastAgentRebuildCompletedUtc = null)
 {
     public static ProjectControlPlaneSnapshot Unused { get; } = new(
         SessionApiUsed: false,
@@ -85,5 +101,9 @@ public sealed record ProjectControlPlaneSnapshot(
         ShipCheckPhase: ControlPlaneShipCheckPhase.None,
         LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
         LastShipCheckCompletedUtc: null,
-        ShipCheckInProgress: false);
+        ShipCheckInProgress: false,
+        AgentRebuildInProgress: false,
+        AgentRebuildPhase: ControlPlaneShipCheckPhase.None,
+        LastAgentRebuildOutcome: ControlPlaneShipCheckOutcome.None,
+        LastAgentRebuildCompletedUtc: null);
 }

@@ -141,6 +141,41 @@ internal static class ControlPlaneHttpRouter
             return Ok(WatchJson(watch), projectId);
         }
 
+        if (method == "POST" && path == "/run/rebuild")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? configuration = null;
+            if (payload is not null
+                && payload.Value.TryGetProperty("configuration", out var cfg)
+                && cfg.ValueKind == JsonValueKind.String)
+            {
+                configuration = cfg.GetString();
+            }
+
+            try
+            {
+                var result = await actions.RebuildAsync(
+                    new ControlPlaneRebuildRequest(projectId!, configuration),
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(ToRebuildJson(result), projectId);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("already running", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ControlPlaneHttpResponse(409, new { error = ex.Message }, projectId);
+            }
+        }
+
         if (method == "POST" && path == "/run/ship-check")
         {
             var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
@@ -207,6 +242,16 @@ internal static class ControlPlaneHttpRouter
     {
         watch = watch.Watch.ToString().ToLowerInvariant(),
         pid = watch.Pid
+    };
+
+    private static object ToRebuildJson(ControlPlaneRebuildResult result) => new
+    {
+        ok = result.Ok,
+        project = result.Project,
+        build = result.Build,
+        exitCode = result.ExitCode,
+        failures = result.Failures,
+        log = result.Log
     };
 
     private static object ToShipCheckJson(ControlPlaneShipCheckResult result)

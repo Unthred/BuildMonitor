@@ -35,6 +35,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — do not auto-build |
 | POST | `/session/idle` | Edit burst done — auto-build may run after debounce |
 | GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since": "<iso>" }` |
+| POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch |
 | POST | `/run/ship-check` | Pause watch → build → test (if any) → resume |
 | GET | `/watch?projectId=` | `{ "watch": "running"\|"paused"\|"stopped", "pid": n\|null }` |
 | POST | `/watch/pause` | Stop run/watch child (unlock DLLs) |
@@ -42,10 +43,13 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 
 Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": null, "suppressAutoBuildTests": true }`.
 
+Optional rebuild body: `{ "projectId", "configuration": "Debug" }`.
+
 ## Behaviour
 
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
 - Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective.
+- **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running.
 - Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project.
 - Pause = stop the supervised `dotnet run`/`watch` process (preferred over kill-as-default).
 
@@ -60,6 +64,8 @@ After the session API has been used for a project this process lifetime, the hov
 | Idle (steady) | Agent: Connected · Idle |
 | Ship-check | **Ship check — preparing / building / testing / resuming watch** |
 | Ship-check result | **Ship check passed** or **Ship check failed** (shown briefly after completion) |
+| Agent rebuild | **Rebuild — preparing / building / resuming watch** (watch host paused) |
+| Rebuild result | **Rebuild passed** or **Rebuild failed** (shown briefly after completion) |
 
 Build health (Green/Failed), watch host activity, and agent session state are independent dimensions on the same card.
 
@@ -84,6 +90,10 @@ Invoke-RestMethod -Method Post -Uri "$base/session/idle" -ContentType "applicati
 
 Invoke-RestMethod "$base/session?projectId=$projectId"
 
+# Build-only (exit watch host, rebuild, resume watch — no tests)
+$rebuild = Invoke-RestMethod -Method Post -Uri "$base/run/rebuild" -ContentType "application/json" `
+  -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
+
 $result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentType "application/json" `
   -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
 $result | ConvertTo-Json -Depth 5
@@ -98,6 +108,7 @@ $result | ConvertTo-Json -Depth 5
 | 3 | Session busy/idle + timeout | `ControlPlaneSessionStore`, `ControlPlaneSessionPolicy` |
 | 4 | Gate file-change builds | `ProjectRuntime` + session store |
 | 5 | Ship-check | `ProjectRuntime.RunShipCheckAsync` |
+| 6 | Agent rebuild | `ProjectRuntime.RunAgentRebuildAsync` |
 
 **Failure / fallback:** if the port cannot bind, the tray shows a warning; monitoring continues without the API.
 

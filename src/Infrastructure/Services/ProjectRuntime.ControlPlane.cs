@@ -14,9 +14,13 @@ internal sealed partial class ProjectRuntime
     private string? shipCheckConfiguration;
     private string? shipCheckFilter;
     private int shipCheckInProgress;
+    private int agentRebuildInProgress;
     private ControlPlaneShipCheckPhase shipCheckPhase = ControlPlaneShipCheckPhase.None;
+    private ControlPlaneShipCheckPhase agentRebuildPhase = ControlPlaneShipCheckPhase.None;
     private ControlPlaneShipCheckOutcome lastShipCheckOutcome = ControlPlaneShipCheckOutcome.None;
+    private ControlPlaneShipCheckOutcome lastAgentRebuildOutcome = ControlPlaneShipCheckOutcome.None;
     private DateTimeOffset? lastShipCheckCompletedUtc;
+    private DateTimeOffset? lastAgentRebuildCompletedUtc;
     private ControlPlaneSessionState? lastPublishedSessionState;
 
     public void NotifyControlPlaneChanged(bool immediate = true)
@@ -33,6 +37,7 @@ internal sealed partial class ProjectRuntime
         var effectiveState = sessionStatus?.State ?? ControlPlaneSessionState.Idle;
         var autoBuildBlocked = sessionStore?.ShouldBlockAutoBuild(definition.Id, now) == true;
         var inShipCheck = Volatile.Read(ref shipCheckInProgress) != 0;
+        var inRebuild = Volatile.Read(ref agentRebuildInProgress) != 0;
 
         return new ProjectControlPlaneSnapshot(
             SessionApiUsed: sessionApiUsed,
@@ -41,12 +46,18 @@ internal sealed partial class ProjectRuntime
             AutoBuildBlockedBySession: autoBuildBlocked,
             HasPendingFileChangeRebuild: pendingFileChangeRebuild,
             PendingFileChangeCount: pendingRebuildHoldFileCount,
-            ShipCheckPhase: Volatile.Read(ref shipCheckInProgress) != 0
+            ShipCheckPhase: inShipCheck
                 ? shipCheckPhase
                 : ControlPlaneShipCheckPhase.None,
             LastShipCheckOutcome: lastShipCheckOutcome,
             LastShipCheckCompletedUtc: lastShipCheckCompletedUtc,
-            ShipCheckInProgress: inShipCheck);
+            ShipCheckInProgress: inShipCheck,
+            AgentRebuildInProgress: inRebuild,
+            AgentRebuildPhase: inRebuild
+                ? agentRebuildPhase
+                : ControlPlaneShipCheckPhase.None,
+            LastAgentRebuildOutcome: lastAgentRebuildOutcome,
+            LastAgentRebuildCompletedUtc: lastAgentRebuildCompletedUtc);
     }
 
     internal void RefreshControlPlaneHealthIfNeeded()
@@ -64,7 +75,9 @@ internal sealed partial class ProjectRuntime
         if (stateChanged
             || snapshot.EffectiveSessionState == ControlPlaneSessionState.Busy
             || snapshot.ShipCheckInProgress
-            || snapshot.ShipCheckPhase != ControlPlaneShipCheckPhase.None)
+            || snapshot.AgentRebuildInProgress
+            || snapshot.ShipCheckPhase != ControlPlaneShipCheckPhase.None
+            || snapshot.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
         {
             MarkHealthDirty();
         }
@@ -84,6 +97,110 @@ internal sealed partial class ProjectRuntime
         lastShipCheckCompletedUtc = DateTimeOffset.UtcNow;
         shipCheckPhase = ControlPlaneShipCheckPhase.None;
         NotifyControlPlaneChanged(immediate: true);
+    }
+
+    private void SetAgentRebuildPhase(ControlPlaneShipCheckPhase phase, bool immediate = true)
+    {
+        agentRebuildPhase = phase;
+        NotifyControlPlaneChanged(immediate);
+    }
+
+    private void CompleteAgentRebuild(bool ok)
+    {
+        lastAgentRebuildOutcome = ok
+            ? ControlPlaneShipCheckOutcome.Passed
+            : ControlPlaneShipCheckOutcome.Failed;
+        lastAgentRebuildCompletedUtc = DateTimeOffset.UtcNow;
+        agentRebuildPhase = ControlPlaneShipCheckPhase.None;
+        NotifyControlPlaneChanged(immediate: true);
+    }
+
+    private static void EnsureNoOtherControlPlaneRun(int shipCheckInProgress, int rebuildInProgress)
+    {
+        if (shipCheckInProgress != 0)
+        {
+            throw new InvalidOperationException("Ship-check already running for this project.");
+        }
+
+        if (rebuildInProgress != 0)
+        {
+            throw new InvalidOperationException("Rebuild already running for this project.");
+        }
+    }
+
+    public async Task<ControlPlaneRebuildResult> RunAgentRebuildAsync(
+        string? configuration,
+        CancellationToken cancellationToken)
+    {
+        EnsureNoOtherControlPlaneRun(
+            Volatile.Read(ref shipCheckInProgress),
+            Volatile.Read(ref agentRebuildInProgress));
+
+        if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("Rebuild already running for this project.");
+        }
+
+        var wasRunning = runProcess?.IsRunning == true || watchPausedByControlPlane;
+        shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
+        ControlPlaneRebuildResult? result = null;
+
+        try
+        {
+            SetAgentRebuildPhase(ControlPlaneShipCheckPhase.Preparing);
+
+            if (Volatile.Read(ref buildInProgress) != 0)
+            {
+                RequestBuildCancellation();
+                await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
+
+            SetAgentRebuildPhase(ControlPlaneShipCheckPhase.Building);
+            PrepareBuild("agent rebuild");
+            await BuildAsync(cancellationToken).ConfigureAwait(false);
+
+            var buildOk = lastBuildExitCode == 0;
+            var projectLabel = definition.ProjectFile;
+            var buildLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+            var failures = new List<string>();
+            if (!buildOk && !string.IsNullOrWhiteSpace(lastErrorPreview))
+            {
+                failures.Add(lastErrorPreview);
+            }
+
+            if (buildOk && RestartAppAfterRebuild && definition.RunOptions.RunMode != ProjectRunMode.None)
+            {
+                EnsureRunProcessStartedAfterBuild();
+            }
+
+            result = new ControlPlaneRebuildResult(
+                Ok: buildOk,
+                Project: projectLabel,
+                Build: buildOk ? "pass" : "fail",
+                ExitCode: lastBuildExitCode,
+                Failures: failures,
+                Log: buildLogPath);
+            return result;
+        }
+        finally
+        {
+            shipCheckConfiguration = null;
+
+            if (wasRunning && definition.RunOptions.RunMode != ProjectRunMode.None)
+            {
+                SetAgentRebuildPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
+                ResumeWatch();
+            }
+            else
+            {
+                watchPausedByControlPlane = false;
+            }
+
+            Interlocked.Exchange(ref agentRebuildInProgress, 0);
+            CompleteAgentRebuild(result?.Ok == true);
+        }
     }
 
     public void SetSessionStore(ControlPlaneSessionStore store) => sessionStore = store;
@@ -151,6 +268,10 @@ internal sealed partial class ProjectRuntime
         string? filter,
         CancellationToken cancellationToken)
     {
+        EnsureNoOtherControlPlaneRun(
+            Volatile.Read(ref shipCheckInProgress),
+            Volatile.Read(ref agentRebuildInProgress));
+
         if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
         {
             throw new InvalidOperationException("Ship-check already running for this project.");
@@ -280,5 +401,6 @@ internal sealed partial class ProjectRuntime
 
     private bool ShouldSkipAutoBuildTests() =>
         Volatile.Read(ref shipCheckInProgress) != 0
+        || Volatile.Read(ref agentRebuildInProgress) != 0
         || sessionStore?.ShouldSuppressAutoBuildTests(definition.Id) == true;
 }
