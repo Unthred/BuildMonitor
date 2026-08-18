@@ -25,12 +25,12 @@ $projectPath = Join-Path $repoRoot 'src\TrayApp\BuildMonitor.TrayApp.csproj'
 $staging = Join-Path $repoRoot "artifacts\publish\$Configuration"
 
 # Build identity (publish-time + deploy-time).
-$gitCommit = (git rev-parse --short HEAD).Trim()
-$gitBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+$gitCommit = ([string](git rev-parse --short HEAD)).Trim()
+$gitBranch = ([string](git rev-parse --abbrev-ref HEAD)).Trim()
 if ($gitBranch -eq 'HEAD') {
     $gitBranch = 'detached'
 }
-$gitPorcelain = (git status --porcelain).Trim()
+$gitPorcelain = [string](git status --porcelain)
 $gitDirty = -not [string]::IsNullOrWhiteSpace($gitPorcelain)
 $gitDirtyText = if ($gitDirty) { 'true' } else { 'false' }
 $builtUtc = (Get-Date).ToUniversalTime().ToString('o')
