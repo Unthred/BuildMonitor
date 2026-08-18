@@ -159,11 +159,9 @@ public partial class BuildMonitorHealthWindow : Window
         if (active.Count == 0)
         {
             lastControlPlaneFooter = null;
-            var full =
-                string.IsNullOrWhiteSpace(identityFooterText)
-                    ? baseFooterText
-                    : $"{identityFooterText} | {baseFooterText}";
-            BuildIdentityFooterText.Text = full;
+            BuildIdentityFooterText.Text = string.IsNullOrWhiteSpace(identityFooterText)
+                ? baseFooterText
+                : $"{identityFooterText} | {baseFooterText}";
             return;
         }
 
@@ -183,12 +181,9 @@ public partial class BuildMonitorHealthWindow : Window
         }
 
         lastControlPlaneFooter = controlPlaneFooter;
-        var full =
-            string.IsNullOrWhiteSpace(identityFooterText)
-                ? $"{baseFooterText} | {controlPlaneFooter}"
-                : $"{identityFooterText} | {baseFooterText} | {controlPlaneFooter}";
-
-        BuildIdentityFooterText.Text = full;
+        BuildIdentityFooterText.Text = string.IsNullOrWhiteSpace(identityFooterText)
+            ? $"{baseFooterText} | {controlPlaneFooter}"
+            : $"{identityFooterText} | {baseFooterText} | {controlPlaneFooter}";
     }
 
     private static List<CurrentActivityItem> BuildCurrentActivityItems(IReadOnlyList<WorkerHealthSnapshot> snapshots)

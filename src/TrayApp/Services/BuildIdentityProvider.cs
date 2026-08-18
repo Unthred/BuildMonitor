@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 
 namespace BuildMonitor.TrayApp.Services;
@@ -132,8 +133,8 @@ internal static class BuildIdentityProvider
             commit ?? "unknown",
             branch ?? "unknown",
             builtUtc,
-            deployedUtc: null,
-            isGitDirty: isDirty);
+            DeployedUtc: null,
+            IsGitDirty: isDirty);
     }
 
     private static string? GetAsmMetadata(Assembly asm, string key)
