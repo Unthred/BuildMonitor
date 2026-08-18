@@ -91,10 +91,10 @@ $result | ConvertTo-Json -Depth 5
 
 Agents in a watched product repo do **not** see BuildMonitor’s docs by default. Install the skill from the tray:
 
-- **Settings → Projects** → select project → **Install Cursor agent skill in this folder**
+- **Settings → Projects** → select project → status line + **Install / Update** (also **Refresh**)
 - Or tray: **Install Cursor agent skill → &lt;project&gt;**
 
-Script alternative: [agent-skills/README.md](agent-skills/README.md).
+Install writes both the skill and an **always-on** Cursor rule so agents use busy/idle/ship-check without the user pasting instructions.
 
 **Discovery:**
 

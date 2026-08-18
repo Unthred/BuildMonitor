@@ -137,6 +137,10 @@ public partial class SettingsWindow : Window
         EditorPanel.IsEnabled = selectedProject is not null;
         if (selectedProject is null)
         {
+            AgentSkillStatusSummary.Text = "No project selected";
+            AgentSkillStatusDetail.Text = "Select a project to see Cursor agent integration status.";
+            InstallAgentSkillButton.Content = "Install / Update";
+            InstallAgentSkillButton.IsEnabled = false;
             return;
         }
 
@@ -169,6 +173,7 @@ public partial class SettingsWindow : Window
             AutoRepairCorruptedOutputCheck.IsChecked = project.RunOptions.AutoRepairCorruptedOutput;
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
+            RefreshAgentSkillStatus();
         }
         finally
         {
@@ -376,7 +381,31 @@ public partial class SettingsWindow : Window
 
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
+            RefreshAgentSkillStatus();
         }
+    }
+
+    private void RefreshAgentSkillStatusClicked(object sender, RoutedEventArgs e) =>
+        RefreshAgentSkillStatus();
+
+    private void RefreshAgentSkillStatus()
+    {
+        var root = RootFolderText.Text.Trim();
+        if (string.IsNullOrWhiteSpace(root) && selectedProject is not null)
+        {
+            root = selectedProject.RootFolder;
+        }
+
+        var status = ControlPlaneAgentSkillInstaller.Inspect(root);
+        AgentSkillStatusSummary.Text = status.Summary;
+        AgentSkillStatusDetail.Text = status.Detail;
+        InstallAgentSkillButton.Content = status.State switch
+        {
+            ControlPlaneAgentIntegrationState.Missing => "Install",
+            ControlPlaneAgentIntegrationState.Current => "Reinstall",
+            _ => "Install / Update"
+        };
+        InstallAgentSkillButton.IsEnabled = !string.IsNullOrWhiteSpace(root);
     }
 
     private void InstallAgentSkillClicked(object sender, RoutedEventArgs e)
@@ -388,11 +417,15 @@ public partial class SettingsWindow : Window
         }
 
         var result = ControlPlaneAgentSkillInstaller.Install(root);
+        RefreshAgentSkillStatus();
         if (result.Ok)
         {
             System.Windows.MessageBox.Show(
                 this,
-                $"Installed Cursor skill for agents in this repo:\n\n{result.DestinationPath}\n\nStart a new agent chat in that workspace so the skill is picked up.",
+                "Installed Cursor agent integration for this repo:\n\n"
+                + $"Skill: {result.DestinationPath}\n"
+                + $"Always-on rule: {result.RuleDestinationPath}\n\n"
+                + "New agent chats in this workspace use BuildMonitor busy/idle/ship-check automatically — no paste required.",
                 "Control plane skill",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
