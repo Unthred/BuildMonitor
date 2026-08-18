@@ -54,7 +54,26 @@ public static class StatusPanelCardUiChangeDetector
         && a.IsEditGatingActive == b.IsEditGatingActive
         && a.EditGatingDetailText == b.EditGatingDetailText
         && a.RebuildQuietUntilUtc == b.RebuildQuietUntilUtc
+        && ControlPlaneEquals(a.ControlPlane, b.ControlPlane)
         && ProgressStepsEqual(a.ProgressSteps, b.ProgressSteps);
+
+    private static bool ControlPlaneEquals(
+        ProjectControlPlaneSnapshot? left,
+        ProjectControlPlaneSnapshot? right)
+    {
+        left ??= ProjectControlPlaneSnapshot.Unused;
+        right ??= ProjectControlPlaneSnapshot.Unused;
+        return left.SessionApiUsed == right.SessionApiUsed
+               && left.EffectiveSessionState == right.EffectiveSessionState
+               && left.SessionSinceUtc == right.SessionSinceUtc
+               && left.AutoBuildBlockedBySession == right.AutoBuildBlockedBySession
+               && left.HasPendingFileChangeRebuild == right.HasPendingFileChangeRebuild
+               && left.PendingFileChangeCount == right.PendingFileChangeCount
+               && left.ShipCheckPhase == right.ShipCheckPhase
+               && left.LastShipCheckOutcome == right.LastShipCheckOutcome
+               && left.LastShipCheckCompletedUtc == right.LastShipCheckCompletedUtc
+               && left.ShipCheckInProgress == right.ShipCheckInProgress;
+    }
 
     private static bool ProgressStepsEqual(
         IReadOnlyList<BuildProgressStep> left,

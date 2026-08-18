@@ -24,11 +24,19 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
     public ControlPlaneSessionStatus GetSession(string projectId) =>
         sessions.GetStatus(projectId);
 
-    public ControlPlaneSessionStatus MarkBusy(string projectId, bool? suppressAutoBuildTests) =>
-        sessions.MarkBusy(projectId, suppressAutoBuildTests);
+    public ControlPlaneSessionStatus MarkBusy(string projectId, bool? suppressAutoBuildTests)
+    {
+        var status = sessions.MarkBusy(projectId, suppressAutoBuildTests);
+        orchestrator.NotifyControlPlaneSessionChanged(projectId);
+        return status;
+    }
 
-    public ControlPlaneSessionStatus MarkIdle(string projectId, bool? suppressAutoBuildTests) =>
-        sessions.MarkIdle(projectId, suppressAutoBuildTests);
+    public ControlPlaneSessionStatus MarkIdle(string projectId, bool? suppressAutoBuildTests)
+    {
+        var status = sessions.MarkIdle(projectId, suppressAutoBuildTests);
+        orchestrator.NotifyControlPlaneSessionChanged(projectId);
+        return status;
+    }
 
     public ControlPlaneWatchStatus GetWatch(string projectId) =>
         orchestrator.GetControlPlaneWatch(projectId);

@@ -51,6 +51,7 @@ public static class StatusPanelPresentationBuilder
 
     private static StatusPanelCardPresentation BuildCard(ProjectHealthSnapshot snapshot, DateTimeOffset utcNow)
     {
+        var controlPlanePresentation = ControlPlaneStatusFormatter.Format(snapshot, utcNow);
         var statusLine = FormatStatusLine(snapshot);
         var showProgressChart = snapshot.ProgressSteps.Count > 0
             && snapshot.State is ProjectLifecycleState.Building
@@ -58,8 +59,11 @@ public static class StatusPanelPresentationBuilder
                 or ProjectLifecycleState.BuildFailed;
         var hasIssues = snapshot.ErrorCount > 0 || snapshot.WarningCount > 0;
         var showErrorPreview = !showProgressChart && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview);
+        var shipCheckDominates = controlPlanePresentation.ActivityHeadline is not null
+            && controlPlanePresentation.ActivityHeadline.StartsWith("Ship check", StringComparison.Ordinal);
         var showActivityIndicator = !showProgressChart
             && !showErrorPreview
+            && !shipCheckDominates
             && snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing;
 
         return new StatusPanelCardPresentation(
@@ -88,7 +92,11 @@ public static class StatusPanelPresentationBuilder
             ShowRestartButtons: snapshot.SupportsAppRestart,
             ShowRunTestsButton: true,
             ShowStillEditingButton: false,
-            StillEditingToolTip: null);
+            StillEditingToolTip: null,
+            ActivityHeadline: controlPlanePresentation.ActivityHeadline,
+            AgentStatusLine: controlPlanePresentation.AgentStatusLine,
+            ControlPlaneDetailLine: controlPlanePresentation.DetailLine,
+            ShowControlPlaneSection: controlPlanePresentation.ShowControlPlaneSection);
     }
 
     private static StatusPanelSideRailPresentation BuildSideRail(IReadOnlyList<ProjectHealthSnapshot> active)

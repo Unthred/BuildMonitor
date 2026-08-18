@@ -4,14 +4,37 @@ namespace BuildMonitor.Core.Rules;
 
 public static class StatusPanelAccentFormatter
 {
-    public static bool ShouldShowAccentRail(ProjectHealthSnapshot snapshot) =>
-        snapshot.IsActive
-        && (snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing
-            || snapshot.IsRestarting
-            || StatusPanelBuildVisibilityEvaluator.ShouldShowSiteAwaiting(snapshot));
+    public static bool ShouldShowAccentRail(ProjectHealthSnapshot snapshot)
+    {
+        var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
+        if (controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
+            || controlPlane.ShipCheckInProgress)
+        {
+            return snapshot.IsActive;
+        }
+
+        return snapshot.IsActive
+               && (snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing
+                   || snapshot.IsRestarting
+                   || StatusPanelBuildVisibilityEvaluator.ShouldShowSiteAwaiting(snapshot));
+    }
 
     public static string FormatActivityLabel(ProjectHealthSnapshot snapshot)
     {
+        var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
+        if (controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
+            || controlPlane.ShipCheckInProgress)
+        {
+            return controlPlane.ShipCheckPhase switch
+            {
+                ControlPlaneShipCheckPhase.Preparing => "Ship check — preparing",
+                ControlPlaneShipCheckPhase.Building => "Ship check — building",
+                ControlPlaneShipCheckPhase.Testing => "Ship check — testing",
+                ControlPlaneShipCheckPhase.ResumingWatch => "Ship check — resuming watch",
+                _ => "Ship check — running"
+            };
+        }
+
         if (snapshot.State == ProjectLifecycleState.Testing)
         {
             return "Running tests";

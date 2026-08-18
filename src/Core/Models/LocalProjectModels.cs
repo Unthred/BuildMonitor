@@ -107,7 +107,8 @@ public sealed record ProjectHealthSnapshot(
     bool IsEditGatingActive = false,
     string? EditGatingDetailText = null,
     DateTimeOffset? RebuildQuietUntilUtc = null,
-    int LastBuildExitCode = -1);
+    int LastBuildExitCode = -1,
+    ProjectControlPlaneSnapshot? ControlPlane = null);
 
 public enum BuildTriggerKind
 {

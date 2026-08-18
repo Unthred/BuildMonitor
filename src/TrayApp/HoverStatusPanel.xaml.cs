@@ -188,6 +188,19 @@ public partial class HoverStatusPanel : Window
                 FontSize = 12,
                 Foreground = new SolidColorBrush(palette.Foreground)
             });
+
+            if (!string.IsNullOrWhiteSpace(cardModel.ActivityHeadline))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = cardModel.ActivityHeadline,
+                    Foreground = healthBrush,
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 11,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+            }
+
             panel.Children.Add(new TextBlock
             {
                 Text = cardModel.StatusLine,
@@ -203,6 +216,34 @@ public partial class HoverStatusPanel : Window
                 FontSize = 11,
                 Margin = new Thickness(0, 1, 0, 0)
             });
+
+            if (cardModel.ShowControlPlaneSection)
+            {
+                if (!string.IsNullOrWhiteSpace(cardModel.AgentStatusLine))
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = cardModel.AgentStatusLine,
+                        Foreground = new SolidColorBrush(palette.Foreground),
+                        Opacity = 0.95,
+                        FontSize = 11,
+                        Margin = new Thickness(0, 3, 0, 0)
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(cardModel.ControlPlaneDetailLine))
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = cardModel.ControlPlaneDetailLine,
+                        Foreground = new SolidColorBrush(palette.Foreground),
+                        Opacity = 0.85,
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 1, 0, 0)
+                    });
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(cardModel.EditGatingDetailText))
             {

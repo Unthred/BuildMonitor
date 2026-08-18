@@ -73,6 +73,18 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private void OnRuntimeHealthCoalesceRequested(bool immediate) =>
         healthCoalescer.Request(immediate);
 
+    public void NotifyControlPlaneSessionChanged(string projectId, bool immediate = true)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+        }
+
+        runtime?.NotifyControlPlaneChanged(immediate);
+        healthCoalescer.Request(immediate);
+    }
+
     public BuildLogStore LogStore => logStore;
 
     public BuildTriggerJournal TriggerJournal => triggerJournal;

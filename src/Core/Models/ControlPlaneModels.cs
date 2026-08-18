@@ -45,3 +45,45 @@ public sealed record ControlPlaneShipCheckResult(
     ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
     string? Log);
+
+public enum ControlPlaneShipCheckPhase
+{
+    None = 0,
+    Preparing = 1,
+    Building = 2,
+    Testing = 3,
+    ResumingWatch = 4
+}
+
+public enum ControlPlaneShipCheckOutcome
+{
+    None = 0,
+    Passed = 1,
+    Failed = 2
+}
+
+/// <summary>User-meaningful control-plane state embedded in project health snapshots.</summary>
+public sealed record ProjectControlPlaneSnapshot(
+    bool SessionApiUsed,
+    ControlPlaneSessionState EffectiveSessionState,
+    DateTimeOffset? SessionSinceUtc,
+    bool AutoBuildBlockedBySession,
+    bool HasPendingFileChangeRebuild,
+    int PendingFileChangeCount,
+    ControlPlaneShipCheckPhase ShipCheckPhase,
+    ControlPlaneShipCheckOutcome LastShipCheckOutcome,
+    DateTimeOffset? LastShipCheckCompletedUtc,
+    bool ShipCheckInProgress)
+{
+    public static ProjectControlPlaneSnapshot Unused { get; } = new(
+        SessionApiUsed: false,
+        EffectiveSessionState: ControlPlaneSessionState.Idle,
+        SessionSinceUtc: null,
+        AutoBuildBlockedBySession: false,
+        HasPendingFileChangeRebuild: false,
+        PendingFileChangeCount: 0,
+        ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+        LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+        LastShipCheckCompletedUtc: null,
+        ShipCheckInProgress: false);
+}

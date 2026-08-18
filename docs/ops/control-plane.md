@@ -49,6 +49,20 @@ Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": nu
 - Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project.
 - Pause = stop the supervised `dotnet run`/`watch` process (preferred over kill-as-default).
 
+## Status panel visibility
+
+After the session API has been used for a project this process lifetime, the hover **Build status** card shows control-plane state from the same `ProjectHealthSnapshot` model as the tray and diagnostics (not a separate HTTP poll):
+
+| State | Card headline / lines |
+|-------|------------------------|
+| Busy | **Agent editing — builds paused** · Agent: Busy · busy duration · automatic builds held · queued file changes |
+| Idle (recent) | **Agent finished editing · build allowed** · Agent: Connected · Idle |
+| Idle (steady) | Agent: Connected · Idle |
+| Ship-check | **Ship check — preparing / building / testing / resuming watch** |
+| Ship-check result | **Ship check passed** or **Ship check failed** (shown briefly after completion) |
+
+Build health (Green/Failed), watch host activity, and agent session state are independent dimensions on the same card.
+
 ## PowerShell examples
 
 ```powershell

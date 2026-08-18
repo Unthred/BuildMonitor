@@ -613,6 +613,7 @@ internal sealed partial class ProjectRuntime
         {
             NoteAutoBuildBlockedByControlPlane();
             QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
+            NotifyControlPlaneChanged(immediate: true);
             _ = WaitForEditQuietThenBuildAsync("file change (queued)");
             return;
         }

@@ -65,6 +65,10 @@ public static class StatusPanelPresentationChangeDetector
             if (prev.ShowStillEditingButton != card.ShowStillEditingButton
                 || prev.ActivityState != card.ActivityState
                 || !string.Equals(prev.StatusLine, card.StatusLine, StringComparison.Ordinal)
+                || !string.Equals(prev.ActivityHeadline, card.ActivityHeadline, StringComparison.Ordinal)
+                || !string.Equals(prev.AgentStatusLine, card.AgentStatusLine, StringComparison.Ordinal)
+                || !string.Equals(prev.ControlPlaneDetailLine, card.ControlPlaneDetailLine, StringComparison.Ordinal)
+                || prev.ShowControlPlaneSection != card.ShowControlPlaneSection
                 || prev.ShowActivityIndicator != card.ShowActivityIndicator
                 || prev.ShowProgressChart != card.ShowProgressChart
                 || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps))

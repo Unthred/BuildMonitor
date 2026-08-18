@@ -31,7 +31,11 @@ public sealed record StatusPanelCardPresentation(
     bool ShowRestartButtons,
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
-    string? StillEditingToolTip);
+    string? StillEditingToolTip,
+    string? ActivityHeadline = null,
+    string? AgentStatusLine = null,
+    string? ControlPlaneDetailLine = null,
+    bool ShowControlPlaneSection = false);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

@@ -133,7 +133,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 IsEditGatingActive(),
                 BuildEditGatingDetailText(),
                 GetEditGatingQuietUntilUtc(),
-                lastBuildExitCode);
+                lastBuildExitCode,
+                BuildControlPlaneSnapshot());
     }
 
     public void MarkHealthDirty() => Interlocked.Exchange(ref healthDirty, 1);
@@ -157,6 +158,7 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     private void CoalesceHealthCore()
     {
+        RefreshControlPlaneHealthIfNeeded();
         RefreshLiveIssueCounts(force: true);
         RefreshHealth();
     }

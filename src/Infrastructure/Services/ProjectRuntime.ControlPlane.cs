@@ -1,4 +1,5 @@
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.LocalBuild;
@@ -13,6 +14,77 @@ internal sealed partial class ProjectRuntime
     private string? shipCheckConfiguration;
     private string? shipCheckFilter;
     private int shipCheckInProgress;
+    private ControlPlaneShipCheckPhase shipCheckPhase = ControlPlaneShipCheckPhase.None;
+    private ControlPlaneShipCheckOutcome lastShipCheckOutcome = ControlPlaneShipCheckOutcome.None;
+    private DateTimeOffset? lastShipCheckCompletedUtc;
+    private ControlPlaneSessionState? lastPublishedSessionState;
+
+    public void NotifyControlPlaneChanged(bool immediate = true)
+    {
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(immediate);
+    }
+
+    public ProjectControlPlaneSnapshot BuildControlPlaneSnapshot(DateTimeOffset? utcNow = null)
+    {
+        var now = utcNow ?? DateTimeOffset.UtcNow;
+        var sessionStatus = sessionStore?.GetStatus(definition.Id, now);
+        var sessionApiUsed = sessionStatus?.SessionApiUsed == true;
+        var effectiveState = sessionStatus?.State ?? ControlPlaneSessionState.Idle;
+        var autoBuildBlocked = sessionStore?.ShouldBlockAutoBuild(definition.Id, now) == true;
+        var inShipCheck = Volatile.Read(ref shipCheckInProgress) != 0;
+
+        return new ProjectControlPlaneSnapshot(
+            SessionApiUsed: sessionApiUsed,
+            EffectiveSessionState: effectiveState,
+            SessionSinceUtc: sessionStatus?.Since,
+            AutoBuildBlockedBySession: autoBuildBlocked,
+            HasPendingFileChangeRebuild: pendingFileChangeRebuild,
+            PendingFileChangeCount: pendingRebuildHoldFileCount,
+            ShipCheckPhase: Volatile.Read(ref shipCheckInProgress) != 0
+                ? shipCheckPhase
+                : ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: lastShipCheckOutcome,
+            LastShipCheckCompletedUtc: lastShipCheckCompletedUtc,
+            ShipCheckInProgress: inShipCheck);
+    }
+
+    internal void RefreshControlPlaneHealthIfNeeded()
+    {
+        var snapshot = BuildControlPlaneSnapshot();
+        if (!ControlPlaneStatusFormatter.ShouldShowControlPlaneSection(snapshot))
+        {
+            lastPublishedSessionState = null;
+            return;
+        }
+
+        var stateChanged = lastPublishedSessionState != snapshot.EffectiveSessionState;
+        lastPublishedSessionState = snapshot.EffectiveSessionState;
+
+        if (stateChanged
+            || snapshot.EffectiveSessionState == ControlPlaneSessionState.Busy
+            || snapshot.ShipCheckInProgress
+            || snapshot.ShipCheckPhase != ControlPlaneShipCheckPhase.None)
+        {
+            MarkHealthDirty();
+        }
+    }
+
+    private void SetShipCheckPhase(ControlPlaneShipCheckPhase phase, bool immediate = true)
+    {
+        shipCheckPhase = phase;
+        NotifyControlPlaneChanged(immediate);
+    }
+
+    private void CompleteShipCheck(bool ok)
+    {
+        lastShipCheckOutcome = ok
+            ? ControlPlaneShipCheckOutcome.Passed
+            : ControlPlaneShipCheckOutcome.Failed;
+        lastShipCheckCompletedUtc = DateTimeOffset.UtcNow;
+        shipCheckPhase = ControlPlaneShipCheckPhase.None;
+        NotifyControlPlaneChanged(immediate: true);
+    }
 
     public void SetSessionStore(ControlPlaneSessionStore store) => sessionStore = store;
 
@@ -87,9 +159,12 @@ internal sealed partial class ProjectRuntime
         var wasRunning = runProcess?.IsRunning == true || watchPausedByControlPlane;
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
+        ControlPlaneShipCheckResult? result = null;
 
         try
         {
+            SetShipCheckPhase(ControlPlaneShipCheckPhase.Preparing);
+
             if (Volatile.Read(ref buildInProgress) != 0)
             {
                 RequestBuildCancellation();
@@ -98,6 +173,7 @@ internal sealed partial class ProjectRuntime
 
             await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
 
+            SetShipCheckPhase(ControlPlaneShipCheckPhase.Building);
             PrepareBuild("ship-check");
             await BuildAsync(cancellationToken).ConfigureAwait(false);
 
@@ -113,13 +189,14 @@ internal sealed partial class ProjectRuntime
                     failures.Add(lastErrorPreview);
                 }
 
-                return new ControlPlaneShipCheckResult(
+                result = new ControlPlaneShipCheckResult(
                     Ok: false,
                     Project: projectLabel,
                     Build: "fail",
                     Tests: null,
                     Failures: failures,
                     Log: buildLogPath);
+                return result;
             }
 
             var resolution = TestProjectDiscovery.Resolve(
@@ -129,16 +206,17 @@ internal sealed partial class ProjectRuntime
 
             if (resolution.Targets.Count == 0)
             {
-                // No test project configured/discovered — ok follows build only.
-                return new ControlPlaneShipCheckResult(
+                result = new ControlPlaneShipCheckResult(
                     Ok: true,
                     Project: projectLabel,
                     Build: "pass",
                     Tests: null,
                     Failures: [],
                     Log: buildLogPath);
+                return result;
             }
 
+            SetShipCheckPhase(ControlPlaneShipCheckPhase.Testing);
             PrepareTest("ship-check");
             await TestAsync(cancellationToken).ConfigureAwait(false);
 
@@ -165,28 +243,32 @@ internal sealed partial class ProjectRuntime
                 : new ControlPlaneTestCounts(summary.Failed, summary.Passed, summary.Skipped);
 
             var testsOk = Snapshot.State == ProjectLifecycleState.TestOk && counts.Failed == 0;
-            return new ControlPlaneShipCheckResult(
+            result = new ControlPlaneShipCheckResult(
                 Ok: testsOk,
                 Project: projectLabel,
                 Build: "pass",
                 Tests: counts,
                 Failures: failures,
                 Log: testLogPath);
+            return result;
         }
         finally
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
-            Interlocked.Exchange(ref shipCheckInProgress, 0);
 
             if (wasRunning && definition.RunOptions.RunMode != ProjectRunMode.None)
             {
+                SetShipCheckPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
                 ResumeWatch();
             }
             else
             {
                 watchPausedByControlPlane = false;
             }
+
+            Interlocked.Exchange(ref shipCheckInProgress, 0);
+            CompleteShipCheck(result?.Ok == true);
         }
     }
 
