@@ -34,6 +34,20 @@ Do **not** call `/run/rebuild` after every edit burst.
 
 If the control plane is unreachable, continue editing; BuildMonitor falls back to its own debounce. Say briefly that the handshake was skipped.
 
+## Efficient workflows (pick the smallest call)
+
+| Scenario | Workflow |
+|----------|----------|
+| Edit burst | `busy` → edit → `idle` — let debounce build (cheapest) |
+| One or a few tests | `idle` → `/run/tests` with `filter` — no rebuild unless compile failed |
+| Full verification | `idle` → `/run/ship-check` — before claiming tests pass |
+| Locked DLLs / bad incremental | `/run/rebuild` only — not after ordinary edits |
+| Still editing after a pause | `busy` again before more writes |
+
+**Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all). `/run/tests` does not rebuild — use ship-check or rebuild first if binaries may be stale.
+
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409 until prior run finishes).
+
 ## Discover base URL and projectId (probe)
 
 Do this once per chat (or again if the workspace root changes).

@@ -47,6 +47,77 @@ Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": nu
 Optional rebuild body: `{ "projectId", "configuration": "Debug" }`.
 Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQualifiedName~MyTest" }`.
 
+## Agent capability matrix (efficient build control)
+
+Use this table to pick the **smallest** call that achieves the goal. Avoid redundant rebuilds and premature `idle`.
+
+### Goals → endpoints
+
+| Agent goal | Endpoint | Notes |
+|------------|----------|--------|
+| Pause auto-build on file changes | `POST /session/busy` | Holds automatic rebuilds; watcher may still detect and **queue** changes |
+| Re-enable auto-build on file changes | `POST /session/idle` | **Only** resume signal — starts debounced auto-build. No separate “resume” path |
+| Extend the hold while still editing | `POST /session/busy` again | Resets the busy timeout clock |
+| Build only (no tests) | `POST /run/rebuild` | Pauses watch host → build → resume. Use when output is locked or incremental state is bad |
+| Build only (lightest) | `POST /session/idle` | Let debounced auto-build run — **no** watch pause, **no** tests |
+| Run one unit test | `POST /run/tests` | `"filter": "FullyQualifiedName=Namespace.Class.Method"` |
+| Run a class or namespace of tests | `POST /run/tests` | `"filter": "FullyQualifiedName~Namespace.Class"` or `"FullyQualifiedName~Namespace"` |
+| Run tests by category / trait | `POST /run/tests` | `"filter": "Category=Unit"` (or any trait your tests expose) |
+| Run all unit tests | `POST /run/tests` | Omit `filter`, or use ship-check if you also need a fresh build |
+| Build + all tests (verification) | `POST /run/ship-check` | Preferred before claiming “builds and tests pass” |
+| Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Independent of session busy/idle |
+| Resume watch/run host | `POST /watch/resume` | After manual pause or external need |
+| Read session state | `GET /session?projectId=` | `idleCause`: `agent` (you sent idle) vs `timeout` (120s expired) |
+| Read watch host state | `GET /watch?projectId=` | `running` / `paused` / `stopped` |
+| Discover project + port | `GET /projects` or `%LocalAppData%\BuildMonitor\control-plane.json` | Required once per chat |
+
+**Busy vs watch pause:** `/session/busy` gates **automatic rebuilds on file change**. `/watch/pause` stops the supervised `dotnet run`/`watch` child. Ship-check and agent rebuild pause watch internally; you rarely need `/watch/pause` directly.
+
+**Tests without rebuild:** `/run/tests` does **not** compile first. If binaries may be stale, run `/run/rebuild` or `/run/ship-check` first.
+
+### Cost-aware workflows
+
+| Scenario | Workflow | Why |
+|----------|----------|-----|
+| Multi-file edit burst | `busy` → edit → `idle` | Cheapest path; debounce coalesces saves into one build |
+| Quick compile after edits | `idle` only | Auto-build is lighter than `/run/rebuild` (no watch exit) |
+| One failing test to iterate | `idle` → `/run/tests` with narrow `filter` | Faster than full suite; rebuild only if compile errors |
+| Class-level test focus | `/run/tests` with `FullyQualifiedName~MyClass` | Same as above, broader slice |
+| Before claiming PR-ready | `busy` → edit → `idle` → `/run/ship-check` | Single authoritative build + full test run |
+| Locked output / bad incremental | `/run/rebuild` | Watch host must exit so MSBuild can overwrite DLLs |
+| Agent still editing after a pause | `busy` again **before** more writes | Prevents idle timeout or accidental debounced build mid-edit |
+
+### Test filter examples (`dotnet test` syntax)
+
+Pass `filter` on `POST /run/tests` (and optionally on ship-check):
+
+```text
+FullyQualifiedName=BuildMonitor.Tests.MyTests.MyMethod          # one test
+FullyQualifiedName~BuildMonitor.Tests.ControlPlane              # namespace/class substring
+FullyQualifiedName~MyTests&Category=Unit                        # combine with &
+FullyQualifiedName~TestA|FullyQualifiedName~TestB               # either test (OR)
+```
+
+Omit `filter` to run the full configured test project/solution.
+
+### Not exposed (workarounds)
+
+| Desired | Today | Workaround |
+|---------|-------|------------|
+| Disable file watcher entirely | Not available | `busy` holds builds; changes may still queue |
+| Cancel in-flight build/test | Not available | Wait for 409 conflict to clear; avoid overlapping `/run/*` |
+| Stream live build log over HTTP | Not available | Read `log` path from ship-check/rebuild/tests JSON response |
+| Build without pausing watch (explicit) | No `/run/build` | Use `idle` + debounced auto-build |
+| Guaranteed fresh build + filtered tests in one call | Not combined | `/run/ship-check` (full suite) or `/run/rebuild` then `/run/tests` |
+
+### Anti-patterns
+
+- **`idle` after the first file** — debounced auto-build starts while you still edit. Stay `busy` until every file for the turn is written.
+- **`/run/rebuild` after every burst** — use `idle` and debounce unless DLLs are locked or incremental state is unreliable.
+- **`/run/tests` after compile errors** — fix build first (auto-build or rebuild), then filter tests.
+- **Treating `idle` as “tests passed”** — idle only resumes auto-build; use ship-check or `/run/tests` for verification.
+- **Overlapping `/run/rebuild`, `/run/tests`, `/run/ship-check`** — second call returns **409** until the first finishes.
+
 ## Behaviour
 
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
