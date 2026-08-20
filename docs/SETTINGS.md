@@ -157,7 +157,7 @@ Turn learning off to keep verdicts and notes for review only.
 
 **Likely cause** is a heuristic from trigger kind and changed file paths (e.g. Cursor/agent tooling folders vs source edits). **Your note** is free text — use it to record what you were doing (e.g. “Cursor ask mode chat”) when marking unexpected rebuilds. Status panel **AI working?** appears in the **header** during a rebuild countdown (extends the wait) or while a build is running (marks that trigger **Unexpected**). The countdown auto-extends when Cursor/agent tooling is active (`useAgentTranscriptActivity`) and resets when meaningful source files (e.g. `.cs`) are saved.
 
-Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics — including trigger grid column widths — and status panel width — height auto-fits content up to 460 px).
+Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layout.json` (Settings, build log, diagnostics — including trigger grid column widths — and status panel width — height auto-fits content up to 460 px). If a saved position is no longer sufficiently visible on any monitor (for example after RDP from a single-monitor client, or after unplugging a display), BuildMonitor clamps the window into the tray/primary work area when it opens and again when Windows fires a display-settings change.
 
 ## Watch / file-watcher excludes
 
