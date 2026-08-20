@@ -239,6 +239,13 @@ public static class StatusPanelPresentationBuilder
 
     private static string? CompactEditGatingSecondary(ProjectHealthSnapshot snapshot, DateTimeOffset utcNow)
     {
+        var controlPlane = snapshot.ControlPlane;
+        if (controlPlane is not null && !controlPlane.AutoBuildEnabled)
+        {
+            // AI Controlled: never show quiet/debounce countdown as an impending build.
+            return null;
+        }
+
         if (snapshot.RebuildQuietUntilUtc is { } until && until > utcNow)
         {
             var remainingMs = (int)(until - utcNow).TotalMilliseconds;

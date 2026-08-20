@@ -45,6 +45,13 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+            && Volatile.Read(ref agentRebuildInProgress) == 0
+            && Volatile.Read(ref shipCheckInProgress) == 0)
+        {
+            return;
+        }
+
         if (!definition.RunOptions.AutoRestartOnHotReloadRequest
             || definition.RunOptions.RunMode == ProjectRunMode.None)
         {

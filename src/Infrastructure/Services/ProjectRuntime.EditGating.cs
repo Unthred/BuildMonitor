@@ -46,6 +46,12 @@ internal sealed partial class ProjectRuntime
 
     private bool IsEditGatingActive()
     {
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            // Pending observed changes are not a "quiet countdown" — no edit-gating UI.
+            return false;
+        }
+
         var activity = EvaluateEditActivity();
         return BuildSuppressionPolicy.IsEditGatingActive(
             GetSuppressionSettings(),
@@ -56,6 +62,11 @@ internal sealed partial class ProjectRuntime
 
     private DateTimeOffset? GetEditGatingQuietUntilUtc()
     {
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            return null;
+        }
+
         var activity = EvaluateEditActivity();
         return EditGatingQuietUntilResolver.Resolve(
             pendingFileChangeRebuild,

@@ -69,6 +69,12 @@ internal sealed partial class ProjectRuntime
 
     private void HandleWatchProcessOutputLine(string line)
     {
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            // Should not be hosting watch in AI Controlled; ignore if a stale watch process remains.
+            return;
+        }
+
         if (DotNetWatchOutput.IsWatchBuildingLine(line))
         {
             RecordBuildTrigger(

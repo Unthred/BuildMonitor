@@ -589,7 +589,16 @@ internal sealed partial class ProjectRuntime
 
         lastMeaningfulFileChangeUtc = DateTimeOffset.UtcNow;
         HeartbeatProjectWorker("file-watcher", $"{meaningful.Count} file(s)");
-        SetProjectCurrentAction($"File change — rebuild pending ({meaningful.Count} file(s))");
+        if (definition.BuildControlMode == ProjectBuildControlMode.AiControlled)
+        {
+            SetProjectCurrentAction(
+                $"AI Controlled — {meaningful.Count} change(s) detected (awaiting explicit build)");
+        }
+        else
+        {
+            SetProjectCurrentAction($"File change — rebuild pending ({meaningful.Count} file(s))");
+        }
+
         RequestHealthCoalesce(immediate: true);
 
         lastFileChangePaths = RelativizePaths(meaningful);
@@ -615,8 +624,17 @@ internal sealed partial class ProjectRuntime
             }
             else
             {
-                // AI Controlled: observe only — never start the auto-build scheduler.
-                EnterWaitingForEditsState("AI Controlled — changes awaiting explicit build");
+                // AI Controlled: observe only — no WaitingForEdits countdown / scheduler.
+                SetProjectCurrentAction("AI Controlled — changes awaiting explicit build");
+                if (state == ProjectLifecycleState.WaitingForEdits
+                    && Volatile.Read(ref buildInProgress) == 0)
+                {
+                    SetState(runProcess?.IsRunning == true
+                        ? (UsesDotNetWatchProcess() ? ProjectLifecycleState.Watching : ProjectLifecycleState.Running)
+                        : ProjectLifecycleState.Idle);
+                }
+
+                RequestHealthCoalesce(immediate: true);
             }
 
             return;

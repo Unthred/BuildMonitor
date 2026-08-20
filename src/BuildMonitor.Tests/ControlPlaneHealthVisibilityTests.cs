@@ -212,12 +212,83 @@ public sealed class ControlPlaneHealthVisibilityTests
             "OnFileWatcherChanged",
             new object[] { new[] { Path.Combine(env.LogsRoot, "C.cs") }, 0 });
 
+        Thread.Sleep(50);
+
         var snapshot = env.Runtime.BuildSnapshot();
         Assert.Equal(0, GetPrivateField<int>(env.Runtime, "buildInProgress"));
         Assert.Equal(ProjectBuildControlMode.AiControlled, snapshot.ControlPlane!.BuildControlMode);
         Assert.False(snapshot.ControlPlane.AutoBuildEnabled);
         Assert.True(snapshot.ControlPlane.HasPendingFileChangeRebuild);
         Assert.True(snapshot.ControlPlane.PendingFileChangeCount >= 1);
+        Assert.Null(snapshot.RebuildQuietUntilUtc);
+        Assert.False(snapshot.IsEditGatingActive);
+        Assert.NotEqual(ProjectLifecycleState.WaitingForEdits, snapshot.State);
+    }
+
+    [Fact]
+    public void Ai_controlled_disables_dotnet_watch_even_when_coalesce_off()
+    {
+        using var env = CreateRuntimeEnvironment();
+        var definition = new LocalProjectDefinition
+        {
+            Id = env.ProjectId,
+            DisplayName = "Demo",
+            RootFolder = env.LogsRoot,
+            ProjectFile = Path.Combine(env.LogsRoot, "Demo.csproj"),
+            IsActiveInSession = true,
+            BuildControlMode = ProjectBuildControlMode.FileWatching,
+            RunOptions = new ProjectRunOptions { RunMode = ProjectRunMode.Watch }
+        };
+        env.Runtime.UpdateDefinition(definition, new GlobalMonitorSettings { CoalesceWatchRebuilds = false });
+
+        Assert.True(InvokePrivateBool(env.Runtime, "UsesDotNetWatchProcess"));
+
+        env.Runtime.SetBuildControlMode(ProjectBuildControlMode.AiControlled);
+
+        Assert.False(InvokePrivateBool(env.Runtime, "UsesDotNetWatchProcess"));
+        Assert.False(InvokePrivateBool(env.Runtime, "UsesCoalescedWatchRebuilds"));
+    }
+
+    [Fact]
+    public void Ai_controlled_idle_after_debounce_window_still_zero_builds()
+    {
+        using var env = CreateRuntimeEnvironment();
+        var sessionStore = new ControlPlaneSessionStore();
+        env.Runtime.SetSessionStore(sessionStore);
+        env.Runtime.UpdateDefinition(
+            new LocalProjectDefinition
+            {
+                Id = env.ProjectId,
+                DisplayName = "Demo",
+                RootFolder = env.LogsRoot,
+                ProjectFile = Path.Combine(env.LogsRoot, "Demo.csproj"),
+                IsActiveInSession = true,
+                BuildControlMode = ProjectBuildControlMode.FileWatching,
+                RunOptions = new ProjectRunOptions { RunMode = ProjectRunMode.Watch }
+            },
+            new GlobalMonitorSettings
+            {
+                CoalesceWatchRebuilds = false,
+                FileChangeDebounceMs = 200
+            });
+
+        env.Runtime.SetBuildControlMode(ProjectBuildControlMode.AiControlled);
+        sessionStore.MarkBusy(env.ProjectId);
+
+        for (var i = 0; i < 4; i++)
+        {
+            InvokePrivateMethod(
+                env.Runtime,
+                "OnFileWatcherChanged",
+                new object[] { new[] { Path.Combine(env.LogsRoot, $"F{i}.cs") }, 0 });
+        }
+
+        sessionStore.MarkIdle(env.ProjectId);
+        Thread.Sleep(600);
+
+        Assert.Equal(0, GetPrivateField<int>(env.Runtime, "buildInProgress"));
+        Assert.True(env.Runtime.BuildSnapshot().ControlPlane!.HasPendingFileChangeRebuild);
+        Assert.Null(env.Runtime.BuildSnapshot().RebuildQuietUntilUtc);
     }
 
     [Fact]
@@ -357,6 +428,13 @@ public sealed class ControlPlaneHealthVisibilityTests
         var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(target, args);
+    }
+
+    private static bool InvokePrivateBool(object target, string methodName)
+    {
+        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return Assert.IsType<bool>(method!.Invoke(target, null));
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

@@ -40,7 +40,7 @@ public sealed class ControlPlaneStatusFormatterTests
 
         Assert.Equal("AI Controlled", presentation.ModePrimary);
         Assert.Equal("Busy", presentation.AgentPrimary);
-        Assert.Contains("Agent editing", presentation.AgentSecondary);
+        Assert.Contains("Editing", presentation.AgentSecondary);
         Assert.DoesNotContain("Builds paused", presentation.AgentSecondary);
         Assert.Equal("7 detected", presentation.ChangesPrimary);
         Assert.Equal("Awaiting agent", presentation.ChangesSecondary);

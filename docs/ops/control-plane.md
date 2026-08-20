@@ -65,6 +65,8 @@ Switching File Watching → AI Controlled cancels pending file-triggered schedul
 
 Settings → Projects → **Build control**. Agents: `GET`/`POST /mode`.
 
+Isolation details (watch host, timers, hot reload): [ai-controlled-build-isolation.md](ai-controlled-build-isolation.md).
+
 ## Agent capability matrix (efficient build control)
 
 Use this table to pick the **smallest** call that achieves the goal. Avoid redundant rebuilds and premature `idle`.

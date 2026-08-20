@@ -23,27 +23,21 @@ public sealed class AiControlledWorkflowPolicyTests
             }
         }
 
-        void OnExplicitRebuild() => explicitRebuilds++;
-
-        // Switch to AI Controlled (agent start)
         mode = ProjectBuildControlMode.AiControlled;
 
-        // Busy + several file changes
         OnFileChange(sessionApiUsed: true, ControlPlaneSessionState.Busy);
         OnFileChange(sessionApiUsed: true, ControlPlaneSessionState.Busy);
         OnFileChange(sessionApiUsed: true, ControlPlaneSessionState.Busy);
         Assert.Equal(0, autoBuildSchedules);
 
-        // Idle — must not schedule
         OnFileChange(sessionApiUsed: true, ControlPlaneSessionState.Idle);
         Assert.Equal(0, autoBuildSchedules);
 
-        // Busy timeout → Idle — still no auto-build
         Assert.False(BuildTriggerPolicy.BusyTimeoutMayResumeAutoBuild(mode));
         OnFileChange(sessionApiUsed: true, ControlPlaneSessionState.Idle);
         Assert.Equal(0, autoBuildSchedules);
 
-        OnExplicitRebuild();
+        explicitRebuilds++;
         Assert.Equal(1, explicitRebuilds);
         Assert.Equal(0, autoBuildSchedules);
     }
@@ -73,5 +67,16 @@ public sealed class AiControlledWorkflowPolicyTests
         shipChecks++;
         Assert.Equal(0, autoBuildSchedules);
         Assert.Equal(1, shipChecks);
+    }
+
+    [Fact]
+    public void Ai_controlled_mode_disables_auto_build_regardless_of_watch_settings()
+    {
+        Assert.True(BuildTriggerPolicy.IsAutoBuildDisabledByMode(ProjectBuildControlMode.AiControlled));
+        Assert.False(
+            BuildTriggerPolicy.ShouldAutoBuildFromFileChange(
+                ProjectBuildControlMode.AiControlled,
+                sessionApiUsed: true,
+                ControlPlaneSessionState.Idle));
     }
 }

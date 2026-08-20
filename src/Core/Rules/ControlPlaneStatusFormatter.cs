@@ -280,7 +280,7 @@ public static class ControlPlaneStatusFormatter
         var parts = new List<string>();
         if (!controlPlane.AutoBuildEnabled)
         {
-            parts.Add("Agent editing");
+            parts.Add("Editing");
         }
         else if (controlPlane.AutoBuildBlockedBySession)
         {

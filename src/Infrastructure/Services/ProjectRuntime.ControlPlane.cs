@@ -537,6 +537,7 @@ internal sealed partial class ProjectRuntime
         {
             // Cancel any pending file-triggered rebuild timer; keep observed change counts for the UI.
             Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+            Volatile.Write(ref pendingHotReloadRestartRequest, 0);
             if (pendingFileChangeRebuild)
             {
                 pendingRebuildHoldReason = PendingRebuildHoldReason.EditsSettling;
@@ -545,9 +546,18 @@ internal sealed partial class ProjectRuntime
             if (state == ProjectLifecycleState.WaitingForEdits
                 && Volatile.Read(ref buildInProgress) == 0)
             {
-                SetState(ProjectLifecycleState.Idle);
-                SetProjectCurrentAction("AI Controlled — changes awaiting explicit build");
+                SetState(runProcess?.IsRunning == true
+                    ? ProjectLifecycleState.Running
+                    : ProjectLifecycleState.Idle);
+                SetProjectCurrentAction(
+                    pendingFileChangeRebuild
+                        ? "AI Controlled — changes awaiting explicit build"
+                        : "AI Controlled — explicit build required");
             }
+
+            // Drop dotnet watch so file edits cannot compile inside the host process.
+            _ = MigrateRunHostForBuildControlModeAsync();
+            TryStartFileWatcher();
         }
         else
         {
@@ -561,6 +571,9 @@ internal sealed partial class ProjectRuntime
                 SetState(ProjectLifecycleState.Idle);
                 SetProjectCurrentAction("File Watching — waiting for next change");
             }
+
+            // Restore watch/run strategy without building accumulated AI edits.
+            _ = MigrateRunHostForBuildControlModeAsync();
         }
 
         NotifyControlPlaneChanged(immediate: true);
@@ -570,6 +583,64 @@ internal sealed partial class ProjectRuntime
             ProjectBuildControlModeWire.ToWire(mode),
             previous,
             ProjectBuildControlModeWire.ToWire(previous));
+    }
+
+    /// <summary>
+    /// Swaps the run host when build-control mode changes: AI Controlled uses
+    /// <c>dotnet run --no-build</c>; File Watching may use <c>dotnet watch</c> again.
+    /// Does not compile — only restarts the already-built host if one was running.
+    /// </summary>
+    private async Task MigrateRunHostForBuildControlModeAsync()
+    {
+        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref buildInProgress) != 0
+            || Volatile.Read(ref agentRebuildInProgress) != 0
+            || Volatile.Read(ref shipCheckInProgress) != 0)
+        {
+            return;
+        }
+
+        var running = runProcess?.IsRunning == true;
+        if (!running)
+        {
+            return;
+        }
+
+        var wantWatch = UsesDotNetWatchProcess();
+        var isWatch = IsRunningDotNetWatchHost();
+        if (wantWatch == isWatch)
+        {
+            return;
+        }
+
+        try
+        {
+            SetProjectCurrentAction(wantWatch
+                ? "Switching host to dotnet watch (no rebuild)"
+                : "Switching host to dotnet run --no-build (AI Controlled)");
+            await StopRunProcessAsync(CancellationToken.None).ConfigureAwait(false);
+            StartRunProcess(skipEmbeddedBuild: true);
+        }
+        catch
+        {
+            // Host migration is best-effort; explicit rebuild can recover.
+        }
+    }
+
+    private bool IsRunningDotNetWatchHost()
+    {
+        var command = runProcess?.CommandLine;
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+
+        return command.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("watch", StringComparer.OrdinalIgnoreCase);
     }
 
     private void NoteAutoBuildBlockedByControlPlane() =>
