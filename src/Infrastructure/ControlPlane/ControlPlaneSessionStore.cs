@@ -1,5 +1,6 @@
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
+using BuildMonitor.Infrastructure.Diagnostics;
 
 namespace BuildMonitor.Infrastructure.ControlPlane;
 
@@ -9,11 +10,17 @@ public sealed class ControlPlaneSessionStore
     private readonly object sync = new();
     private readonly Dictionary<string, Entry> entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly ControlPlaneMetricsStore? metrics;
+    private readonly ControlPlaneEventJournal? events;
     private int busyTimeoutSeconds = 120;
     private bool suppressAutoBuildTestsDefault = true;
 
-    public ControlPlaneSessionStore(ControlPlaneMetricsStore? metrics = null) =>
+    public ControlPlaneSessionStore(
+        ControlPlaneMetricsStore? metrics = null,
+        ControlPlaneEventJournal? events = null)
+    {
         this.metrics = metrics;
+        this.events = events;
+    }
 
     public void ApplyMonitorDefaults(int busyTimeoutSeconds, bool suppressAutoBuildTestsDefault)
     {
@@ -60,6 +67,7 @@ public sealed class ControlPlaneSessionStore
         if (expiredBusy is { } duration)
         {
             metrics?.RecordBusyInterval(projectId, duration);
+            events?.Record(projectId, ControlPlaneEventKind.IdleTimeout, "Agent busy timed out", "Build allowed after timeout");
         }
 
         return status;
@@ -86,6 +94,7 @@ public sealed class ControlPlaneSessionStore
         }
 
         metrics?.MarkSessionApiUsed(projectId);
+        events?.Record(projectId, ControlPlaneEventKind.Busy, "Agent busy — builds paused");
         return status;
     }
 
@@ -147,6 +156,7 @@ public sealed class ControlPlaneSessionStore
             metrics?.RecordBusyInterval(projectId, duration);
         }
 
+        events?.Record(projectId, ControlPlaneEventKind.IdleAgent, "Agent idle — build allowed");
         return status;
     }
 

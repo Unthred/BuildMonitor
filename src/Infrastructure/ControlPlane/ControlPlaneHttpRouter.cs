@@ -220,6 +220,23 @@ internal static class ControlPlaneHttpRouter
             }
         }
 
+        if (method == "POST" && path == "/run/stop")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            var result = await actions.StopRunAsync(projectId!, cancellationToken).ConfigureAwait(false);
+            return Ok(ToRunStopJson(result), projectId);
+        }
+
         if (method == "POST" && path == "/run/ship-check")
         {
             var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
@@ -298,6 +315,14 @@ internal static class ControlPlaneHttpRouter
         exitCode = result.ExitCode,
         failures = result.Failures,
         log = result.Log
+    };
+
+    private static object ToRunStopJson(ControlPlaneRunStopResult result) => new
+    {
+        ok = result.Ok,
+        wasRunning = result.WasRunning,
+        exitCode = result.ExitCode,
+        watch = WatchJson(result.Watch)
     };
 
     private static object ToRunTestsJson(ControlPlaneRunTestsResult result)

@@ -88,6 +88,23 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Equal(200, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Post_run_stop_stops_running_app()
+    {
+        var actions = new FakeActions { Exists = true };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/stop"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("abc", actions.LastStopProjectId);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
@@ -95,6 +112,7 @@ public sealed class ControlPlaneHttpRouterTests
         public string? LastBusyProjectId { get; private set; }
         public bool? LastBusySuppress { get; private set; }
         public string? LastRebuildProjectId { get; private set; }
+        public string? LastStopProjectId { get; private set; }
 
         public IReadOnlyList<ControlPlaneProjectInfo> ListProjects()
         {
@@ -146,6 +164,18 @@ public sealed class ControlPlaneHttpRouterTests
 
         public ControlPlaneWatchStatus ResumeWatch(string projectId) =>
             new(ControlPlaneWatchState.Running, 1234);
+
+        public Task<ControlPlaneRunStopResult> StopRunAsync(
+            string projectId,
+            CancellationToken cancellationToken)
+        {
+            LastStopProjectId = projectId;
+            return Task.FromResult(new ControlPlaneRunStopResult(
+                true,
+                WasRunning: true,
+                ExitCode: 0,
+                new ControlPlaneWatchStatus(ControlPlaneWatchState.Paused, null)));
+        }
 
         public Task<ControlPlaneRunTestsResult> RunTestsAsync(
             ControlPlaneRunTestsRequest request,

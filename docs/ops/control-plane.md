@@ -35,6 +35,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — do not auto-build |
 | POST | `/session/idle` | Edit burst done — auto-build may run after debounce |
 | GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since", "idleCause": "none"\|"agent"\|"timeout", "lastActivity" }` |
+| POST | `/run/stop` | Stop supervised app (`dotnet run`/`watch`); watch becomes **paused** until resume/rebuild |
 | POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch |
 | POST | `/run/tests` | Mark idle → run tests (`filter` optional) — no full ship-check |
 | POST | `/run/ship-check` | Pause watch → build → test (if any) → resume |
@@ -65,7 +66,8 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 | Run tests by category / trait | `POST /run/tests` | `"filter": "Category=Unit"` (or any trait your tests expose) |
 | Run all unit tests | `POST /run/tests` | Omit `filter`, or use ship-check if you also need a fresh build |
 | Build + all tests (verification) | `POST /run/ship-check` | Preferred before claiming “builds and tests pass” |
-| Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Independent of session busy/idle |
+| Stop running app (exit site) | `POST /run/stop` | Stops process; watch **paused** — use `/watch/resume` or `/run/rebuild` to start again |
+| Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Same stop semantics as `/run/stop` (alias for agents that think in watch terms) |
 | Resume watch/run host | `POST /watch/resume` | After manual pause or external need |
 | Read session state | `GET /session?projectId=` | `idleCause`: `agent` (you sent idle) vs `timeout` (120s expired) |
 | Read watch host state | `GET /watch?projectId=` | `running` / `paused` / `stopped` |
@@ -213,8 +215,10 @@ Per-project tiles under **Build diagnostics** (process lifetime, in memory — r
 | Busy / idle calls | `POST /session/busy` and `/idle` counts |
 | Time busy | Sum of busy intervals (including timeout→idle) |
 | Builds blocked | File-change rebuilds held while busy |
+| Agent workflow | **Healthy** / **Busy** / **Extra builds** / **Build during busy** — correlates busy → idle → builds |
+| Agent events | Today’s busy/idle/blocked/rebuild/tests timeline (persisted) |
 | Ship-check | Pass rate, pass/total, average duration |
 | Call rate | HTTP calls in the last hour for that project |
 | HTTP | Request count and 4xx / 5xx |
 
-Open **Tray → Build diagnostics…** and select the project tab.
+Open **Tray → Build diagnostics…** and select the project tab. The **Agent workflow** panel shows whether the last agent cycle behaved as expected (one build after idle, builds blocked while busy). **Recent agent events** lists today’s `/session/busy`, `/session/idle`, blocked file changes, and explicit rebuild/test calls.

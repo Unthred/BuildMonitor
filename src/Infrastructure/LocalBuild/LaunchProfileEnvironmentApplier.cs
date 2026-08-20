@@ -92,8 +92,8 @@ public static class LaunchProfileEnvironmentApplier
 
         return urls
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(u => u.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(LocalPortProbe.GetProfileUrlPriorityRank)
+            .ThenBy(u => u, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

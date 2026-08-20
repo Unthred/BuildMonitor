@@ -264,6 +264,19 @@ internal sealed partial class ProjectRuntime
         return GetWatchStatus();
     }
 
+    public async Task<ControlPlaneRunStopResult> StopRunAsync(CancellationToken cancellationToken)
+    {
+        var wasRunning = runProcess?.IsRunning == true;
+        var watch = await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
+        NotifyControlPlaneChanged(immediate: true);
+
+        return new ControlPlaneRunStopResult(
+            Ok: true,
+            WasRunning: wasRunning,
+            ExitCode: lastExitCode,
+            Watch: watch);
+    }
+
     public void RequestCancelInFlightBuild() => RequestBuildCancellation();
 
     public bool IsBuildInProgress => Volatile.Read(ref buildInProgress) != 0;

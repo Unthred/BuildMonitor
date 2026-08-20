@@ -1,4 +1,5 @@
 using BuildMonitor.Core.Models;
+using BuildMonitor.Infrastructure.Diagnostics;
 
 namespace BuildMonitor.Infrastructure.ControlPlane;
 
@@ -8,6 +9,10 @@ public sealed class ControlPlaneMetricsStore
     private readonly object sync = new();
     private readonly Dictionary<string, ProjectCounters> byProject = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<DateTimeOffset> globalCallTimes = new();
+    private readonly ControlPlaneEventJournal? events;
+
+    public ControlPlaneMetricsStore(ControlPlaneEventJournal? events = null) =>
+        this.events = events;
 
     public void RecordHttp(string? projectId, string routeKey, int statusCode, TimeSpan? duration = null)
     {
@@ -112,6 +117,11 @@ public sealed class ControlPlaneMetricsStore
         {
             GetOrCreate(projectId).AutoBuildsBlocked++;
         }
+
+        events?.Record(
+            projectId,
+            ControlPlaneEventKind.BuildBlocked,
+            "File change held while busy");
     }
 
     public void MarkSessionApiUsed(string projectId)

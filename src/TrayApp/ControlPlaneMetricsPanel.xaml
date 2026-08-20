@@ -47,6 +47,61 @@
                        TextWrapping="Wrap"
                        Margin="0,0,0,8" />
 
+            <Border Padding="8,6"
+                    CornerRadius="4"
+                    BorderThickness="1"
+                    Margin="0,0,0,8"
+                    Background="{DynamicResource ThemeControlBrush}"
+                    BorderBrush="{DynamicResource ThemeBorderBrush}"
+                    DataContext="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=Workflow}">
+                <StackPanel>
+                    <TextBlock Text="Agent workflow"
+                               FontWeight="SemiBold"
+                               FontSize="11"
+                               Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding StatusText}"
+                               FontWeight="SemiBold"
+                               FontSize="12"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StatusDetail}"
+                               FontSize="10"
+                               Opacity="0.75"
+                               TextWrapping="Wrap"
+                               Margin="0,2,0,4" />
+                    <TextBlock FontSize="10" Opacity="0.85" TextWrapping="Wrap">
+                        <Run Text="Last cycle:" />
+                        <Run Text="{Binding LastCycleSummary, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock FontSize="10" Opacity="0.75" Margin="0,2,0,0" TextWrapping="Wrap">
+                        <Run Text="Builds after idle:" />
+                        <Run Text="{Binding BuildsAfterLastIdle, Mode=OneWay}" />
+                        <Run Text=" · blocked while busy:" />
+                        <Run Text="{Binding BuildsBlockedToday, Mode=OneWay}" />
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Recent agent events (today)"
+                       FontSize="10"
+                       Opacity="0.65"
+                       Margin="0,0,0,4"
+                       DataContext="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=Workflow}" />
+            <DataGrid ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=Workflow.RecentEvents}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      MaxHeight="140"
+                      Margin="0,0,0,8">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="When" Binding="{Binding OccurredAtUtc, StringFormat='{}{0:t}'}" Width="70" />
+                    <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*" />
+                    <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="140" />
+                </DataGrid.Columns>
+            </DataGrid>
+
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

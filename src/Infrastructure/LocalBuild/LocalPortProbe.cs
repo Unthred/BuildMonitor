@@ -11,7 +11,7 @@ public static class LocalPortProbe
             return false;
         }
 
-        if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        if (IsLoopbackHost(uri.Host))
         {
             return IsPortOpen("127.0.0.1", uri.Port, timeoutMs)
                 || IsPortOpen("::1", uri.Port, timeoutMs);
@@ -20,43 +20,73 @@ public static class LocalPortProbe
         return IsPortOpen(uri.Host, uri.Port, timeoutMs);
     }
 
-    public static string NormalizeBrowserUrl(string url)
+    /// <summary>
+    /// Single canonical user-facing URL for status panel, links, and notifications.
+    /// Prefers launch-profile hostnames (especially HTTPS localhost) over runtime loopback IPs.
+    /// </summary>
+    public static string? ResolveCanonicalUserFacingUrl(
+        string? runtimeUrl,
+        IReadOnlyList<string> profileUrls)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (string.IsNullOrWhiteSpace(runtimeUrl))
         {
-            return url;
+            var preferred = SelectPreferredProfileUrl(profileUrls);
+            return preferred is null ? null : ToAbsoluteUri(preferred);
         }
 
-        // Dev HTTPS certs are issued for localhost — rewriting to 127.0.0.1 breaks TLS in the browser.
-        if (uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            return uri.AbsoluteUri;
-        }
-
-        if (!uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
-        {
-            return uri.AbsoluteUri;
-        }
-
-        return new UriBuilder(uri) { Host = "127.0.0.1" }.Uri.AbsoluteUri;
+        var matchedProfile = FindMatchingProfileUrl(runtimeUrl, profileUrls);
+        return matchedProfile is not null
+            ? ToAbsoluteUri(matchedProfile)
+            : ToAbsoluteUri(runtimeUrl);
     }
 
-    /// <summary>Human-friendly URL for status panel / tooltips (localhost instead of 127.0.0.1).</summary>
-    public static string NormalizeDisplayUrl(string url)
+    /// <summary>
+    /// When multiple probe/runtime URLs are open, pick the best canonical URL by profile priority.
+    /// </summary>
+    public static string? ResolveCanonicalUserFacingUrlFromOpenEndpoints(
+        IReadOnlyList<string> openRuntimeUrls,
+        IReadOnlyList<string> profileUrls)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (openRuntimeUrls.Count == 0)
         {
-            return url;
+            return ResolveCanonicalUserFacingUrl((string?)null, profileUrls);
         }
 
-        if (uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            && uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+        var candidates = new List<string>();
+        foreach (var runtimeUrl in openRuntimeUrls)
         {
-            return new UriBuilder(uri) { Host = "localhost" }.Uri.AbsoluteUri;
+            var matched = FindMatchingProfileUrl(runtimeUrl, profileUrls);
+            candidates.Add(matched ?? runtimeUrl);
         }
 
-        return uri.AbsoluteUri;
+        foreach (var profileUrl in OrderProfileUrlsByPriority(profileUrls))
+        {
+            if (openRuntimeUrls.Any(open => SameListenEndpoint(open, profileUrl)))
+            {
+                return ToAbsoluteUri(profileUrl);
+            }
+        }
+
+        return ToAbsoluteUri(SelectPreferredCandidate(candidates));
     }
+
+    public static string? SelectPreferredProfileUrl(IReadOnlyList<string> profileUrls)
+    {
+        var ordered = OrderProfileUrlsByPriority(profileUrls);
+        return ordered.FirstOrDefault();
+    }
+
+    [Obsolete("Use ResolveCanonicalUserFacingUrl for user-facing URLs.")]
+    public static string NormalizeBrowserUrl(string url) =>
+        ResolveCanonicalUserFacingUrl(url, []) ?? url;
+
+    [Obsolete("Use ResolveCanonicalUserFacingUrl for user-facing URLs.")]
+    public static string NormalizeDisplayUrl(string url) =>
+        ResolveCanonicalUserFacingUrl(url, []) ?? url;
+
+    [Obsolete("Use ResolveCanonicalUserFacingUrl for user-facing URLs.")]
+    public static string PreferProfileDisplayUrl(string runtimeUrl, IReadOnlyList<string> profileUrls) =>
+        ResolveCanonicalUserFacingUrl(runtimeUrl, profileUrls) ?? runtimeUrl;
 
     public static bool SameListenEndpoint(string left, string right)
     {
@@ -70,32 +100,61 @@ public static class LocalPortProbe
             && leftUri.Scheme.Equals(rightUri.Scheme, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static string PreferProfileDisplayUrl(string runtimeUrl, IReadOnlyList<string> profileUrls)
+    public static bool IsLoopbackHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("[::1]", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+
+    internal static int GetProfileUrlPriorityRank(string url)
     {
-        if (!Uri.TryCreate(runtimeUrl, UriKind.Absolute, out var runtime))
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
-            return runtimeUrl;
+            return 100;
         }
 
-        foreach (var candidate in profileUrls)
+        var isHttps = uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+        var isLocalhost = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        return (isHttps, isLocalhost) switch
         {
-            if (!Uri.TryCreate(candidate, UriKind.Absolute, out var profile))
-            {
-                continue;
-            }
+            (true, true) => 0,
+            (true, false) => 1,
+            (false, true) => 2,
+            _ => 3
+        };
+    }
 
-            if (!SameListenEndpoint(runtimeUrl, candidate))
-            {
-                continue;
-            }
+    internal static IReadOnlyList<string> OrderProfileUrlsByPriority(IReadOnlyList<string> profileUrls) =>
+        profileUrls
+            .Where(u => Uri.TryCreate(u, UriKind.Absolute, out _))
+            .OrderBy(GetProfileUrlPriorityRank)
+            .ThenBy(u => u, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-            if (profile.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+    internal static string? FindMatchingProfileUrl(string runtimeUrl, IReadOnlyList<string> profileUrls)
+    {
+        foreach (var candidate in OrderProfileUrlsByPriority(profileUrls))
+        {
+            if (SameListenEndpoint(runtimeUrl, candidate))
             {
-                return NormalizeDisplayUrl(candidate);
+                return candidate;
             }
         }
 
-        return runtimeUrl;
+        return null;
+    }
+
+    internal static string ToAbsoluteUri(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsoluteUri : url;
+    }
+
+    private static string SelectPreferredCandidate(IReadOnlyList<string> candidates)
+    {
+        return candidates
+            .OrderBy(GetProfileUrlPriorityRank)
+            .ThenBy(u => u, StringComparer.OrdinalIgnoreCase)
+            .First();
     }
 
     private static bool IsPortOpen(string host, int port, int timeoutMs)

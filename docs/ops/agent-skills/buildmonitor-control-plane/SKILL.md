@@ -22,6 +22,7 @@ request an explicit ship build/test. **Do not invent MCP** — HTTP only.
 | Still editing after a pause | `POST /session/busy` again (extends the hold) |
 | Edit burst finished | `POST /session/idle` — **this starts auto-rebuild after debounce**. Do not send idle until every file for this turn is written. |
 | Run tests only | `POST /run/tests` — optional `"filter"`; does not rebuild first |
+| Stop running app | `POST /run/stop` — exit supervised `dotnet run`/`watch`; watch paused until resume/rebuild |
 | Before claiming the change builds / tests | `POST /run/ship-check` — do not assume idle ran tests |
 | Clean rebuild needed (optional) | `POST /run/rebuild` — only when watch host must exit, output is locked, or incremental state is unreliable |
 | Agent crash / forgotten idle | Busy auto-expires **120s after the last busy POST or file change while busy** |
@@ -80,6 +81,7 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/session/busy` | `{ "projectId": "…" }` |
 | POST | `/session/idle` | `{ "projectId": "…" }` |
 | GET | `/session` | `?projectId=` |
+| POST | `/run/stop` | `{ "projectId": "…" }` — stop app; watch paused |
 | POST | `/run/rebuild` | `{ "projectId": "…", "configuration": "Debug" }` optional — pause watch, build, resume |
 | POST | `/run/tests` | `{ "projectId": "…", "filter": "FullyQualifiedName~MyTest", "configuration": "Debug" }` optional |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |

@@ -1,5 +1,7 @@
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Infrastructure.ControlPlane;
+using BuildMonitor.Infrastructure.Diagnostics;
 
 namespace BuildMonitor.Infrastructure.Services;
 
@@ -77,6 +79,18 @@ public sealed partial class ProjectOrchestrator
     public ControlPlaneMetricsSnapshot GetControlPlaneMetrics(string projectId) =>
         metricsStore.GetSnapshot(projectId, sessionStore.GetStatus(projectId));
 
+    public ControlPlaneWorkflowSnapshot GetControlPlaneWorkflow(string projectId)
+    {
+        var metrics = GetControlPlaneMetrics(projectId);
+        return ControlPlaneWorkflowAnalyzer.Analyze(
+            projectId,
+            sessionStore.GetStatus(projectId),
+            controlPlaneEventJournal.GetEntries(),
+            triggerJournal.GetEntries(),
+            metrics.AutoBuildsBlocked,
+            DateTimeOffset.UtcNow);
+    }
+
     public async Task<ControlPlaneShipCheckResult> RunControlPlaneShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken)
@@ -110,6 +124,35 @@ public sealed partial class ProjectOrchestrator
         {
             return await runtime.RunAgentRebuildAsync(request.Configuration, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        finally
+        {
+            healthCoalescer.Request(immediate: true);
+        }
+    }
+
+    public async Task<ControlPlaneRunStopResult> StopControlPlaneRunAsync(
+        string projectId,
+        CancellationToken cancellationToken)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+        }
+
+        if (runtime is null)
+        {
+            return new ControlPlaneRunStopResult(
+                Ok: true,
+                WasRunning: false,
+                ExitCode: null,
+                Watch: new ControlPlaneWatchStatus(ControlPlaneWatchState.Stopped, Pid: null));
+        }
+
+        try
+        {
+            return await runtime.StopRunAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {

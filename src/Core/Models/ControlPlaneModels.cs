@@ -70,6 +70,12 @@ public sealed record ControlPlaneRunTestsResult(
     IReadOnlyList<string> Failures,
     string? Log);
 
+public sealed record ControlPlaneRunStopResult(
+    bool Ok,
+    bool WasRunning,
+    int? ExitCode,
+    ControlPlaneWatchStatus Watch);
+
 public sealed record ControlPlaneTestCounts(int Failed, int Passed, int Skipped);
 
 public sealed record ControlPlaneShipCheckResult(

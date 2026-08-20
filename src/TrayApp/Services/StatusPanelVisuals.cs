@@ -5,7 +5,6 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BuildMonitor.Core.Models;
-using BuildMonitor.Infrastructure.LocalBuild;
 using WpfColor = System.Windows.Media.Color;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfOrientation = System.Windows.Controls.Orientation;
@@ -189,8 +188,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteAwaitingBlock(string listenUrl, ThemePalette palette)
     {
-        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
+        var canonicalUrl = listenUrl;
         var accent = WpfColor.FromRgb(255, 193, 7);
         return new Border
         {
@@ -213,7 +211,7 @@ internal static class StatusPanelVisuals
                     },
                     new TextBlock
                     {
-                        Text = displayUrl,
+                        Text = canonicalUrl,
                         FontSize = 10,
                         TextWrapping = TextWrapping.Wrap,
                         Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
@@ -226,8 +224,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteReadyBlock(string listenUrl, ThemePalette palette)
     {
-        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
+        var canonicalUrl = listenUrl;
         var readyGreen = WpfColor.FromRgb(40, 167, 69);
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock
@@ -239,7 +236,7 @@ internal static class StatusPanelVisuals
         });
 
         var linkRow = new TextBlock { Margin = new Thickness(0, 3, 0, 0) };
-        if (Uri.TryCreate(openUrl, UriKind.Absolute, out var uri))
+        if (Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri))
         {
             var link = new Hyperlink
             {
@@ -249,7 +246,7 @@ internal static class StatusPanelVisuals
                 TextDecorations = TextDecorations.Underline,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
-            link.Inlines.Add($"Open {displayUrl}");
+            link.Inlines.Add($"Open {canonicalUrl}");
             link.RequestNavigate += (_, e) =>
             {
                 try
@@ -267,7 +264,7 @@ internal static class StatusPanelVisuals
         }
         else
         {
-            linkRow.Inlines.Add(new Run(displayUrl)
+            linkRow.Inlines.Add(new Run(canonicalUrl)
             {
                 Foreground = new SolidColorBrush(palette.Foreground),
                 FontWeight = FontWeights.SemiBold

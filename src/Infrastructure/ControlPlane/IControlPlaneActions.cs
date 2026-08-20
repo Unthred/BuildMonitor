@@ -17,6 +17,9 @@ public interface IControlPlaneActions
     Task<ControlPlaneRunTestsResult> RunTestsAsync(
         ControlPlaneRunTestsRequest request,
         CancellationToken cancellationToken);
+    Task<ControlPlaneRunStopResult> StopRunAsync(
+        string projectId,
+        CancellationToken cancellationToken);
     Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken);

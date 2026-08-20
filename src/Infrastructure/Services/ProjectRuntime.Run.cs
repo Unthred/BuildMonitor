@@ -44,7 +44,8 @@ internal sealed partial class ProjectRuntime
             definition.RootFolder,
             definition.ProjectFile,
             definition.LaunchProfile);
-        pendingListenUrl = candidateListenUrls.FirstOrDefault();
+        pendingListenUrl = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls)
+            ?? candidateListenUrls.FirstOrDefault();
         listenUrlReady = false;
         listenUrlNotified = false;
         runOutputSaveRevision = 0;
@@ -56,15 +57,15 @@ internal sealed partial class ProjectRuntime
             args,
             psi =>
             {
-                var effectiveProfile = LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
-                    definition.RootFolder,
-                    definition.ProjectFile,
-                    definition.LaunchProfile);
-                LaunchProfileEnvironmentApplier.ApplyTo(
-                    psi,
-                    definition.RootFolder,
-                    definition.ProjectFile,
-                    effectiveProfile);
+                // When --launch-profile is on the command line, dotnet applies launchSettings itself.
+                if (string.IsNullOrWhiteSpace(ResolveEffectiveLaunchProfile()))
+                {
+                    LaunchProfileEnvironmentApplier.ApplyTo(
+                        psi,
+                        definition.RootFolder,
+                        definition.ProjectFile,
+                        definition.LaunchProfile);
+                }
 
                 // BuildMonitor shows site-ready in the tray panel; avoid launchSettings launchBrowser pop-ups.
                 psi.Environment["DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER"] = "1";
@@ -193,7 +194,8 @@ internal sealed partial class ProjectRuntime
 
     private List<string> BuildRunArgs(bool skipEmbeddedBuild = false)
     {
-        var args = new List<string> { "run", "--project", ResolveProjectFileArg(), "--no-launch-profile" };
+        var args = new List<string> { "run", "--project", ResolveProjectFileArg() };
+        AppendLaunchProfileSwitch(args);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
@@ -212,7 +214,8 @@ internal sealed partial class ProjectRuntime
             args.Add("--non-interactive");
         }
 
-        args.AddRange(["run", "--project", ResolveProjectFileArg(), "--no-launch-profile"]);
+        args.AddRange(["run", "--project", ResolveProjectFileArg()]);
+        AppendLaunchProfileSwitch(args);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
@@ -221,6 +224,25 @@ internal sealed partial class ProjectRuntime
         AppendExtraArgs(args);
         return args;
     }
+
+    private void AppendLaunchProfileSwitch(List<string> args)
+    {
+        var profile = ResolveEffectiveLaunchProfile();
+        if (!string.IsNullOrWhiteSpace(profile))
+        {
+            args.Add("--launch-profile");
+            args.Add(profile);
+            return;
+        }
+
+        args.Add("--no-launch-profile");
+    }
+
+    private string? ResolveEffectiveLaunchProfile() =>
+        LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
+            definition.RootFolder,
+            definition.ProjectFile,
+            definition.LaunchProfile);
 
     private void AppendExtraArgs(List<string> args)
     {
@@ -239,24 +261,7 @@ internal sealed partial class ProjectRuntime
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(pendingListenUrl))
-        {
-            return LocalPortProbe.NormalizeDisplayUrl(
-                LocalPortProbe.PreferProfileDisplayUrl(pendingListenUrl, candidateListenUrls));
-        }
-
-        if (candidateListenUrls.Count > 0)
-        {
-            return LocalPortProbe.NormalizeDisplayUrl(candidateListenUrls[0]);
-        }
-
-        var profileUrl = LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
-            definition.RootFolder,
-            definition.ProjectFile,
-            definition.LaunchProfile);
-        return string.IsNullOrWhiteSpace(profileUrl)
-            ? null
-            : LocalPortProbe.NormalizeDisplayUrl(profileUrl);
+        return LocalPortProbe.ResolveCanonicalUserFacingUrl(pendingListenUrl, candidateListenUrls);
     }
 
     private void RefreshListenUrlReady()
@@ -272,16 +277,21 @@ internal sealed partial class ProjectRuntime
             ? candidateListenUrls
             : string.IsNullOrWhiteSpace(pendingListenUrl) ? [] : new[] { pendingListenUrl };
 
-        foreach (var url in urlsToProbe)
+        var openUrls = urlsToProbe.Where(LocalPortProbe.IsHttpEndpointOpen).ToList();
+        if (openUrls.Count == 0)
         {
-            if (LocalPortProbe.IsHttpEndpointOpen(url))
-            {
-                MarkListenUrlReady(url);
-                return;
-            }
+            listenUrlReady = false;
+            return;
         }
 
-        listenUrlReady = false;
+        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(openUrls, candidateListenUrls);
+        if (string.IsNullOrWhiteSpace(canonical))
+        {
+            listenUrlReady = false;
+            return;
+        }
+
+        MarkListenUrlReady(canonical);
     }
 
     private void StartListenUrlPolling()
@@ -334,11 +344,10 @@ internal sealed partial class ProjectRuntime
         }
 
         listenUrlNotified = true;
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(url);
         notifyUser?.Invoke(
             definition.Id,
             $"App running — {definition.DisplayName}",
-            $"Open {openUrl}",
+            $"Open {url}",
             UserNotificationKind.Info,
             UserNotificationCategory.Info);
     }

@@ -16,7 +16,10 @@ public sealed class ControlPlaneHostService : IDisposable
     {
         this.orchestrator = orchestrator;
         this.appDataDirectory = appDataDirectory;
-        var coordinator = new ControlPlaneCoordinator(orchestrator, orchestrator.SessionStore);
+        var coordinator = new ControlPlaneCoordinator(
+            orchestrator,
+            orchestrator.SessionStore,
+            orchestrator.ControlPlaneEventJournal);
         host = new LocalControlPlaneHost(coordinator, orchestrator.MetricsStore);
     }
 
