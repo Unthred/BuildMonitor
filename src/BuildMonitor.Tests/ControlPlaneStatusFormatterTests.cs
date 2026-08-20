@@ -15,11 +15,11 @@ public sealed class ControlPlaneStatusFormatterTests
         var presentation = ControlPlaneStatusFormatter.Format(snapshot, Now);
 
         Assert.False(presentation.ShowControlPlaneSection);
-        Assert.Null(presentation.ActivityHeadline);
+        Assert.Null(presentation.AgentPrimary);
     }
 
     [Fact]
-    public void Format_busy_shows_builds_paused_and_held_detail()
+    public void Format_busy_shows_builds_paused_and_queued_changes()
     {
         var controlPlane = new ProjectControlPlaneSnapshot(
             SessionApiUsed: true,
@@ -35,11 +35,10 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Agent editing — builds paused", presentation.ActivityHeadline);
-        Assert.Contains("Agent: Busy", presentation.DetailLine);
-        Assert.Contains("Busy for 43s", presentation.DetailLine);
-        Assert.Contains("Automatic builds held", presentation.DetailLine);
-        Assert.Contains("3 file changes queued", presentation.DetailLine);
+        Assert.Equal("Busy", presentation.AgentPrimary);
+        Assert.Equal("Builds paused · 43s", presentation.AgentSecondary);
+        Assert.Equal("3 queued", presentation.ChangesPrimary);
+        Assert.Equal(StatusPanelRowEmphasis.Busy, presentation.AgentEmphasis);
     }
 
     [Fact]
@@ -59,7 +58,8 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Agent: Connected · Idle", presentation.AgentStatusLine);
+        Assert.Equal("Idle", presentation.AgentPrimary);
+        Assert.Equal("Build allowed", presentation.AgentSecondary);
     }
 
     [Fact]
@@ -79,8 +79,9 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Agent finished editing · build allowed", presentation.ActivityHeadline);
-        Assert.Contains("2 file changes queued", presentation.DetailLine);
+        Assert.Equal("Idle", presentation.AgentPrimary);
+        Assert.Equal("Build allowed", presentation.AgentSecondary);
+        Assert.Equal("2 queued", presentation.ChangesPrimary);
     }
 
     [Fact]
@@ -96,8 +97,8 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Ship check — building", presentation.ActivityHeadline);
-        Assert.Equal("Agent: Ship check", presentation.AgentStatusLine);
+        Assert.Equal("Ship check · Building", presentation.BuildActivityOverride);
+        Assert.Equal("Compiling…", presentation.TransientAction);
     }
 
     [Fact]
@@ -111,7 +112,8 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Ship check — testing", presentation.ActivityHeadline);
+        Assert.Equal("Ship check · Testing", presentation.BuildActivityOverride);
+        Assert.Equal("Running tests…", presentation.TransientAction);
     }
 
     [Fact]
@@ -131,7 +133,7 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Ship check passed", presentation.ActivityHeadline);
+        Assert.Equal("Ship check passed", presentation.BuildActivityOverride);
     }
 
     [Fact]
@@ -151,7 +153,7 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Ship check failed", presentation.ActivityHeadline);
+        Assert.Equal("Ship check failed", presentation.BuildActivityOverride);
     }
 
     [Fact]
@@ -167,8 +169,8 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Rebuild — building", presentation.ActivityHeadline);
-        Assert.Equal("Agent: Rebuild", presentation.AgentStatusLine);
+        Assert.Equal("Rebuild · Building", presentation.BuildActivityOverride);
+        Assert.Equal("Rebuilding…", presentation.TransientAction);
     }
 
     [Fact]
@@ -192,7 +194,7 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Rebuild passed", presentation.ActivityHeadline);
+        Assert.Equal("Rebuild passed", presentation.BuildActivityOverride);
     }
 
     [Fact]
@@ -213,8 +215,9 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Agent busy timed out · build allowed", presentation.ActivityHeadline);
-        Assert.Contains("Timeout (no idle from agent)", presentation.DetailLine);
+        Assert.Equal("Idle", presentation.AgentPrimary);
+        Assert.Equal("Timed out · build allowed", presentation.AgentSecondary);
+        Assert.Equal("2 queued", presentation.ChangesPrimary);
     }
 
     [Fact]
@@ -229,7 +232,8 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Tests — running", presentation.ActivityHeadline);
+        Assert.Equal("Tests", presentation.BuildActivityOverride);
+        Assert.Equal("Running tests…", presentation.TransientAction);
     }
 
     private static ProjectControlPlaneSnapshot BusyControlPlane => new(

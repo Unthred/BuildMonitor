@@ -6,14 +6,30 @@ public enum StatusPanelSideRailMode
     Accent = 1
 }
 
+/// <summary>One labelled row in the compact status grid (BUILD / AGENT / CHANGES / LAST BUILD).</summary>
+public sealed record StatusPanelStatusRow(
+    string Label,
+    string Primary,
+    string? Secondary = null,
+    string? ToolTip = null,
+    StatusPanelRowEmphasis Emphasis = StatusPanelRowEmphasis.Normal);
+
+public enum StatusPanelRowEmphasis
+{
+    Normal = 0,
+    Busy = 1,
+    Warning = 2,
+    Error = 3,
+    Active = 4
+}
+
 /// <summary>Derived view of one project card in the hover status panel.</summary>
 public sealed record StatusPanelCardPresentation(
     string ProjectId,
     MonitorHealth Health,
     string DisplayName,
-    string StatusLine,
-    string LastBuildLine,
-    string? EditGatingDetailText,
+    IReadOnlyList<StatusPanelStatusRow> StatusRows,
+    string? CurrentActionText,
     bool ShowSiteReady,
     bool ShowSiteAwaiting,
     string? ListenUrl,
@@ -23,8 +39,6 @@ public sealed record StatusPanelCardPresentation(
     string? ErrorPreview,
     bool ShowActivityIndicator,
     ProjectLifecycleState ActivityState,
-    bool ShowIssueSummary,
-    bool ShowIssueSummaryBelowProgress,
     int ErrorCount,
     int WarningCount,
     bool ShowCopyErrorsButton,
@@ -32,9 +46,6 @@ public sealed record StatusPanelCardPresentation(
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
     string? StillEditingToolTip,
-    string? ActivityHeadline = null,
-    string? AgentStatusLine = null,
-    string? ControlPlaneDetailLine = null,
     bool ShowControlPlaneSection = false);
 
 /// <summary>Derived view of the right-hand status rail.</summary>

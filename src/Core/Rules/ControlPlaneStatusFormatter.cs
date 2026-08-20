@@ -9,10 +9,14 @@ public static class ControlPlaneStatusFormatter
     private static readonly TimeSpan ShipCheckResultWindow = TimeSpan.FromMinutes(2);
 
     public sealed record Presentation(
-        string? ActivityHeadline,
-        string? AgentStatusLine,
-        string? DetailLine,
-        bool ShowControlPlaneSection);
+        bool ShowControlPlaneSection,
+        string? AgentPrimary,
+        string? AgentSecondary,
+        string? ChangesPrimary,
+        string? ChangesSecondary,
+        string? BuildActivityOverride,
+        string? TransientAction,
+        StatusPanelRowEmphasis AgentEmphasis = StatusPanelRowEmphasis.Normal);
 
     public static Presentation Format(
         ProjectHealthSnapshot snapshot,
@@ -21,12 +25,20 @@ public static class ControlPlaneStatusFormatter
         var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
         if (!ShouldShowControlPlaneSection(controlPlane))
         {
-            return new Presentation(null, null, null, false);
+            return Hidden;
         }
 
         if (controlPlane.AgentTestsInProgress)
         {
-            return new Presentation("Tests — running", "Agent: Tests", null, true);
+            return new Presentation(
+                true,
+                AgentPrimary: "Idle",
+                AgentSecondary: "Build allowed",
+                ChangesPrimary: FormatQueuedChanges(controlPlane),
+                ChangesSecondary: null,
+                BuildActivityOverride: "Tests",
+                TransientAction: "Running tests…",
+                AgentEmphasis: StatusPanelRowEmphasis.Normal);
         }
 
         if (controlPlane.AgentRebuildInProgress
@@ -45,24 +57,48 @@ public static class ControlPlaneStatusFormatter
             && controlPlane.LastAgentTestsCompletedUtc is { } testsCompleted
             && utcNow - testsCompleted <= ShipCheckResultWindow)
         {
-            var headline = controlPlane.LastAgentTestsOutcome == ControlPlaneShipCheckOutcome.Passed
-                ? "Tests passed"
-                : "Tests failed";
-            return new Presentation(headline, "Agent: Connected · Idle", null, true);
+            var passed = controlPlane.LastAgentTestsOutcome == ControlPlaneShipCheckOutcome.Passed;
+            return new Presentation(
+                true,
+                "Idle",
+                "Build allowed",
+                FormatQueuedChanges(controlPlane),
+                null,
+                BuildActivityOverride: passed ? "Tests passed" : "Tests failed",
+                TransientAction: null,
+                AgentEmphasis: StatusPanelRowEmphasis.Normal);
         }
 
         if (controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None
             && controlPlane.LastAgentRebuildCompletedUtc is { } rebuildCompleted
             && utcNow - rebuildCompleted <= ShipCheckResultWindow)
         {
-            return FormatRebuildResult(controlPlane);
+            var passed = controlPlane.LastAgentRebuildOutcome == ControlPlaneShipCheckOutcome.Passed;
+            return new Presentation(
+                true,
+                "Idle",
+                "Build allowed",
+                FormatQueuedChanges(controlPlane),
+                null,
+                BuildActivityOverride: passed ? "Rebuild passed" : "Rebuild failed",
+                TransientAction: null);
         }
 
         if (controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
             && controlPlane.LastShipCheckCompletedUtc is { } completed
             && utcNow - completed <= ShipCheckResultWindow)
         {
-            return FormatShipCheckResult(controlPlane);
+            var passed = controlPlane.LastShipCheckOutcome == ControlPlaneShipCheckOutcome.Passed;
+            var busy = controlPlane.EffectiveSessionState == ControlPlaneSessionState.Busy;
+            return new Presentation(
+                true,
+                busy ? "Busy" : "Idle",
+                busy ? FormatBusySecondary(controlPlane, utcNow) : "Build allowed",
+                FormatQueuedChanges(controlPlane),
+                null,
+                BuildActivityOverride: passed ? "Ship check passed" : "Ship check failed",
+                TransientAction: null,
+                AgentEmphasis: busy ? StatusPanelRowEmphasis.Busy : StatusPanelRowEmphasis.Normal);
         }
 
         if (controlPlane.EffectiveSessionState == ControlPlaneSessionState.Busy)
@@ -75,149 +111,152 @@ public static class ControlPlaneStatusFormatter
 
     public static bool ShouldShowControlPlaneSection(ProjectControlPlaneSnapshot controlPlane) =>
         controlPlane.SessionApiUsed
-        ||         controlPlane.ShipCheckInProgress
+        || controlPlane.ShipCheckInProgress
         || controlPlane.AgentRebuildInProgress
         || controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
         || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None
-        ||         controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
+        || controlPlane.LastShipCheckOutcome != ControlPlaneShipCheckOutcome.None
         || controlPlane.LastAgentRebuildOutcome != ControlPlaneShipCheckOutcome.None
         || controlPlane.AgentTestsInProgress
         || controlPlane.LastAgentTestsOutcome != ControlPlaneShipCheckOutcome.None;
 
+    private static Presentation Hidden { get; } = new(
+        false, null, null, null, null, null, null);
+
     private static Presentation FormatRebuildActive(ProjectControlPlaneSnapshot controlPlane)
     {
-        var headline = controlPlane.AgentRebuildPhase switch
+        var phase = controlPlane.AgentRebuildPhase switch
         {
-            ControlPlaneShipCheckPhase.Preparing => "Rebuild — preparing",
-            ControlPlaneShipCheckPhase.Building => "Rebuild — building",
-            ControlPlaneShipCheckPhase.ResumingWatch => "Rebuild — resuming watch",
-            _ => "Rebuild — running"
+            ControlPlaneShipCheckPhase.Preparing => "Preparing",
+            ControlPlaneShipCheckPhase.Building => "Building",
+            ControlPlaneShipCheckPhase.ResumingWatch => "Resuming watch",
+            _ => "Running"
         };
 
-        return new Presentation(headline, "Agent: Rebuild", "Watch host paused for build", true);
-    }
-
-    private static Presentation FormatRebuildResult(ProjectControlPlaneSnapshot controlPlane)
-    {
-        var headline = controlPlane.LastAgentRebuildOutcome == ControlPlaneShipCheckOutcome.Passed
-            ? "Rebuild passed"
-            : "Rebuild failed";
-
-        return new Presentation(headline, "Agent: Connected · Idle", null, true);
+        return new Presentation(
+            true,
+            "Idle",
+            "Build allowed",
+            FormatQueuedChanges(controlPlane),
+            null,
+            BuildActivityOverride: $"Rebuild · {phase}",
+            TransientAction: phase switch
+            {
+                "Building" => "Rebuilding…",
+                "Resuming watch" => "Restarting watch host…",
+                _ => null
+            });
     }
 
     private static Presentation FormatShipCheckActive(ProjectControlPlaneSnapshot controlPlane)
     {
-        var headline = controlPlane.ShipCheckPhase switch
+        var phase = controlPlane.ShipCheckPhase switch
         {
-            ControlPlaneShipCheckPhase.Preparing => "Ship check — preparing",
-            ControlPlaneShipCheckPhase.Building => "Ship check — building",
-            ControlPlaneShipCheckPhase.Testing => "Ship check — testing",
-            ControlPlaneShipCheckPhase.ResumingWatch => "Ship check — resuming watch",
-            _ => "Ship check — running"
+            ControlPlaneShipCheckPhase.Preparing => "Preparing",
+            ControlPlaneShipCheckPhase.Building => "Building",
+            ControlPlaneShipCheckPhase.Testing => "Testing",
+            ControlPlaneShipCheckPhase.ResumingWatch => "Resuming watch",
+            _ => "Running"
         };
 
-        return new Presentation(headline, "Agent: Ship check", null, true);
-    }
-
-    private static Presentation FormatShipCheckResult(ProjectControlPlaneSnapshot controlPlane)
-    {
-        var headline = controlPlane.LastShipCheckOutcome == ControlPlaneShipCheckOutcome.Passed
-            ? "Ship check passed"
-            : "Ship check failed";
-
-        var agentLine = controlPlane.EffectiveSessionState == ControlPlaneSessionState.Busy
-            ? "Agent: Busy"
-            : "Agent: Connected · Idle";
-
-        return new Presentation(headline, agentLine, null, true);
-    }
-
-    private static Presentation FormatBusy(ProjectControlPlaneSnapshot controlPlane, DateTimeOffset utcNow)
-    {
-        var detailParts = new List<string> { "Agent: Busy" };
-
-        if (controlPlane.SessionSinceUtc is { } since)
-        {
-            detailParts.Add(FormatBusyDuration(utcNow - since));
-        }
-
-        if (controlPlane.AutoBuildBlockedBySession)
-        {
-            detailParts.Add("Automatic builds held");
-        }
-
-        AppendPendingChanges(detailParts, controlPlane);
-
         return new Presentation(
-            ActivityHeadline: "Agent editing — builds paused",
-            AgentStatusLine: null,
-            DetailLine: string.Join(" · ", detailParts),
-            ShowControlPlaneSection: true);
+            true,
+            "Idle",
+            "Build allowed",
+            FormatQueuedChanges(controlPlane),
+            null,
+            BuildActivityOverride: $"Ship check · {phase}",
+            TransientAction: phase switch
+            {
+                "Building" => "Compiling…",
+                "Testing" => "Running tests…",
+                "Resuming watch" => "Restarting watch host…",
+                _ => null
+            });
     }
+
+    private static Presentation FormatBusy(ProjectControlPlaneSnapshot controlPlane, DateTimeOffset utcNow) =>
+        new(
+            true,
+            "Busy",
+            FormatBusySecondary(controlPlane, utcNow),
+            FormatQueuedChanges(controlPlane),
+            null,
+            BuildActivityOverride: null,
+            TransientAction: null,
+            AgentEmphasis: StatusPanelRowEmphasis.Busy);
 
     private static Presentation FormatIdle(ProjectControlPlaneSnapshot controlPlane, DateTimeOffset utcNow)
     {
         if (controlPlane.SessionSinceUtc is { } since
             && utcNow - since <= IdleTransitionWindow)
         {
-            var detailParts = new List<string> { "Build allowed" };
-            AppendPendingChanges(detailParts, controlPlane);
-            var headline = controlPlane.IdleCause == ControlPlaneIdleCause.Timeout
-                ? "Agent busy timed out · build allowed"
-                : "Agent finished editing · build allowed";
-            var detail = controlPlane.IdleCause == ControlPlaneIdleCause.Timeout
-                ? "Timeout (no idle from agent)"
-                : null;
-            if (detail is not null)
-            {
-                detailParts.Insert(0, detail);
-            }
-
+            var secondary = controlPlane.IdleCause == ControlPlaneIdleCause.Timeout
+                ? "Timed out · build allowed"
+                : "Build allowed";
             return new Presentation(
-                ActivityHeadline: headline,
-                AgentStatusLine: "Agent: Connected · Idle",
-                DetailLine: string.Join(" · ", detailParts),
-                ShowControlPlaneSection: true);
+                true,
+                "Idle",
+                secondary,
+                FormatQueuedChanges(controlPlane),
+                null,
+                null,
+                TransientAction: null);
         }
 
-        var idleDetail = new List<string>();
-        AppendPendingChanges(idleDetail, controlPlane);
-
         return new Presentation(
-            ActivityHeadline: null,
-            AgentStatusLine: "Agent: Connected · Idle",
-            DetailLine: idleDetail.Count > 0 ? string.Join(" · ", idleDetail) : null,
-            ShowControlPlaneSection: true);
+            true,
+            "Idle",
+            "Build allowed",
+            FormatQueuedChanges(controlPlane),
+            null,
+            null,
+            null);
     }
 
-    private static void AppendPendingChanges(List<string> parts, ProjectControlPlaneSnapshot controlPlane)
+    private static string FormatBusySecondary(ProjectControlPlaneSnapshot controlPlane, DateTimeOffset utcNow)
+    {
+        var parts = new List<string>();
+        if (controlPlane.AutoBuildBlockedBySession)
+        {
+            parts.Add("Builds paused");
+        }
+
+        if (controlPlane.SessionSinceUtc is { } since)
+        {
+            parts.Add(FormatBusyDuration(utcNow - since));
+        }
+
+        return parts.Count == 0 ? "Busy" : string.Join(" · ", parts);
+    }
+
+    private static string? FormatQueuedChanges(ProjectControlPlaneSnapshot controlPlane)
     {
         if (!controlPlane.HasPendingFileChangeRebuild)
         {
-            return;
+            return null;
         }
 
-        parts.Add(controlPlane.PendingFileChangeCount switch
+        return controlPlane.PendingFileChangeCount switch
         {
-            <= 0 => "File changes queued",
-            1 => "1 file change queued",
-            _ => $"{controlPlane.PendingFileChangeCount} file changes queued"
-        });
+            <= 0 => "Queued",
+            1 => "1 queued",
+            _ => $"{controlPlane.PendingFileChangeCount} queued"
+        };
     }
 
     private static string FormatBusyDuration(TimeSpan elapsed)
     {
         if (elapsed < TimeSpan.FromSeconds(90))
         {
-            return $"Busy for {(int)Math.Max(1, elapsed.TotalSeconds):0}s";
+            return $"{(int)Math.Max(1, elapsed.TotalSeconds):0}s";
         }
 
         if (elapsed < TimeSpan.FromHours(1))
         {
-            return $"Busy for {(int)elapsed.TotalMinutes}m";
+            return $"{(int)elapsed.TotalMinutes}m";
         }
 
-        return $"Busy for {(int)elapsed.TotalHours}h";
+        return $"{(int)elapsed.TotalHours}h";
     }
 }

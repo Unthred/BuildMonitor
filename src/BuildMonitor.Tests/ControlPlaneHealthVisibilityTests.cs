@@ -29,7 +29,9 @@ public sealed class ControlPlaneHealthVisibilityTests
 
         var card = StatusPanelPresentationBuilder.Build([snapshot], panelDismissAtUtc: null, DateTimeOffset.UtcNow)
             .Cards[0];
-        Assert.Equal("Agent editing — builds paused", card.ActivityHeadline);
+        var agent = Assert.Single(card.StatusRows, r => r.Label == "AGENT");
+        Assert.Equal("Busy", agent.Primary);
+        Assert.Contains("Builds paused", agent.Secondary);
     }
 
     [Fact]
@@ -68,7 +70,8 @@ public sealed class ControlPlaneHealthVisibilityTests
         Assert.False(snapshot.ControlPlane.AutoBuildBlockedBySession);
 
         var presentation = ControlPlaneStatusFormatter.Format(snapshot, DateTimeOffset.UtcNow);
-        Assert.Equal("Agent finished editing · build allowed", presentation.ActivityHeadline);
+        Assert.Equal("Idle", presentation.AgentPrimary);
+        Assert.Equal("Build allowed", presentation.AgentSecondary);
     }
 
     [Fact]
@@ -112,7 +115,8 @@ public sealed class ControlPlaneHealthVisibilityTests
         Assert.Equal(ControlPlaneShipCheckPhase.Testing, snapshot.ControlPlane.ShipCheckPhase);
 
         var card = StatusPanelPresentationBuilder.Build([snapshot], null, DateTimeOffset.UtcNow).Cards[0];
-        Assert.Equal("Ship check — testing", card.ActivityHeadline);
+        var build = Assert.Single(card.StatusRows, r => r.Label == "BUILD");
+        Assert.Equal("Ship check · Testing", build.Primary);
     }
 
     [Fact]
@@ -149,7 +153,7 @@ public sealed class ControlPlaneHealthVisibilityTests
             ControlPlane: controlPlane);
 
         Assert.Equal(MonitorHealth.Red, snapshot.Health);
-        Assert.Equal("Agent: Connected · Idle", ControlPlaneStatusFormatter.Format(snapshot, DateTimeOffset.UtcNow).AgentStatusLine);
+        Assert.Equal("Idle", ControlPlaneStatusFormatter.Format(snapshot, DateTimeOffset.UtcNow).AgentPrimary);
     }
 
     [Fact]

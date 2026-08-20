@@ -43,6 +43,42 @@ public static class EditGatingDetailFormatter
         };
     }
 
+    /// <summary>Concise CHANGES-row secondary for the status-panel grid.</summary>
+    public static string FormatChangesSecondary(
+        PendingRebuildHoldReason holdReason,
+        int timerResetCount,
+        int liveDebounceMs,
+        DateTimeOffset? quietUntilUtc,
+        DateTimeOffset utcNow)
+    {
+        if (quietUntilUtc is { } until && until > utcNow)
+        {
+            var remainingMs = (int)(until - utcNow).TotalMilliseconds;
+            if (remainingMs > 0)
+            {
+                return remainingMs < 1000
+                    ? $"{remainingMs} ms remaining"
+                    : $"{remainingMs / 1000.0:0.#}s remaining";
+            }
+        }
+
+        return holdReason switch
+        {
+            PendingRebuildHoldReason.EditsStillArriving =>
+                timerResetCount > 1
+                    ? $"Quiet period restarted ({timerResetCount}×)"
+                    : "Quiet period restarted",
+            PendingRebuildHoldReason.EditsSettling =>
+                $"Waiting {FormatDuration(liveDebounceMs)}",
+            PendingRebuildHoldReason.BuildInProgress => "Waiting for current build",
+            PendingRebuildHoldReason.TestsInProgress => "Waiting for tests",
+            PendingRebuildHoldReason.PostBuildCooldown => "Post-build cooldown",
+            PendingRebuildHoldReason.StartupDeferred => "Waiting for edits to settle",
+            PendingRebuildHoldReason.SupersededByNewEdits => "Newer changes — will rebuild",
+            _ => string.Empty
+        };
+    }
+
     public static string FormatCountdownRemaining(DateTimeOffset? quietUntilUtc, DateTimeOffset utcNow)
     {
         if (quietUntilUtc is not { } quietUntil)
