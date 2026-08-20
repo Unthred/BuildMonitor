@@ -2,7 +2,8 @@
 description: >-
   When working in this .NET repo, use BuildMonitor's localhost control plane for
   edit bursts and ship build/test instead of asking the user to run raw
-  dotnet build / test / watch commands.
+  dotnet build / test / watch commands. Announce each handshake and /run step
+  in chat so the user can see BuildMonitor activity.
 alwaysApply: true
 ---
 
@@ -27,4 +28,18 @@ unless the control plane is unreachable.
 7. If `ok` is false, read failures/log and fix — do not claim success.
 8. Prefer pause/ship-check over starting a second `dotnet watch` or killing processes.
 
-If the control plane cannot be reached, say so briefly and continue with normal editing.
+## Chat announcements (required)
+
+After each control-plane step, include **one short user-visible line** with the `BuildMonitor:` prefix:
+
+- `BuildMonitor: AI Controlled`
+- `BuildMonitor: busy — editing`
+- `BuildMonitor: idle — awaiting explicit build`
+- `BuildMonitor: /run/rebuild…` then `BuildMonitor: /run/rebuild — pass` or `… — fail`
+- `BuildMonitor: /run/ship-check…` then `… — pass` or `… — fail`
+- `BuildMonitor: /run/tests…` then pass/fail
+- `BuildMonitor: handshake skipped (unreachable)` or `(no project for this folder)`
+
+Do not stay silent on handshake or `/run/*`.
+
+If the control plane cannot be reached, announce the skip and continue with normal editing.

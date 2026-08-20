@@ -224,7 +224,9 @@ Install writes both the skill and an **always-on** Cursor rule so agents use bus
 **Discovery:**
 
 1. Tray writes `%LocalAppData%\BuildMonitor\control-plane.json` when the control plane binds (port, `baseUrl`, project list).
-2. Skill probes that file, else `GET http://127.0.0.1:7700/projects`, matches `rootFolder` to the workspace, then busy → edit → idle → ship-check.
+2. Skill probes that file, else `GET http://127.0.0.1:7700/projects`, matches `rootFolder` to the workspace, then mode → busy → edit → idle → explicit `/run/rebuild` or `/run/ship-check`.
+
+**Chat announcements:** the installed skill and always-on rule require a short `BuildMonitor:` line in the agent reply for mode/busy/idle and each `/run/*` start/result (and when handshake is skipped), so Cursor output shows control-plane activity without a live log stream.
 
 ## Metrics (Build diagnostics)
 

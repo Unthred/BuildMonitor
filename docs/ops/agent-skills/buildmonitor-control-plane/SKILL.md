@@ -22,6 +22,24 @@ Projects have an explicit **build-control mode**:
 
 For agent work, set **AI Controlled** so idle / busy timeout cannot start a build.
 
+## Chat announcements (required)
+
+After each successful control-plane call (or when skipping), put **one short line** in the user-visible reply so the human can follow BuildMonitor activity. Use this exact prefix and shape:
+
+| Event | Announce |
+|-------|----------|
+| Mode set / confirmed | `BuildMonitor: AI Controlled` (include project display name if known) |
+| Busy | `BuildMonitor: busy — editing` |
+| Idle | `BuildMonitor: idle — awaiting explicit build` |
+| Starting rebuild | `BuildMonitor: /run/rebuild…` |
+| Rebuild finished | `BuildMonitor: /run/rebuild — pass` or `… — fail (exit N)` |
+| Starting ship-check | `BuildMonitor: /run/ship-check…` |
+| Ship-check finished | `BuildMonitor: /run/ship-check — pass` or `… — fail` (mention build vs tests if known) |
+| Tests only | `BuildMonitor: /run/tests…` then `… — pass` / `… — fail` |
+| Unreachable / no project | `BuildMonitor: handshake skipped (unreachable)` or `(no project for this folder)` |
+
+Do **not** stay silent on handshake or `/run/*`. Do **not** invent extra MCP or pretend BuildMonitor streamed into chat — these lines are the signal.
+
 ## When to use
 
 | Moment | Action |
@@ -40,18 +58,18 @@ For agent work, set **AI Controlled** so idle / busy timeout cannot start a buil
 ```text
 discover project
 GET /mode
-POST /mode ai-controlled   (if needed)
-POST /session/busy
+POST /mode ai-controlled   (if needed)   → announce
+POST /session/busy                       → announce
 edit files
-POST /session/idle
-POST /run/rebuild          (or /run/ship-check for final)
+POST /session/idle                       → announce
+POST /run/rebuild or /run/ship-check     → announce start + result
 ```
 
 Do **not** treat `/session/idle` as “build now”.
 Do **not** rely on busy timeout to resume builds in AI Controlled mode.
 Do **not** call `/run/rebuild` after every edit burst — only when verification needs a compile.
 
-If the control plane is unreachable, continue editing; say briefly that the handshake was skipped.
+If the control plane is unreachable, continue editing and announce that the handshake was skipped.
 
 ## Efficient workflows (pick the smallest call)
 
@@ -65,7 +83,7 @@ If the control plane is unreachable, continue editing; say briefly that the hand
 
 **Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all).
 
-**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits.
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line.
 
 ## Discover base URL and projectId (probe)
 
@@ -92,7 +110,7 @@ try { Invoke-RestMethod "http://127.0.0.1:7700/projects" } catch { $null }
 Base example: `http://127.0.0.1:7700`
 
 | Method | Path | Body / query |
-|--------|------|----------------|
+|--------|------|-------------|
 | GET | `/projects` | — |
 | GET | `/mode` | `?projectId=` → `{ "mode": "file-watching" \| "ai-controlled" }` |
 | POST | `/mode` | `{ "projectId": "…", "mode": "ai-controlled" }` → includes `previousMode` |
@@ -143,4 +161,5 @@ Treat `ok: false` on ship-check as a failed verification — read `failures` / `
 - `/session/idle` never means “build now” in AI Controlled.
 - Prefer `/run/tests` with a filter over a full ship-check when only a subset matters.
 - Prefer `/run/rebuild` only when a clean rebuild is needed; prefer `/run/ship-check` for final verification.
+- Always announce handshake and `/run/*` in chat (see table above).
 - Never invent MCP tools for BuildMonitor.
