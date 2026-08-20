@@ -88,6 +88,11 @@ internal sealed partial class ProjectRuntime
 
     private string? BuildEditGatingDetailText()
     {
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            return null;
+        }
+
         if (!IsEditGatingActive() && pendingRebuildHoldReason == PendingRebuildHoldReason.None)
         {
             return null;

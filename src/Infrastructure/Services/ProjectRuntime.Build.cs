@@ -370,6 +370,14 @@ internal sealed partial class ProjectRuntime
     private async Task WaitForEditQuietThenBuildAsync(string buildReason)
     {
         var generation = Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+
+        // AI Controlled: never enter WaitingForEdits / quiet countdown for file-change schedules.
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+            && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         EnterWaitingForEditsState("Waiting for edits to settle…");
 
         while (generation == Volatile.Read(ref fileChangeRebuildScheduleGeneration))
@@ -398,8 +406,7 @@ internal sealed partial class ProjectRuntime
                 return;
             }
 
-            // AI Controlled: never auto-start from this wait loop (mode may have changed mid-wait).
-            // Startup builds are allowed once (not a file-change schedule).
+            // Mode may have flipped to AI Controlled mid-wait.
             if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
                 && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
             {
