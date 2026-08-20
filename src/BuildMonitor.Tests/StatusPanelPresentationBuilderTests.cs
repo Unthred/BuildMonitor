@@ -110,7 +110,8 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal(["BUILD", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE", "BUILD", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal("File Watching", Row(card, "MODE").Primary);
         Assert.Equal("Healthy", Row(card, "BUILD").Primary);
         Assert.Equal("0 errors · 0 warnings", Row(card, "BUILD").Secondary);
         Assert.Null(card.CurrentActionText);
@@ -196,7 +197,8 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal(["BUILD", "AGENT", "CHANGES", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE", "BUILD", "AGENT", "CHANGES", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal("File Watching", Row(card, "MODE").Primary);
         Assert.Equal("Busy", Row(card, "AGENT").Primary);
         Assert.Equal("Builds paused · 3m", Row(card, "AGENT").Secondary);
         Assert.Equal(StatusPanelRowEmphasis.Busy, Row(card, "AGENT").Emphasis);
@@ -227,7 +229,8 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal(["BUILD", "AGENT", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE", "BUILD", "AGENT", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal("File Watching", Row(card, "MODE").Primary);
         Assert.Equal("Idle", Row(card, "AGENT").Primary);
         Assert.Equal("Build allowed", Row(card, "AGENT").Secondary);
     }
