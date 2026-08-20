@@ -241,6 +241,13 @@
 
                                               SelectionChanged="LaunchProfileComboSelectionChanged" />
 
+                                    <TextBlock Text="Preferred site URL" />
+                                    <TextBlock Text="When the launch profile lists both HTTP and HTTPS, which URL to show and open."
+                                               TextWrapping="Wrap"
+                                               Opacity="0.75"
+                                               Margin="0,0,0,4" />
+                                    <ComboBox x:Name="PreferredSiteUrlCombo" Margin="0,4,0,10" />
+
                                     <TextBlock Text="Extra dotnet args" />
 
                                     <TextBox x:Name="ExtraArgsText" Margin="0,4,0,0" />

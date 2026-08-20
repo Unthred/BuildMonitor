@@ -1,3 +1,4 @@
+using BuildMonitor.Core.Models;
 using BuildMonitor.Infrastructure.LocalBuild;
 
 namespace BuildMonitor.Tests;
@@ -66,6 +67,66 @@ public class LocalPortProbeTests
             WitherbyProfileUrls);
 
         Assert.Equal("http://localhost:5154/", canonical);
+    }
+
+    [Fact]
+    public void Preference_http_selects_http_when_both_open()
+    {
+        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(
+            ["http://localhost:5154", "https://127.0.0.1:44333"],
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Http);
+
+        Assert.Equal("http://localhost:5154/", canonical);
+    }
+
+    [Fact]
+    public void Preference_https_selects_https_when_both_open()
+    {
+        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(
+            ["http://localhost:5154", "https://127.0.0.1:44333"],
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Https);
+
+        Assert.Equal("https://localhost:44333/", canonical);
+    }
+
+    [Fact]
+    public void Should_wait_for_preferred_https_when_only_http_open()
+    {
+        Assert.True(LocalPortProbe.ShouldWaitForPreferredScheme(
+            ["http://localhost:5154"],
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Auto,
+            graceExpired: false));
+
+        Assert.False(LocalPortProbe.ShouldWaitForPreferredScheme(
+            ["http://localhost:5154"],
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Auto,
+            graceExpired: true));
+
+        Assert.False(LocalPortProbe.ShouldWaitForPreferredScheme(
+            ["http://localhost:5154", "https://127.0.0.1:44333"],
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Auto,
+            graceExpired: false));
+    }
+
+    [Fact]
+    public void IsBetterCanonicalUrl_prefers_https_over_http()
+    {
+        Assert.True(LocalPortProbe.IsBetterCanonicalUrl(
+            "https://localhost:44333/",
+            "http://localhost:5154/",
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Auto));
+
+        Assert.False(LocalPortProbe.IsBetterCanonicalUrl(
+            "http://localhost:5154/",
+            "https://localhost:44333/",
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Auto));
     }
 
     [Fact]

@@ -9,6 +9,8 @@ namespace BuildMonitor.Infrastructure.Services;
 
 internal sealed partial class ProjectRuntime
 {
+    private static readonly TimeSpan ListenUrlPreferredSchemeGrace = TimeSpan.FromSeconds(20);
+
     private void StartRunProcess(bool skipEmbeddedBuild = false)
     {
         SetProjectCurrentAction(skipEmbeddedBuild
@@ -44,10 +46,13 @@ internal sealed partial class ProjectRuntime
             definition.RootFolder,
             definition.ProjectFile,
             definition.LaunchProfile);
-        pendingListenUrl = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls)
+        pendingListenUrl = LocalPortProbe.SelectPreferredProfileUrl(
+                candidateListenUrls,
+                definition.PreferredSiteUrlScheme)
             ?? candidateListenUrls.FirstOrDefault();
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlProbeStartedUtc = DateTimeOffset.UtcNow;
         runOutputSaveRevision = 0;
         StartListenUrlPolling();
         StartRunLogSaveTimer();
@@ -261,7 +266,10 @@ internal sealed partial class ProjectRuntime
             return null;
         }
 
-        return LocalPortProbe.ResolveCanonicalUserFacingUrl(pendingListenUrl, candidateListenUrls);
+        return LocalPortProbe.ResolveCanonicalUserFacingUrl(
+            pendingListenUrl,
+            candidateListenUrls,
+            definition.PreferredSiteUrlScheme);
     }
 
     private void RefreshListenUrlReady()
@@ -273,6 +281,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
+        var preference = definition.PreferredSiteUrlScheme;
         var urlsToProbe = candidateListenUrls.Count > 0
             ? candidateListenUrls
             : string.IsNullOrWhiteSpace(pendingListenUrl) ? [] : new[] { pendingListenUrl };
@@ -284,7 +293,27 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(openUrls, candidateListenUrls);
+        var graceExpired = DateTimeOffset.UtcNow - listenUrlProbeStartedUtc >= ListenUrlPreferredSchemeGrace;
+        if (LocalPortProbe.ShouldWaitForPreferredScheme(
+                openUrls,
+                candidateListenUrls,
+                preference,
+                graceExpired))
+        {
+            // Keep preferred profile URL for display; do not lock onto HTTP early.
+            var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
+            if (!string.IsNullOrWhiteSpace(preferred))
+            {
+                pendingListenUrl = preferred;
+            }
+
+            return;
+        }
+
+        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(
+            openUrls,
+            candidateListenUrls,
+            preference);
         if (string.IsNullOrWhiteSpace(canonical))
         {
             listenUrlReady = false;
@@ -312,44 +341,60 @@ internal sealed partial class ProjectRuntime
 
     private void PollListenUrl()
     {
-        if (listenUrlReady)
-        {
-            return;
-        }
-
+        // Keep probing after first-open so HTTPS can upgrade over HTTP within the grace window.
         RefreshListenUrlReady();
+        if (listenUrlReady
+            && DateTimeOffset.UtcNow - listenUrlProbeStartedUtc >= ListenUrlPreferredSchemeGrace)
+        {
+            StopListenUrlPolling();
+        }
     }
 
     private void MarkListenUrlReady(string url)
     {
-        pendingListenUrl = url;
-        if (listenUrlReady)
+        var preference = definition.PreferredSiteUrlScheme;
+        if (listenUrlReady
+            && !LocalPortProbe.IsBetterCanonicalUrl(
+                url,
+                pendingListenUrl,
+                candidateListenUrls,
+                preference))
         {
             return;
         }
 
-        listenUrlReady = true;
-        StopListenUrlPolling();
-        if (runProcess?.IsRunning == true)
+        var upgraded = listenUrlReady
+            && !string.IsNullOrWhiteSpace(pendingListenUrl)
+            && !LocalPortProbe.SameListenEndpoint(url, pendingListenUrl!);
+
+        pendingListenUrl = url;
+        if (!listenUrlReady)
         {
-            runErrorCount = 0;
+            listenUrlReady = true;
+            if (runProcess?.IsRunning == true)
+            {
+                runErrorCount = 0;
+            }
         }
 
         RefreshHealth();
         NotifyProgressChanged(force: true);
 
-        if (listenUrlNotified)
+        if (listenUrlNotified && !upgraded)
         {
             return;
         }
 
-        listenUrlNotified = true;
-        notifyUser?.Invoke(
-            definition.Id,
-            $"App running — {definition.DisplayName}",
-            $"Open {url}",
-            UserNotificationKind.Info,
-            UserNotificationCategory.Info);
+        if (!listenUrlNotified)
+        {
+            listenUrlNotified = true;
+            notifyUser?.Invoke(
+                definition.Id,
+                $"App running — {definition.DisplayName}",
+                $"Open {url}",
+                UserNotificationKind.Info,
+                UserNotificationCategory.Info);
+        }
     }
 
     public Task StopAsync()

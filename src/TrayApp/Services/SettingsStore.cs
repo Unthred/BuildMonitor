@@ -159,6 +159,20 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 19;
         }
 
+        if (settings.SchemaVersion < 20)
+        {
+            foreach (var project in settings.Projects)
+            {
+                if (project.PreferredSiteUrlScheme is not (
+                    PreferredSiteUrlScheme.Https or PreferredSiteUrlScheme.Http))
+                {
+                    project.PreferredSiteUrlScheme = PreferredSiteUrlScheme.Auto;
+                }
+            }
+
+            settings.SchemaVersion = 20;
+        }
+
         return settings;
     }
 
@@ -237,7 +251,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 19;
+        settings.SchemaVersion = 20;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }
