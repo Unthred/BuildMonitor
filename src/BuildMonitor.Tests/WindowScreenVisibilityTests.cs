@@ -79,9 +79,10 @@ public sealed class WindowScreenVisibilityTests
     [Fact]
     public void EnsureVisible_uses_preferred_work_area_when_clamping()
     {
+        // Secondary coords with only primary still present (RDP / unplug).
         var window = new WindowScreenVisibility.Rect(2500, 100, 400, 300);
         var preferred = new WindowScreenVisibility.Rect(100, 100, 800, 600);
-        var result = WindowScreenVisibility.EnsureVisible(window, [Primary, Secondary], preferred);
+        var result = WindowScreenVisibility.EnsureVisible(window, [Primary], preferred);
         Assert.True(result.X >= preferred.X);
         Assert.True(result.Right <= preferred.Right);
         Assert.True(result.Y >= preferred.Y);
