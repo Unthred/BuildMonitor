@@ -16,6 +16,8 @@ public static class ControlPlaneSessionPolicy
         }
 
         var timeout = TimeSpan.FromSeconds(Math.Clamp(busyTimeoutSeconds, 30, 3600));
+        // Timeout is measured from last busy activity (busy POST or file-change heartbeat),
+        // not from the original busy start, so long edit sessions stay held.
         return utcNow - sinceUtc >= timeout
             ? ControlPlaneSessionState.Idle
             : ControlPlaneSessionState.Busy;

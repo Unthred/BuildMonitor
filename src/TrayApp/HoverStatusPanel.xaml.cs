@@ -8,7 +8,6 @@ using System.Windows.Threading;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.TrayApp.Services;
-using WpfBrush = System.Windows.Media.Brush;
 using WpfColor = System.Windows.Media.Color;
 using WpfSize = System.Windows.Size;
 using WpfButton = System.Windows.Controls.Button;
@@ -169,8 +168,6 @@ public partial class HoverStatusPanel : Window
 
         foreach (var cardModel in cards)
         {
-            var healthBrush = HealthBrush(cardModel.Health, palette);
-
             var card = new Border
             {
                 BorderBrush = new SolidColorBrush(palette.Border),
@@ -186,34 +183,26 @@ public partial class HoverStatusPanel : Window
                 Text = cardModel.DisplayName,
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 12,
-                Foreground = new SolidColorBrush(palette.Foreground)
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = cardModel.StatusLine,
-                Foreground = healthBrush,
-                FontSize = 11,
-                Margin = new Thickness(0, 2, 0, 0)
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = cardModel.LastBuildLine,
                 Foreground = new SolidColorBrush(palette.Foreground),
-                Opacity = 0.8,
-                FontSize = 11,
-                Margin = new Thickness(0, 1, 0, 0)
+                TextTrimming = TextTrimming.CharacterEllipsis
             });
 
-            if (!string.IsNullOrWhiteSpace(cardModel.EditGatingDetailText))
+            if (cardModel.StatusRows.Count > 0)
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildStatusRows(cardModel.StatusRows, palette));
+            }
+
+            if (!string.IsNullOrWhiteSpace(cardModel.CurrentActionText))
             {
                 panel.Children.Add(new TextBlock
                 {
-                    Text = cardModel.EditGatingDetailText,
+                    Text = cardModel.CurrentActionText,
                     Foreground = new SolidColorBrush(palette.Foreground),
-                    Opacity = 0.9,
+                    Opacity = 0.8,
                     FontSize = 11,
+                    FontStyle = FontStyles.Italic,
                     TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 3, 0, 0)
+                    Margin = new Thickness(0, 4, 0, 0)
                 });
             }
 
@@ -244,21 +233,6 @@ public partial class HoverStatusPanel : Window
             else if (cardModel.ShowActivityIndicator)
             {
                 panel.Children.Add(StatusPanelVisuals.BuildActivityIndicator(cardModel.ActivityState, palette));
-            }
-            else if (cardModel.ShowIssueSummary)
-            {
-                panel.Children.Add(StatusPanelVisuals.BuildIssueSummary(
-                    cardModel.ErrorCount,
-                    cardModel.WarningCount,
-                    palette));
-            }
-
-            if (cardModel.ShowIssueSummaryBelowProgress)
-            {
-                panel.Children.Add(StatusPanelVisuals.BuildIssueSummary(
-                    cardModel.ErrorCount,
-                    cardModel.WarningCount,
-                    palette));
             }
 
             var actions = new StackPanel
@@ -610,15 +584,6 @@ public partial class HoverStatusPanel : Window
         MaxHeight = windowHeight;
         return true;
     }
-
-    private static WpfBrush HealthBrush(MonitorHealth health, ThemePalette palette) =>
-        health switch
-        {
-            MonitorHealth.Green => new SolidColorBrush(WpfColor.FromRgb(40, 167, 69)),
-            MonitorHealth.Amber => new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
-            MonitorHealth.Red => new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
-            _ => new SolidColorBrush(palette.Foreground)
-        };
 
     public void ApplyLayout(WindowLayoutState layout)
     {

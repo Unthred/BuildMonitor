@@ -16,7 +16,36 @@ public sealed class ControlPlaneSessionStoreTests
 
         var status = store.GetStatus("p1", DateTimeOffset.UtcNow.AddMinutes(5));
         Assert.Equal(ControlPlaneSessionState.Idle, status.State);
+        Assert.Equal(ControlPlaneIdleCause.Timeout, status.IdleCause);
         Assert.False(ControlPlaneSessionPolicy.ShouldBlockAutoBuild(status.SessionApiUsed, status.State));
+    }
+
+    [Fact]
+    public void MarkIdle_records_agent_idle_cause()
+    {
+        var store = new ControlPlaneSessionStore();
+        store.MarkBusy("p1");
+        var status = store.MarkIdle("p1");
+        Assert.Equal(ControlPlaneSessionState.Idle, status.State);
+        Assert.Equal(ControlPlaneIdleCause.Agent, status.IdleCause);
+    }
+
+    [Fact]
+    public void TouchBusy_extends_timeout_without_clearing_busy()
+    {
+        var store = new ControlPlaneSessionStore();
+        store.ApplyMonitorDefaults(busyTimeoutSeconds: 60, suppressAutoBuildTestsDefault: true);
+        var busyAt = DateTimeOffset.UtcNow;
+        store.MarkBusy("p1");
+        var afterTouch = store.TouchBusy("p1", busyAt.AddSeconds(50));
+        Assert.Equal(ControlPlaneSessionState.Busy, afterTouch.State);
+
+        var stillBusy = store.GetStatus("p1", busyAt.AddSeconds(90));
+        Assert.Equal(ControlPlaneSessionState.Busy, stillBusy.State);
+
+        var timedOut = store.GetStatus("p1", busyAt.AddSeconds(50 + 61));
+        Assert.Equal(ControlPlaneSessionState.Idle, timedOut.State);
+        Assert.Equal(ControlPlaneIdleCause.Timeout, timedOut.IdleCause);
     }
 
     [Fact]

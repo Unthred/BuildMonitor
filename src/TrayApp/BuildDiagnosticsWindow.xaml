@@ -53,6 +53,7 @@
                         <local:BuildIntelligencePanel Snapshot="{Binding Intelligence}" Margin="0,0,0,8" />
                         <local:ControlPlaneMetricsPanel Grid.Row="1"
                                                        Snapshot="{Binding ControlPlaneMetrics}"
+                                                       Workflow="{Binding ControlPlaneWorkflow}"
                                                        Margin="0,0,0,8" />
                         <DataGrid Grid.Row="2"
                                   ItemsSource="{Binding Triggers}"

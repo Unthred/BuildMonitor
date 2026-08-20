@@ -13,17 +13,23 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly DotNetCliRunner cliRunner = new();
     private readonly BuildLogStore logStore;
     private readonly BuildTriggerJournal triggerJournal;
+    private readonly ControlPlaneEventJournal controlPlaneEventJournal;
     private readonly FileChangeBurstStatsStore burstStatsStore;
     private readonly BuildTrainingStore trainingStore;
     private readonly ControlPlaneSessionStore sessionStore;
-    private readonly ControlPlaneMetricsStore metricsStore = new();
+    private readonly ControlPlaneMetricsStore metricsStore;
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
     private AppSettings settings = new();
+    private Action<AppSettings>? settingsPersistRequested;
 
     public event Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth>? HealthUpdated;
     public event Action<string, string, string, UserNotificationKind, UserNotificationCategory>? UserNotification;
+
+    /// <summary>Optional disk persist hook (tray wires SettingsStore.SaveAsync).</summary>
+    public void SetSettingsPersistHandler(Action<AppSettings>? handler) =>
+        settingsPersistRequested = handler;
 
     public ProjectOrchestrator(string logsRootDirectory, string? appDataDirectory = null)
     {
@@ -32,9 +38,11 @@ public sealed partial class ProjectOrchestrator : IDisposable
             ?? Path.GetDirectoryName(logsRootDirectory)
             ?? logsRootDirectory;
         triggerJournal = new BuildTriggerJournal(dataRoot);
+        controlPlaneEventJournal = new ControlPlaneEventJournal(dataRoot);
         burstStatsStore = new FileChangeBurstStatsStore(dataRoot);
         trainingStore = new BuildTrainingStore(dataRoot);
-        sessionStore = new ControlPlaneSessionStore(metricsStore);
+        metricsStore = new ControlPlaneMetricsStore(controlPlaneEventJournal);
+        sessionStore = new ControlPlaneSessionStore(metricsStore, controlPlaneEventJournal);
         WorkerHealthRegistry.Shared.Register(
             "health.event.raise",
             "HealthUpdated event (background → UI)",
@@ -46,6 +54,10 @@ public sealed partial class ProjectOrchestrator : IDisposable
     public ControlPlaneSessionStore SessionStore => sessionStore;
 
     public ControlPlaneMetricsStore MetricsStore => metricsStore;
+
+    public ControlPlaneEventJournal ControlPlaneEventJournal => controlPlaneEventJournal;
+
+    public BuildTriggerJournal TriggerJournal => triggerJournal;
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
@@ -73,9 +85,19 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private void OnRuntimeHealthCoalesceRequested(bool immediate) =>
         healthCoalescer.Request(immediate);
 
-    public BuildLogStore LogStore => logStore;
+    public void NotifyControlPlaneSessionChanged(string projectId, bool immediate = true)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+        }
 
-    public BuildTriggerJournal TriggerJournal => triggerJournal;
+        runtime?.NotifyControlPlaneChanged(immediate);
+        healthCoalescer.Request(immediate);
+    }
+
+    public BuildLogStore LogStore => logStore;
 
     public BuildVerdictTrainingResult ProcessUnexpectedVerdict(BuildTriggerRecord record)
     {

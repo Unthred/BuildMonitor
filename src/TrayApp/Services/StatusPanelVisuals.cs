@@ -5,7 +5,6 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BuildMonitor.Core.Models;
-using BuildMonitor.Infrastructure.LocalBuild;
 using WpfColor = System.Windows.Media.Color;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfOrientation = System.Windows.Controls.Orientation;
@@ -65,6 +64,90 @@ internal static class StatusPanelVisuals
         container.Children.Add(legend);
         return container;
     }
+
+    public static UIElement BuildStatusRows(
+        IReadOnlyList<StatusPanelStatusRow> rows,
+        ThemePalette palette)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var row = rows[i];
+            var primaryBrush = EmphasisBrush(row.Emphasis, palette);
+
+            var label = new TextBlock
+            {
+                Text = row.Label,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Opacity = 0.55,
+                Foreground = new SolidColorBrush(palette.Foreground),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 6, 1)
+            };
+            Grid.SetRow(label, i);
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            var primary = new TextBlock
+            {
+                Text = row.Primary,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = primaryBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 8, 1)
+            };
+            if (!string.IsNullOrWhiteSpace(row.ToolTip))
+            {
+                primary.ToolTip = row.ToolTip;
+            }
+
+            Grid.SetRow(primary, i);
+            Grid.SetColumn(primary, 1);
+            grid.Children.Add(primary);
+
+            if (!string.IsNullOrWhiteSpace(row.Secondary))
+            {
+                var secondary = new TextBlock
+                {
+                    Text = row.Secondary,
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = WpfHorizontalAlignment.Right,
+                    Margin = new Thickness(0, 1, 0, 1)
+                };
+                if (!string.IsNullOrWhiteSpace(row.ToolTip))
+                {
+                    secondary.ToolTip = row.ToolTip;
+                }
+
+                Grid.SetRow(secondary, i);
+                Grid.SetColumn(secondary, 2);
+                grid.Children.Add(secondary);
+            }
+        }
+
+        return grid;
+    }
+
+    private static SolidColorBrush EmphasisBrush(StatusPanelRowEmphasis emphasis, ThemePalette palette) =>
+        emphasis switch
+        {
+            StatusPanelRowEmphasis.Error => new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
+            StatusPanelRowEmphasis.Warning => new SolidColorBrush(WpfColor.FromRgb(180, 120, 0)),
+            StatusPanelRowEmphasis.Active => new SolidColorBrush(WpfColor.FromRgb(0, 123, 255)),
+            StatusPanelRowEmphasis.Busy => new SolidColorBrush(WpfColor.FromRgb(120, 90, 200)),
+            _ => new SolidColorBrush(palette.Foreground)
+        };
 
     public static UIElement BuildIssueSummary(int errors, int warnings, ThemePalette palette)
     {
@@ -189,8 +272,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteAwaitingBlock(string listenUrl, ThemePalette palette)
     {
-        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
+        var canonicalUrl = listenUrl;
         var accent = WpfColor.FromRgb(255, 193, 7);
         return new Border
         {
@@ -213,7 +295,7 @@ internal static class StatusPanelVisuals
                     },
                     new TextBlock
                     {
-                        Text = displayUrl,
+                        Text = canonicalUrl,
                         FontSize = 10,
                         TextWrapping = TextWrapping.Wrap,
                         Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
@@ -226,8 +308,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildSiteReadyBlock(string listenUrl, ThemePalette palette)
     {
-        var displayUrl = LocalPortProbe.NormalizeDisplayUrl(listenUrl);
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(listenUrl);
+        var canonicalUrl = listenUrl;
         var readyGreen = WpfColor.FromRgb(40, 167, 69);
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock
@@ -239,7 +320,7 @@ internal static class StatusPanelVisuals
         });
 
         var linkRow = new TextBlock { Margin = new Thickness(0, 3, 0, 0) };
-        if (Uri.TryCreate(openUrl, UriKind.Absolute, out var uri))
+        if (Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri))
         {
             var link = new Hyperlink
             {
@@ -249,7 +330,7 @@ internal static class StatusPanelVisuals
                 TextDecorations = TextDecorations.Underline,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
-            link.Inlines.Add($"Open {displayUrl}");
+            link.Inlines.Add($"Open {canonicalUrl}");
             link.RequestNavigate += (_, e) =>
             {
                 try
@@ -267,7 +348,7 @@ internal static class StatusPanelVisuals
         }
         else
         {
-            linkRow.Inlines.Add(new Run(displayUrl)
+            linkRow.Inlines.Add(new Run(canonicalUrl)
             {
                 Foreground = new SolidColorBrush(palette.Foreground),
                 FontWeight = FontWeights.SemiBold

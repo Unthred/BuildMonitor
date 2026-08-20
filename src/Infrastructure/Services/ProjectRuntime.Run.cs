@@ -9,6 +9,13 @@ namespace BuildMonitor.Infrastructure.Services;
 
 internal sealed partial class ProjectRuntime
 {
+    /// <summary>
+    /// After the first profile URL answers, wait this long for the preferred scheme (HTTPS)
+    /// before marking site-ready on a fallback (HTTP). Measured from first open — not process start —
+    /// so long builds do not burn the grace window.
+    /// </summary>
+    private static readonly TimeSpan ListenUrlPreferredSchemeGrace = TimeSpan.FromSeconds(30);
+
     private void StartRunProcess(bool skipEmbeddedBuild = false)
     {
         SetProjectCurrentAction(skipEmbeddedBuild
@@ -44,9 +51,13 @@ internal sealed partial class ProjectRuntime
             definition.RootFolder,
             definition.ProjectFile,
             definition.LaunchProfile);
-        pendingListenUrl = candidateListenUrls.FirstOrDefault();
+        pendingListenUrl = LocalPortProbe.SelectPreferredProfileUrl(
+                candidateListenUrls,
+                definition.PreferredSiteUrlScheme)
+            ?? candidateListenUrls.FirstOrDefault();
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlFirstOpenUtc = null;
         runOutputSaveRevision = 0;
         StartListenUrlPolling();
         StartRunLogSaveTimer();
@@ -56,15 +67,15 @@ internal sealed partial class ProjectRuntime
             args,
             psi =>
             {
-                var effectiveProfile = LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
-                    definition.RootFolder,
-                    definition.ProjectFile,
-                    definition.LaunchProfile);
-                LaunchProfileEnvironmentApplier.ApplyTo(
-                    psi,
-                    definition.RootFolder,
-                    definition.ProjectFile,
-                    effectiveProfile);
+                // When --launch-profile is on the command line, dotnet applies launchSettings itself.
+                if (string.IsNullOrWhiteSpace(ResolveEffectiveLaunchProfile()))
+                {
+                    LaunchProfileEnvironmentApplier.ApplyTo(
+                        psi,
+                        definition.RootFolder,
+                        definition.ProjectFile,
+                        definition.LaunchProfile);
+                }
 
                 // BuildMonitor shows site-ready in the tray panel; avoid launchSettings launchBrowser pop-ups.
                 psi.Environment["DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER"] = "1";
@@ -97,6 +108,7 @@ internal sealed partial class ProjectRuntime
         SaveRunOutputIfChanged(force: true);
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlFirstOpenUtc = null;
         lastExitCode = exitCode;
         var runOutput = exitedProcess.Output;
         if (exitCode == 0)
@@ -146,6 +158,7 @@ internal sealed partial class ProjectRuntime
         StopRunLogSaveTimer();
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlFirstOpenUtc = null;
 
         if (runProcess is null)
         {
@@ -193,7 +206,8 @@ internal sealed partial class ProjectRuntime
 
     private List<string> BuildRunArgs(bool skipEmbeddedBuild = false)
     {
-        var args = new List<string> { "run", "--project", ResolveProjectFileArg(), "--no-launch-profile" };
+        var args = new List<string> { "run", "--project", ResolveProjectFileArg() };
+        AppendLaunchProfileSwitch(args);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
@@ -212,7 +226,8 @@ internal sealed partial class ProjectRuntime
             args.Add("--non-interactive");
         }
 
-        args.AddRange(["run", "--project", ResolveProjectFileArg(), "--no-launch-profile"]);
+        args.AddRange(["run", "--project", ResolveProjectFileArg()]);
+        AppendLaunchProfileSwitch(args);
         if (skipEmbeddedBuild)
         {
             args.Add("--no-build");
@@ -221,6 +236,25 @@ internal sealed partial class ProjectRuntime
         AppendExtraArgs(args);
         return args;
     }
+
+    private void AppendLaunchProfileSwitch(List<string> args)
+    {
+        var profile = ResolveEffectiveLaunchProfile();
+        if (!string.IsNullOrWhiteSpace(profile))
+        {
+            args.Add("--launch-profile");
+            args.Add(profile);
+            return;
+        }
+
+        args.Add("--no-launch-profile");
+    }
+
+    private string? ResolveEffectiveLaunchProfile() =>
+        LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
+            definition.RootFolder,
+            definition.ProjectFile,
+            definition.LaunchProfile);
 
     private void AppendExtraArgs(List<string> args)
     {
@@ -239,24 +273,27 @@ internal sealed partial class ProjectRuntime
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(pendingListenUrl))
+        var preference = definition.PreferredSiteUrlScheme;
+
+        // While awaiting readiness, always surface the preferred profile URL (HTTPS), not a
+        // transient HTTP listen line. When ready, still re-canonicalise with preference so an
+        // upgraded HTTPS endpoint wins over a stale HTTP pending value.
+        if (!listenUrlReady)
         {
-            return LocalPortProbe.NormalizeDisplayUrl(
-                LocalPortProbe.PreferProfileDisplayUrl(pendingListenUrl, candidateListenUrls));
+            return LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                null,
+                candidateListenUrls,
+                preference)
+                ?? LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                    pendingListenUrl,
+                    candidateListenUrls,
+                    preference);
         }
 
-        if (candidateListenUrls.Count > 0)
-        {
-            return LocalPortProbe.NormalizeDisplayUrl(candidateListenUrls[0]);
-        }
-
-        var profileUrl = LaunchProfileEnvironmentApplier.ResolvePrimaryListenUrl(
-            definition.RootFolder,
-            definition.ProjectFile,
-            definition.LaunchProfile);
-        return string.IsNullOrWhiteSpace(profileUrl)
-            ? null
-            : LocalPortProbe.NormalizeDisplayUrl(profileUrl);
+        return LocalPortProbe.ResolveCanonicalUserFacingUrl(
+            pendingListenUrl,
+            candidateListenUrls,
+            preference);
     }
 
     private void RefreshListenUrlReady()
@@ -268,20 +305,61 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
+        var preference = definition.PreferredSiteUrlScheme;
         var urlsToProbe = candidateListenUrls.Count > 0
             ? candidateListenUrls
             : string.IsNullOrWhiteSpace(pendingListenUrl) ? [] : new[] { pendingListenUrl };
 
-        foreach (var url in urlsToProbe)
+        var openUrls = urlsToProbe.Where(LocalPortProbe.IsHttpEndpointOpen).ToList();
+        if (openUrls.Count == 0)
         {
-            if (LocalPortProbe.IsHttpEndpointOpen(url))
-            {
-                MarkListenUrlReady(url);
-                return;
-            }
+            listenUrlReady = false;
+            return;
         }
 
-        listenUrlReady = false;
+        listenUrlFirstOpenUtc ??= DateTimeOffset.UtcNow;
+        var graceExpired = DateTimeOffset.UtcNow - listenUrlFirstOpenUtc.Value >= ListenUrlPreferredSchemeGrace;
+
+        var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
+        var preferredOpen = preferred is not null
+            && openUrls.Any(open => LocalPortProbe.SameListenEndpoint(open, preferred));
+
+        // Preferred scheme is up — always lock onto it (including upgrades from HTTP).
+        if (preferredOpen)
+        {
+            var preferredCanonical = LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                preferred,
+                candidateListenUrls,
+                preference) ?? preferred;
+            MarkListenUrlReady(preferredCanonical!);
+            return;
+        }
+
+        if (LocalPortProbe.ShouldWaitForPreferredScheme(
+                openUrls,
+                candidateListenUrls,
+                preference,
+                graceExpired))
+        {
+            if (!string.IsNullOrWhiteSpace(preferred))
+            {
+                pendingListenUrl = preferred;
+            }
+
+            return;
+        }
+
+        var canonical = LocalPortProbe.ResolveCanonicalUserFacingUrlFromOpenEndpoints(
+            openUrls,
+            candidateListenUrls,
+            preference);
+        if (string.IsNullOrWhiteSpace(canonical))
+        {
+            listenUrlReady = false;
+            return;
+        }
+
+        MarkListenUrlReady(canonical);
     }
 
     private void StartListenUrlPolling()
@@ -302,45 +380,70 @@ internal sealed partial class ProjectRuntime
 
     private void PollListenUrl()
     {
-        if (listenUrlReady)
+        RefreshListenUrlReady();
+
+        // Stop only once the preferred profile URL is the ready URL (or there is no preference).
+        // Keep polling after an HTTP fallback so late HTTPS can still upgrade.
+        if (!listenUrlReady)
         {
             return;
         }
 
-        RefreshListenUrlReady();
+        var preference = definition.PreferredSiteUrlScheme;
+        var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
+        if (preferred is null
+            || (!string.IsNullOrWhiteSpace(pendingListenUrl)
+                && LocalPortProbe.SameListenEndpoint(pendingListenUrl, preferred)))
+        {
+            StopListenUrlPolling();
+        }
     }
 
     private void MarkListenUrlReady(string url)
     {
-        pendingListenUrl = url;
-        if (listenUrlReady)
+        var preference = definition.PreferredSiteUrlScheme;
+        if (listenUrlReady
+            && !LocalPortProbe.IsBetterCanonicalUrl(
+                url,
+                pendingListenUrl,
+                candidateListenUrls,
+                preference))
         {
             return;
         }
 
-        listenUrlReady = true;
-        StopListenUrlPolling();
-        if (runProcess?.IsRunning == true)
+        var upgraded = listenUrlReady
+            && !string.IsNullOrWhiteSpace(pendingListenUrl)
+            && !LocalPortProbe.SameListenEndpoint(url, pendingListenUrl!);
+
+        pendingListenUrl = url;
+        if (!listenUrlReady)
         {
-            runErrorCount = 0;
+            listenUrlReady = true;
+            if (runProcess?.IsRunning == true)
+            {
+                runErrorCount = 0;
+            }
         }
 
         RefreshHealth();
         NotifyProgressChanged(force: true);
 
-        if (listenUrlNotified)
+        if (listenUrlNotified && !upgraded)
         {
             return;
         }
 
-        listenUrlNotified = true;
-        var openUrl = LocalPortProbe.NormalizeBrowserUrl(url);
-        notifyUser?.Invoke(
-            definition.Id,
-            $"App running — {definition.DisplayName}",
-            $"Open {openUrl}",
-            UserNotificationKind.Info,
-            UserNotificationCategory.Info);
+        if (!listenUrlNotified)
+        {
+            listenUrlNotified = true;
+            notifyUser?.Invoke(
+                definition.Id,
+                $"App running — {definition.DisplayName}",
+                $"Open {url}",
+                UserNotificationKind.Info,
+                UserNotificationCategory.Info);
+        }
     }
 
     public Task StopAsync()

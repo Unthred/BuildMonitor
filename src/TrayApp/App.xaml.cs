@@ -100,9 +100,18 @@ public partial class App : System.Windows.Application
         }
 
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
+        orchestrator.SetSettingsPersistHandler(settings =>
+        {
+            if (settingsStore is null)
+            {
+                return;
+            }
+
+            _ = settingsStore.SaveAsync(settings);
+        });
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
-        controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory);
+        controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory, RequestExit);
 
         WorkerHealthRegistry.Shared.Register(
             "ui.health-callback",
@@ -433,9 +442,17 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (!statusPanelPinnedAutoFlow && !panelVisible)
+        // Tray hover / manual open must stay up with no Closing countdown.
+        // Site-ready auto-dismiss applies only to auto-pinned build/edit-gating flows.
+        if (!statusPanelPinnedAutoFlow || !panelVisible || IsPointerEngagedWithStatusPanel())
         {
+            var hadClosingCountdown = statusPanelDismissScheduled || statusPanelDismissAtUtc is not null;
             CancelSiteReadyDismissSchedule();
+            if (hadClosingCountdown && panelVisible)
+            {
+                UpdateStatusPanelIfVisible(snapshots);
+            }
+
             return;
         }
 
@@ -461,6 +478,17 @@ public partial class App : System.Windows.Application
             ScheduleSiteReadyDismiss(delay, snapshots);
         }
     }
+
+    /// <summary>
+    /// Cursor is on the tray icon or the status panel — keep the panel open for watching (no auto-close).
+    /// </summary>
+    private bool IsPointerEngagedWithStatusPanel() =>
+        pointerOverStatusPanel || IsCursorOverTrayIcon();
+
+    private bool IsCursorOverTrayIcon() =>
+        notifyIcon is not null
+        && TrayIconShellInterop.TryGetIconScreenBounds(notifyIcon, out _)
+        && TrayIconShellInterop.IsCursorOverIcon(notifyIcon);
 
     private void CancelSiteReadyDismissSchedule()
     {
@@ -495,9 +523,10 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (hoverPanel is { IsVisible: true, IsMouseOver: true })
+        // Hovering the tray icon or panel means the user is watching — never auto-close.
+        if (IsPointerEngagedWithStatusPanel())
         {
-            statusPanelDismissAtUtc = DateTimeOffset.UtcNow.AddSeconds(2);
+            CancelSiteReadyDismissSchedule();
             UpdateStatusPanelIfVisible();
             return;
         }
@@ -766,6 +795,9 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Hover watch: cancel any Closing countdown so the panel stays up while on the icon.
+        CancelSiteReadyDismissSchedule();
+        hideStatusPanelTimer?.Stop();
         ShowStatusPanel();
         EnsureTrayHoverPollTimer();
     }
@@ -801,14 +833,19 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (TrayIconShellInterop.TryGetIconScreenBounds(notifyIcon, out _)
-            && !TrayIconShellInterop.IsCursorOverIcon(notifyIcon)
+        if (!IsCursorOverTrayIcon()
             && !pointerOverStatusPanel
             && !statusPanelPinnedAutoFlow)
         {
             ScheduleHideStatusPanel();
             trayHoverPollTimer?.Stop();
             return;
+        }
+
+        if (IsPointerEngagedWithStatusPanel())
+        {
+            CancelSiteReadyDismissSchedule();
+            hideStatusPanelTimer?.Stop();
         }
 
         if (hoverPanel is { IsVisible: true })
@@ -825,14 +862,18 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (notifyIcon is not null
-            && TrayIconShellInterop.TryGetIconScreenBounds(notifyIcon, out _)
-            && !TrayIconShellInterop.IsCursorOverIcon(notifyIcon)
+        if (!IsCursorOverTrayIcon()
             && !pointerOverStatusPanel
             && !statusPanelPinnedAutoFlow)
         {
             ScheduleHideStatusPanel();
             return;
+        }
+
+        if (IsPointerEngagedWithStatusPanel())
+        {
+            CancelSiteReadyDismissSchedule();
+            hideStatusPanelTimer?.Stop();
         }
 
         RepositionStatusPanelNearTray();
@@ -954,7 +995,7 @@ public partial class App : System.Windows.Application
     private void HideStatusPanelTick(object? sender, EventArgs e)
     {
         hideStatusPanelTimer?.Stop();
-        if (statusPanelPinnedAutoFlow || pointerOverStatusPanel)
+        if (statusPanelPinnedAutoFlow || IsPointerEngagedWithStatusPanel())
         {
             return;
         }
@@ -1061,13 +1102,26 @@ public partial class App : System.Windows.Application
         {
             pointerOverStatusPanel = true;
             hideStatusPanelTimer?.Stop();
+            CancelSiteReadyDismissSchedule();
+            UpdateStatusPanelIfVisible();
         };
         hoverPanel.MouseLeave += (_, _) =>
         {
             pointerOverStatusPanel = false;
+            if (statusPanelPinnedAutoFlow && !IsCursorOverTrayIcon())
+            {
+                UpdateStatusPanelSiteReadyPin(ResolveStatusPanelSnapshots());
+            }
+
             ScheduleHideStatusPanel();
         };
-        hoverPanel.Deactivated += (_, _) => ScheduleHideStatusPanel();
+        hoverPanel.Deactivated += (_, _) =>
+        {
+            if (!IsPointerEngagedWithStatusPanel())
+            {
+                ScheduleHideStatusPanel();
+            }
+        };
         hoverPanel.Closed += (_, _) => hoverPanel = null;
     }
 

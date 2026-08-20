@@ -12,6 +12,12 @@ public partial class ControlPlaneMetricsPanel : System.Windows.Controls.UserCont
         typeof(ControlPlaneMetricsPanel),
         new PropertyMetadata(null));
 
+    public static readonly DependencyProperty WorkflowProperty = DependencyProperty.Register(
+        nameof(Workflow),
+        typeof(ControlPlaneWorkflowSnapshot),
+        typeof(ControlPlaneMetricsPanel),
+        new PropertyMetadata(null));
+
     public ControlPlaneMetricsPanel()
     {
         InitializeComponent();
@@ -21,5 +27,11 @@ public partial class ControlPlaneMetricsPanel : System.Windows.Controls.UserCont
     {
         get => (ControlPlaneMetricsSnapshot?)GetValue(SnapshotProperty);
         set => SetValue(SnapshotProperty, value);
+    }
+
+    public ControlPlaneWorkflowSnapshot? Workflow
+    {
+        get => (ControlPlaneWorkflowSnapshot?)GetValue(WorkflowProperty);
+        set => SetValue(WorkflowProperty, value);
     }
 }

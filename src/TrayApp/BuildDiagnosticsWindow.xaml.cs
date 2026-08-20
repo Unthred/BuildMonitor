@@ -58,6 +58,7 @@ public partial class BuildDiagnosticsWindow : Window
         intelligenceRefreshTimer.Tick += (_, _) => RefreshAll();
 
         journal.Changed += OnJournalChanged;
+        orchestrator.ControlPlaneEventJournal.Changed += OnJournalChanged;
         Closed += OnClosed;
         Loaded += OnLoaded;
         ThemeService.ThemeChanged += OnThemeChanged;
@@ -81,6 +82,7 @@ public partial class BuildDiagnosticsWindow : Window
     {
         intelligenceRefreshTimer.Stop();
         journal.Changed -= OnJournalChanged;
+        orchestrator.ControlPlaneEventJournal.Changed -= OnJournalChanged;
         ThemeService.ThemeChanged -= OnThemeChanged;
         CaptureTriggerGridColumnWidths();
         WindowLayoutService.Capture(this, windowsLayoutStore.Layout.Diagnostics);
@@ -199,6 +201,7 @@ public partial class BuildDiagnosticsWindow : Window
                     new GlobalMonitorSettings(),
                     new FileChangeBurstStats());
                 tab.ControlPlaneMetrics = orchestrator.GetControlPlaneMetrics(projectId);
+                tab.ControlPlaneWorkflow = orchestrator.GetControlPlaneWorkflow(projectId);
 
                 if (!IsNoteEditorFocused())
                 {
@@ -337,6 +340,7 @@ public partial class BuildDiagnosticsWindow : Window
         private string displayName;
         private BuildIntelligenceSnapshot? intelligence;
         private ControlPlaneMetricsSnapshot? controlPlaneMetrics;
+        private ControlPlaneWorkflowSnapshot? controlPlaneWorkflow;
 
         public ProjectDiagnosticsTabViewModel(string projectId, string displayName)
         {
@@ -382,6 +386,16 @@ public partial class BuildDiagnosticsWindow : Window
             set
             {
                 controlPlaneMetrics = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ControlPlaneWorkflowSnapshot? ControlPlaneWorkflow
+        {
+            get => controlPlaneWorkflow;
+            set
+            {
+                controlPlaneWorkflow = value;
                 OnPropertyChanged();
             }
         }

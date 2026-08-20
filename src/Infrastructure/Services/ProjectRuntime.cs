@@ -75,6 +75,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private IReadOnlyList<string> candidateListenUrls = [];
     private bool listenUrlReady;
     private bool listenUrlNotified;
+    private DateTimeOffset? listenUrlFirstOpenUtc;
     private int runOutputSaveRevision;
     private Timer? listenUrlPollTimer;
     private Timer? runLogSaveTimer;
@@ -133,7 +134,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 IsEditGatingActive(),
                 BuildEditGatingDetailText(),
                 GetEditGatingQuietUntilUtc(),
-                lastBuildExitCode);
+                lastBuildExitCode,
+                BuildControlPlaneSnapshot());
     }
 
     public void MarkHealthDirty() => Interlocked.Exchange(ref healthDirty, 1);
@@ -157,6 +159,7 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     private void CoalesceHealthCore()
     {
+        RefreshControlPlaneHealthIfNeeded();
         RefreshLiveIssueCounts(force: true);
         RefreshHealth();
     }
@@ -305,16 +308,31 @@ internal sealed partial class ProjectRuntime : IDisposable
     }
 
     private bool UsesCoalescedWatchRebuilds() =>
-        definition.RunOptions.RunMode == ProjectRunMode.Watch && coalesceWatchRebuilds;
+        definition.RunOptions.RunMode == ProjectRunMode.Watch
+        && coalesceWatchRebuilds
+        && definition.BuildControlMode != ProjectBuildControlMode.AiControlled;
 
+    /// <summary>
+    /// AI Controlled never hosts <c>dotnet watch</c> — file changes must not compile inside the watch process.
+    /// Use <c>dotnet run --no-build</c> so the app stays up until an explicit rebuild.
+    /// </summary>
     private bool UsesDotNetWatchProcess() =>
-        definition.RunOptions.RunMode == ProjectRunMode.Watch && !UsesCoalescedWatchRebuilds();
+        definition.BuildControlMode != ProjectBuildControlMode.AiControlled
+        && definition.RunOptions.RunMode == ProjectRunMode.Watch
+        && !UsesCoalescedWatchRebuilds();
 
     private bool ShouldStartFileWatcher()
     {
         if (definition.RunOptions.FileChanges == FileChangeMode.Off)
         {
             return false;
+        }
+
+        // Always observe in AI Controlled (counts/status) unless file watching is fully off.
+        if (definition.BuildControlMode == ProjectBuildControlMode.AiControlled)
+        {
+            return definition.RunOptions.FileChanges != FileChangeMode.Off
+                || definition.RunOptions.RunMode != ProjectRunMode.None;
         }
 
         if (UsesCoalescedWatchRebuilds())

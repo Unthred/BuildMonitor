@@ -7,6 +7,9 @@
     Default deploy target: C:\Utils\BuildMonitor
     Override with -DeployPath or BUILDMONITOR_DEPLOY_PATH.
 
+    Asks a running tray to quit via POST /app/quit (control plane) before
+    publishing/copying so binaries are unlocked. Does not kill the process.
+
 .EXAMPLE
     .\scripts\Deploy-BuildMonitor.ps1
 .EXAMPLE
@@ -24,13 +27,74 @@ $repoRoot = Resolve-Path (Join-Path $scriptDir '..')
 $projectPath = Join-Path $repoRoot 'src\TrayApp\BuildMonitor.TrayApp.csproj'
 $staging = Join-Path $repoRoot "artifacts\publish\$Configuration"
 
+function Get-ControlPlaneBaseUrl {
+    $discovery = Join-Path $env:LOCALAPPDATA 'BuildMonitor\control-plane.json'
+    if (Test-Path $discovery) {
+        try {
+            $json = Get-Content $discovery -Raw | ConvertFrom-Json
+            if ($json.enabled -and $json.baseUrl) {
+                return ([string]$json.baseUrl).TrimEnd('/')
+            }
+            if ($json.enabled -and $json.port) {
+                return "http://127.0.0.1:$($json.port)"
+            }
+        }
+        catch {
+            # fall through
+        }
+    }
+
+    return 'http://127.0.0.1:7700'
+}
+
+function Request-BuildMonitorQuit {
+    $base = Get-ControlPlaneBaseUrl
+    Write-Host "Requesting tray quit via $base/app/quit ..."
+    try {
+        $response = Invoke-WebRequest -Method Post -Uri "$base/app/quit" -UseBasicParsing -TimeoutSec 5
+        Write-Host "Quit accepted (HTTP $($response.StatusCode)). Waiting for control plane to stop ..."
+    }
+    catch {
+        $status = $null
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        if ($status -eq 404 -or $status -eq 503) {
+            Write-Warning "This tray build has no /app/quit (or quit unavailable). Exit BuildMonitor from the tray menu, then re-run deploy."
+            return $false
+        }
+
+        # Connection refused / already stopped is fine.
+        Write-Host "Control plane not reachable (tray already stopped?). Continuing."
+        return $true
+    }
+
+    $deadline = (Get-Date).AddSeconds(45)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-WebRequest -Uri "$base/projects" -UseBasicParsing -TimeoutSec 2 | Out-Null
+            Start-Sleep -Milliseconds 400
+        }
+        catch {
+            Write-Host "Tray control plane is down."
+            return $true
+        }
+    }
+
+    Write-Warning "Timed out waiting for tray quit. Exit BuildMonitor from the tray menu, then re-run deploy."
+    return $false
+}
+
+# Unlock deploy folder before publish/copy.
+if (-not (Request-BuildMonitorQuit)) {
+    throw "BuildMonitor is still running. Quit it (tray Exit or POST /app/quit), then re-run deploy."
+}
+
 # Build identity (publish-time + deploy-time).
-$gitCommit = (git rev-parse --short HEAD).Trim()
-$gitBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+$gitCommit = ([string](git rev-parse --short HEAD)).Trim()
+$gitBranch = ([string](git rev-parse --abbrev-ref HEAD)).Trim()
 if ($gitBranch -eq 'HEAD') {
     $gitBranch = 'detached'
 }
-$gitPorcelain = (git status --porcelain).Trim()
+$gitPorcelain = [string](git status --porcelain)
 $gitDirty = -not [string]::IsNullOrWhiteSpace($gitPorcelain)
 $gitDirtyText = if ($gitDirty) { 'true' } else { 'false' }
 $builtUtc = (Get-Date).ToUniversalTime().ToString('o')

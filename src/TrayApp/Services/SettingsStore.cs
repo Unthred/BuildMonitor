@@ -146,6 +146,33 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = 18;
         }
 
+        if (settings.SchemaVersion < 19)
+        {
+            foreach (var project in settings.Projects)
+            {
+                if (project.BuildControlMode != ProjectBuildControlMode.AiControlled)
+                {
+                    project.BuildControlMode = ProjectBuildControlMode.FileWatching;
+                }
+            }
+
+            settings.SchemaVersion = 19;
+        }
+
+        if (settings.SchemaVersion < 20)
+        {
+            foreach (var project in settings.Projects)
+            {
+                if (project.PreferredSiteUrlScheme is not (
+                    PreferredSiteUrlScheme.Https or PreferredSiteUrlScheme.Http))
+                {
+                    project.PreferredSiteUrlScheme = PreferredSiteUrlScheme.Auto;
+                }
+            }
+
+            settings.SchemaVersion = 20;
+        }
+
         return settings;
     }
 
@@ -224,7 +251,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = 18;
+        settings.SchemaVersion = 20;
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
     }

@@ -12,6 +12,15 @@ From the repo root (after `dotnet build` / `dotnet test` if you want a quick che
 .\scripts\Deploy-BuildMonitor.ps1
 ```
 
+The script:
+
+1. Calls `POST http://127.0.0.1:{port}/app/quit` when the control plane is up (graceful tray exit — same as tray **Exit**)
+2. Waits until the control plane port is closed so deploy files unlock
+3. Runs `dotnet publish` (Release) to `artifacts\publish\Release`
+4. Mirrors files into the deploy folder and writes `deploy-info.txt`
+
+If quit is unavailable (build without `/app/quit`, or tray already stopped), exit BuildMonitor from the tray menu once, then re-run deploy. The script does **not** kill the process.
+
 Override the folder:
 
 ```powershell
@@ -20,10 +29,6 @@ Override the folder:
 $env:BUILDMONITOR_DEPLOY_PATH = 'D:\Tools\BuildMonitor'
 .\scripts\Deploy-BuildMonitor.ps1
 ```
-
-The script runs `dotnet publish` (Release) to `artifacts\publish\Release`, mirrors files into the deploy folder, and writes `deploy-info.txt` with the deploy timestamp.
-
-Close any running `BuildMonitor.TrayApp.exe` before deploying if files are locked.
 
 ## Run deployed build
 

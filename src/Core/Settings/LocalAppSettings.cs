@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 18;
+    public int SchemaVersion { get; set; } = 20;
     public List<LocalProjectDefinition> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
@@ -23,6 +23,8 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
     private string testProjectFile = string.Empty;
     private bool isActiveInSession;
     private bool startOnLaunch = true;
+    private ProjectBuildControlMode buildControlMode = ProjectBuildControlMode.FileWatching;
+    private PreferredSiteUrlScheme preferredSiteUrlScheme = PreferredSiteUrlScheme.Auto;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -86,6 +88,25 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
     {
         get => startOnLaunch;
         set => SetField(ref startOnLaunch, value);
+    }
+
+    /// <summary>
+    /// Who owns automatic rebuilds from file changes.
+    /// File Watching = debounced auto-build; AI Controlled = observe only, explicit rebuild/ship-check.
+    /// </summary>
+    public ProjectBuildControlMode BuildControlMode
+    {
+        get => buildControlMode;
+        set => SetField(ref buildControlMode, value);
+    }
+
+    /// <summary>
+    /// Which launch-profile site URL to show / open when both HTTP and HTTPS are advertised.
+    /// </summary>
+    public PreferredSiteUrlScheme PreferredSiteUrlScheme
+    {
+        get => preferredSiteUrlScheme;
+        set => SetField(ref preferredSiteUrlScheme, value);
     }
 
     public ProjectRunOptions RunOptions { get; set; } = new();

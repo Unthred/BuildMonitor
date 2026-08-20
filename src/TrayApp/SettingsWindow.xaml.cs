@@ -30,6 +30,33 @@ public partial class SettingsWindow : Window
         themeAtOpen = Settings.AppBehavior.Theme;
 
         RunModeCombo.ItemsSource = Enum.GetValues<ProjectRunMode>();
+        BuildControlModeCombo.Items.Clear();
+        BuildControlModeCombo.Items.Add(new ComboBoxItem
+        {
+            Content = "File Watching",
+            Tag = ProjectBuildControlMode.FileWatching
+        });
+        BuildControlModeCombo.Items.Add(new ComboBoxItem
+        {
+            Content = "AI Controlled",
+            Tag = ProjectBuildControlMode.AiControlled
+        });
+        PreferredSiteUrlCombo.Items.Clear();
+        PreferredSiteUrlCombo.Items.Add(new ComboBoxItem
+        {
+            Content = PreferredSiteUrlSchemeDisplay.ToLabel(PreferredSiteUrlScheme.Auto),
+            Tag = PreferredSiteUrlScheme.Auto
+        });
+        PreferredSiteUrlCombo.Items.Add(new ComboBoxItem
+        {
+            Content = PreferredSiteUrlSchemeDisplay.ToLabel(PreferredSiteUrlScheme.Https),
+            Tag = PreferredSiteUrlScheme.Https
+        });
+        PreferredSiteUrlCombo.Items.Add(new ComboBoxItem
+        {
+            Content = PreferredSiteUrlSchemeDisplay.ToLabel(PreferredSiteUrlScheme.Http),
+            Tag = PreferredSiteUrlScheme.Http
+        });
         RunTestsCombo.ItemsSource = Enum.GetValues<TestRunTrigger>();
         AutoOpenLogCombo.ItemsSource = Enum.GetValues<AutoOpenLogMode>();
         FileChangesCombo.ItemsSource = Enum.GetValues<FileChangeMode>();
@@ -157,6 +184,8 @@ public partial class SettingsWindow : Window
             ProjectFileText.Text = project.ProjectFile;
             ExtraArgsText.Text = project.ExtraDotNetArgs;
             RunModeCombo.SelectedItem = project.RunOptions.RunMode;
+            SelectBuildControlMode(project.BuildControlMode);
+            SelectPreferredSiteUrlScheme(project.PreferredSiteUrlScheme);
             StartOnLaunchCheck.IsChecked = project.StartOnLaunch;
             RestartOnCrashCheck.IsChecked = project.RunOptions.RestartOnCrash;
             MaxRetriesText.Text = project.RunOptions.MaxRestartRetries.ToString();
@@ -179,6 +208,54 @@ public partial class SettingsWindow : Window
         {
             isLoadingEditor = false;
         }
+    }
+
+    private void SelectBuildControlMode(ProjectBuildControlMode mode)
+    {
+        foreach (ComboBoxItem item in BuildControlModeCombo.Items)
+        {
+            if (item.Tag is ProjectBuildControlMode tag && tag == mode)
+            {
+                BuildControlModeCombo.SelectedItem = item;
+                return;
+            }
+        }
+
+        BuildControlModeCombo.SelectedIndex = 0;
+    }
+
+    private ProjectBuildControlMode ResolveBuildControlMode()
+    {
+        if (BuildControlModeCombo.SelectedItem is ComboBoxItem { Tag: ProjectBuildControlMode mode })
+        {
+            return mode;
+        }
+
+        return ProjectBuildControlMode.FileWatching;
+    }
+
+    private void SelectPreferredSiteUrlScheme(PreferredSiteUrlScheme scheme)
+    {
+        foreach (ComboBoxItem item in PreferredSiteUrlCombo.Items)
+        {
+            if (item.Tag is PreferredSiteUrlScheme tag && tag == scheme)
+            {
+                PreferredSiteUrlCombo.SelectedItem = item;
+                return;
+            }
+        }
+
+        PreferredSiteUrlCombo.SelectedIndex = 0;
+    }
+
+    private PreferredSiteUrlScheme ResolvePreferredSiteUrlScheme()
+    {
+        if (PreferredSiteUrlCombo.SelectedItem is ComboBoxItem { Tag: PreferredSiteUrlScheme scheme })
+        {
+            return scheme;
+        }
+
+        return PreferredSiteUrlScheme.Auto;
     }
 
     private void DisplayNameTextChanged(object sender, TextChangedEventArgs e)
@@ -323,6 +400,8 @@ public partial class SettingsWindow : Window
         selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
         selectedProject.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
         selectedProject.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
+        selectedProject.BuildControlMode = ResolveBuildControlMode();
+        selectedProject.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
         selectedProject.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
         selectedProject.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
         if (int.TryParse(MaxRetriesText.Text, out var retries))

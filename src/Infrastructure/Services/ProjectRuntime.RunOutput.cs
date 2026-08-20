@@ -17,7 +17,21 @@ internal sealed partial class ProjectRuntime
         if (DotNetRunOutputParser.TryExtractListeningUrl(line, out var parsedUrl))
         {
             var hadUrl = !string.IsNullOrWhiteSpace(pendingListenUrl);
-            pendingListenUrl = parsedUrl;
+            var preference = definition.PreferredSiteUrlScheme;
+            // Never downgrade a preferred HTTPS pending URL with the first HTTP listen line.
+            if (string.IsNullOrWhiteSpace(pendingListenUrl)
+                || LocalPortProbe.IsBetterCanonicalUrl(
+                    parsedUrl,
+                    pendingListenUrl,
+                    candidateListenUrls,
+                    preference))
+            {
+                pendingListenUrl = LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                    parsedUrl,
+                    candidateListenUrls,
+                    preference) ?? parsedUrl;
+            }
+
             var wasReady = listenUrlReady;
             RefreshListenUrlReady();
             if (!hadUrl || listenUrlReady != wasReady)
@@ -55,6 +69,12 @@ internal sealed partial class ProjectRuntime
 
     private void HandleWatchProcessOutputLine(string line)
     {
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            // Should not be hosting watch in AI Controlled; ignore if a stale watch process remains.
+            return;
+        }
+
         if (DotNetWatchOutput.IsWatchBuildingLine(line))
         {
             RecordBuildTrigger(

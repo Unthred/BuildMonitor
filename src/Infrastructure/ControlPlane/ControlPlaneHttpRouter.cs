@@ -63,6 +63,21 @@ internal static class ControlPlaneHttpRouter
             return Ok(actions.ListProjects());
         }
 
+        if (method == "POST" && path == "/app/quit")
+        {
+            // Schedule graceful tray exit (same as Exit menu). Response returns first;
+            // exit is deferred on the UI thread so this HTTP call can complete.
+            var accepted = actions.RequestAppQuit();
+            if (!accepted)
+            {
+                return new ControlPlaneHttpResponse(
+                    503,
+                    new { ok = false, error = "App quit is not available in this host." });
+            }
+
+            return new ControlPlaneHttpResponse(202, new { ok = true, quitting = true });
+        }
+
         if (method == "GET" && path == "/session")
         {
             if (!TryGetProjectId(url, body: null, out var projectId, out var error))
@@ -141,6 +156,102 @@ internal static class ControlPlaneHttpRouter
             return Ok(WatchJson(watch), projectId);
         }
 
+        if (method == "POST" && path == "/run/rebuild")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? configuration = null;
+            if (payload is not null
+                && payload.Value.TryGetProperty("configuration", out var cfg)
+                && cfg.ValueKind == JsonValueKind.String)
+            {
+                configuration = cfg.GetString();
+            }
+
+            try
+            {
+                var result = await actions.RebuildAsync(
+                    new ControlPlaneRebuildRequest(projectId!, configuration),
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(ToRebuildJson(result), projectId);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("already running", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ControlPlaneHttpResponse(409, new { error = ex.Message }, projectId);
+            }
+        }
+
+        if (method == "POST" && path == "/run/tests")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? configuration = null;
+            string? filter = null;
+            if (payload is not null)
+            {
+                if (payload.Value.TryGetProperty("configuration", out var cfg)
+                    && cfg.ValueKind == JsonValueKind.String)
+                {
+                    configuration = cfg.GetString();
+                }
+
+                if (payload.Value.TryGetProperty("filter", out var filterEl)
+                    && filterEl.ValueKind == JsonValueKind.String)
+                {
+                    filter = filterEl.GetString();
+                }
+            }
+
+            try
+            {
+                var result = await actions.RunTestsAsync(
+                    new ControlPlaneRunTestsRequest(projectId!, configuration, filter),
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(ToRunTestsJson(result), projectId);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("already running", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ControlPlaneHttpResponse(409, new { error = ex.Message }, projectId);
+            }
+        }
+
+        if (method == "POST" && path == "/run/stop")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            var result = await actions.StopRunAsync(projectId!, cancellationToken).ConfigureAwait(false);
+            return Ok(ToRunStopJson(result), projectId);
+        }
+
         if (method == "POST" && path == "/run/ship-check")
         {
             var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
@@ -192,7 +303,74 @@ internal static class ControlPlaneHttpRouter
             }
         }
 
+        if (method == "GET" && path == "/mode")
+        {
+            if (!TryGetProjectId(url, body: null, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            var mode = actions.GetBuildControlMode(projectId!);
+            return Ok(ModeJson(mode, includePrevious: false), projectId);
+        }
+
+        if (method == "POST" && path == "/mode")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? modeWire = null;
+            if (payload is not null
+                && payload.Value.TryGetProperty("mode", out var modeEl)
+                && modeEl.ValueKind == JsonValueKind.String)
+            {
+                modeWire = modeEl.GetString();
+            }
+
+            if (!ProjectBuildControlModeWire.TryParse(modeWire, out var mode))
+            {
+                return BadRequest(
+                    "mode must be 'file-watching' or 'ai-controlled'.");
+            }
+
+            var status = actions.SetBuildControlMode(projectId!, mode);
+            return Ok(ModeJson(status, includePrevious: true), projectId);
+        }
+
         return new ControlPlaneHttpResponse(404, new { error = $"Unknown route {method} {path}" });
+    }
+
+    private static object ModeJson(ControlPlaneModeStatus status, bool includePrevious)
+    {
+        if (includePrevious)
+        {
+            return new
+            {
+                projectId = status.ProjectId,
+                previousMode = status.PreviousModeWire ?? ProjectBuildControlModeWire.ToWire(
+                    status.PreviousMode ?? status.Mode),
+                mode = status.ModeWire
+            };
+        }
+
+        return new
+        {
+            projectId = status.ProjectId,
+            mode = status.ModeWire
+        };
     }
 
     private static object SessionJson(ControlPlaneSessionStatus session) => new
@@ -200,7 +378,9 @@ internal static class ControlPlaneHttpRouter
         state = session.State.ToString().ToLowerInvariant(),
         since = session.Since.ToString("O"),
         sessionApiUsed = session.SessionApiUsed,
-        suppressAutoBuildTests = session.SuppressAutoBuildTests
+        suppressAutoBuildTests = session.SuppressAutoBuildTests,
+        idleCause = session.IdleCause.ToString().ToLowerInvariant(),
+        lastActivity = session.LastActivityUtc?.ToString("O")
     };
 
     private static object WatchJson(ControlPlaneWatchStatus watch) => new
@@ -208,6 +388,52 @@ internal static class ControlPlaneHttpRouter
         watch = watch.Watch.ToString().ToLowerInvariant(),
         pid = watch.Pid
     };
+
+    private static object ToRebuildJson(ControlPlaneRebuildResult result) => new
+    {
+        ok = result.Ok,
+        project = result.Project,
+        build = result.Build,
+        exitCode = result.ExitCode,
+        failures = result.Failures,
+        log = result.Log
+    };
+
+    private static object ToRunStopJson(ControlPlaneRunStopResult result) => new
+    {
+        ok = result.Ok,
+        wasRunning = result.WasRunning,
+        exitCode = result.ExitCode,
+        watch = WatchJson(result.Watch)
+    };
+
+    private static object ToRunTestsJson(ControlPlaneRunTestsResult result)
+    {
+        if (result.Tests is null)
+        {
+            return new
+            {
+                ok = result.Ok,
+                project = result.Project,
+                failures = result.Failures,
+                log = result.Log
+            };
+        }
+
+        return new
+        {
+            ok = result.Ok,
+            project = result.Project,
+            tests = new
+            {
+                failed = result.Tests.Failed,
+                passed = result.Tests.Passed,
+                skipped = result.Tests.Skipped
+            },
+            failures = result.Failures,
+            log = result.Log
+        };
+    }
 
     private static object ToShipCheckJson(ControlPlaneShipCheckResult result)
     {

@@ -16,6 +16,8 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
       "extraDotNetArgs": "",
       "isActiveInSession": true,
       "startOnLaunch": true,
+      "buildControlMode": "FileWatching",
+      "preferredSiteUrlScheme": "Auto",
       "runOptions": {
         "runMode": "Watch",
         "restartOnCrash": true,
@@ -46,7 +48,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
 ## Settings UI tabs
 
-- **Projects** — per-project folder, csproj/sln, launch profile, run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
+- **Projects** — per-project folder, csproj/sln, launch profile, **preferred site URL** (Auto/HTTPS/HTTP), **build control** (File Watching vs AI Controlled), run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
 - **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, **auto-open Build Monitor Health on startup**, max log bytes.
 - **App** — theme (`System`, `Light`, `Dark`) and startup behavior. **Run when Windows starts** adds/removes an entry under `HKCU\...\Run` named `LocalBuildMonitor`.
 
@@ -176,6 +178,8 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 ## Projects — start on launch
 
 - **`startOnLaunch`** (default **true** for new projects; migrated from global `monitor.autoStartActiveProjectsOnLaunch` in schema v10) — per project. When **true** and **active in session**, the project builds and runs automatically when the app starts or after you save settings. When **false**, the project stays monitored but idle until you use **Rebuild** / **Restart** from the tray. Settings → **Projects** → select project → *Start build when app launches*.
+- **`buildControlMode`** (schema v19; default **FileWatching**) — per project. `FileWatching` = debounced auto-build on source changes (held while control-plane busy). `AiControlled` = file watcher observes/counts only; builds require tray Rebuild or `POST /run/rebuild` / `/run/ship-check`. Settings → **Projects** → **Build control**. Wire API uses `file-watching` / `ai-controlled`.
+- **`preferredSiteUrlScheme`** (schema v20; default **Auto**) — per project. When the launch profile lists both HTTP and HTTPS, which URL to show/open: `Auto` (prefer HTTPS), `Https`, or `Http`. Settings → **Projects** → **Preferred site URL**. Also waits briefly for the preferred scheme before locking onto the first open port.
 
 ## App restart
 
