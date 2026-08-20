@@ -75,7 +75,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private IReadOnlyList<string> candidateListenUrls = [];
     private bool listenUrlReady;
     private bool listenUrlNotified;
-    private DateTimeOffset listenUrlProbeStartedUtc;
+    private DateTimeOffset? listenUrlFirstOpenUtc;
     private int runOutputSaveRevision;
     private Timer? listenUrlPollTimer;
     private Timer? runLogSaveTimer;

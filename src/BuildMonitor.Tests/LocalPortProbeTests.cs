@@ -114,6 +114,18 @@ public class LocalPortProbeTests
     }
 
     [Fact]
+    public void Display_while_awaiting_uses_preferred_profile_not_runtime_http()
+    {
+        // Simulate ResolveDisplayListenUrl while not ready: null runtime → preferred HTTPS.
+        var awaiting = LocalPortProbe.ResolveCanonicalUserFacingUrl(
+            null,
+            WitherbyProfileUrls,
+            PreferredSiteUrlScheme.Https);
+
+        Assert.Equal("https://localhost:44333/", awaiting);
+    }
+
+    [Fact]
     public void IsBetterCanonicalUrl_prefers_https_over_http()
     {
         Assert.True(LocalPortProbe.IsBetterCanonicalUrl(

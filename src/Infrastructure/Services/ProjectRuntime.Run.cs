@@ -9,7 +9,12 @@ namespace BuildMonitor.Infrastructure.Services;
 
 internal sealed partial class ProjectRuntime
 {
-    private static readonly TimeSpan ListenUrlPreferredSchemeGrace = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// After the first profile URL answers, wait this long for the preferred scheme (HTTPS)
+    /// before marking site-ready on a fallback (HTTP). Measured from first open — not process start —
+    /// so long builds do not burn the grace window.
+    /// </summary>
+    private static readonly TimeSpan ListenUrlPreferredSchemeGrace = TimeSpan.FromSeconds(30);
 
     private void StartRunProcess(bool skipEmbeddedBuild = false)
     {
@@ -52,7 +57,7 @@ internal sealed partial class ProjectRuntime
             ?? candidateListenUrls.FirstOrDefault();
         listenUrlReady = false;
         listenUrlNotified = false;
-        listenUrlProbeStartedUtc = DateTimeOffset.UtcNow;
+        listenUrlFirstOpenUtc = null;
         runOutputSaveRevision = 0;
         StartListenUrlPolling();
         StartRunLogSaveTimer();
@@ -103,6 +108,7 @@ internal sealed partial class ProjectRuntime
         SaveRunOutputIfChanged(force: true);
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlFirstOpenUtc = null;
         lastExitCode = exitCode;
         var runOutput = exitedProcess.Output;
         if (exitCode == 0)
@@ -152,6 +158,7 @@ internal sealed partial class ProjectRuntime
         StopRunLogSaveTimer();
         listenUrlReady = false;
         listenUrlNotified = false;
+        listenUrlFirstOpenUtc = null;
 
         if (runProcess is null)
         {
@@ -266,10 +273,27 @@ internal sealed partial class ProjectRuntime
             return null;
         }
 
+        var preference = definition.PreferredSiteUrlScheme;
+
+        // While awaiting readiness, always surface the preferred profile URL (HTTPS), not a
+        // transient HTTP listen line. When ready, still re-canonicalise with preference so an
+        // upgraded HTTPS endpoint wins over a stale HTTP pending value.
+        if (!listenUrlReady)
+        {
+            return LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                null,
+                candidateListenUrls,
+                preference)
+                ?? LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                    pendingListenUrl,
+                    candidateListenUrls,
+                    preference);
+        }
+
         return LocalPortProbe.ResolveCanonicalUserFacingUrl(
             pendingListenUrl,
             candidateListenUrls,
-            definition.PreferredSiteUrlScheme);
+            preference);
     }
 
     private void RefreshListenUrlReady()
@@ -293,15 +317,30 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        var graceExpired = DateTimeOffset.UtcNow - listenUrlProbeStartedUtc >= ListenUrlPreferredSchemeGrace;
+        listenUrlFirstOpenUtc ??= DateTimeOffset.UtcNow;
+        var graceExpired = DateTimeOffset.UtcNow - listenUrlFirstOpenUtc.Value >= ListenUrlPreferredSchemeGrace;
+
+        var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
+        var preferredOpen = preferred is not null
+            && openUrls.Any(open => LocalPortProbe.SameListenEndpoint(open, preferred));
+
+        // Preferred scheme is up — always lock onto it (including upgrades from HTTP).
+        if (preferredOpen)
+        {
+            var preferredCanonical = LocalPortProbe.ResolveCanonicalUserFacingUrl(
+                preferred,
+                candidateListenUrls,
+                preference) ?? preferred;
+            MarkListenUrlReady(preferredCanonical!);
+            return;
+        }
+
         if (LocalPortProbe.ShouldWaitForPreferredScheme(
                 openUrls,
                 candidateListenUrls,
                 preference,
                 graceExpired))
         {
-            // Keep preferred profile URL for display; do not lock onto HTTP early.
-            var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
             if (!string.IsNullOrWhiteSpace(preferred))
             {
                 pendingListenUrl = preferred;
@@ -341,10 +380,20 @@ internal sealed partial class ProjectRuntime
 
     private void PollListenUrl()
     {
-        // Keep probing after first-open so HTTPS can upgrade over HTTP within the grace window.
         RefreshListenUrlReady();
-        if (listenUrlReady
-            && DateTimeOffset.UtcNow - listenUrlProbeStartedUtc >= ListenUrlPreferredSchemeGrace)
+
+        // Stop only once the preferred profile URL is the ready URL (or there is no preference).
+        // Keep polling after an HTTP fallback so late HTTPS can still upgrade.
+        if (!listenUrlReady)
+        {
+            return;
+        }
+
+        var preference = definition.PreferredSiteUrlScheme;
+        var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
+        if (preferred is null
+            || (!string.IsNullOrWhiteSpace(pendingListenUrl)
+                && LocalPortProbe.SameListenEndpoint(pendingListenUrl, preferred)))
         {
             StopListenUrlPolling();
         }
