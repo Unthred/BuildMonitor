@@ -1,3 +1,4 @@
+using System.IO;
 using BuildMonitor.Core.Settings;
 
 namespace BuildMonitor.TrayApp.Services;
