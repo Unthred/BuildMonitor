@@ -92,7 +92,7 @@ public static class LaunchProfileEnvironmentApplier
 
         return urls
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(LocalPortProbe.GetProfileUrlPriorityRank)
+            .OrderBy(u => LocalPortProbe.GetProfileUrlPriorityRank(u))
             .ThenBy(u => u, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

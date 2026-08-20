@@ -1,5 +1,6 @@
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
+using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.Diagnostics;
 
