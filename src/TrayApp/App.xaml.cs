@@ -48,6 +48,7 @@ public partial class App : System.Windows.Application
     private DateTimeOffset trayHoverStatusPanelSuppressedUntil = DateTimeOffset.MinValue;
     private readonly Dictionary<string, bool> previousEditGatingActive =
         new(StringComparer.OrdinalIgnoreCase);
+    private WindowDisplayChangeWatcher? displayChangeWatcher;
     private readonly BuildLifecycleToastNotifier buildLifecycleToastNotifier = new();
     private readonly TrayContextMenuBuilder trayMenuBuilder = new();
     private int settingsApplyVersion;
@@ -73,7 +74,7 @@ public partial class App : System.Windows.Application
         appDataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "BuildMonitor");
-        MigrateLegacyAppDataIfNeeded(appDataDirectory);
+        AppLaunchPolicy.MigrateLegacyAppDataIfNeeded(appDataDirectory);
         Directory.CreateDirectory(appDataDirectory);
 
         var settingsPath = Path.Combine(appDataDirectory, "settings.json");
@@ -125,8 +126,38 @@ public partial class App : System.Windows.Application
         ApplyThemeToUi();
         notifyIcon = BuildNotifyIcon();
         notifyIcon.Visible = true;
+        displayChangeWatcher = new WindowDisplayChangeWatcher(
+            Dispatcher,
+            () => Volatile.Read(ref exitRequested) != 0,
+            () =>
+            {
+                var windows = new List<Window>(openLogViewers.Count + 2);
+                windows.AddRange(openLogViewers.Values);
+                if (diagnosticsWindow is not null)
+                {
+                    windows.Add(diagnosticsWindow);
+                }
 
-        if (ShouldAutoOpenBuildMonitorHealth())
+                if (buildMonitorHealthWindow is not null)
+                {
+                    windows.Add(buildMonitorHealthWindow);
+                }
+
+                return windows;
+            },
+            () => hoverPanel?.InvalidateTrayPlacementCache(),
+            () =>
+            {
+                if (hoverPanel is not { IsVisible: true })
+                {
+                    return;
+                }
+
+                GetTrayPlacementContext(out var trayIconBounds, out var trayWindowHandle);
+                hoverPanel.FollowTray(trayIconBounds, trayWindowHandle);
+            });
+
+        if (AppLaunchPolicy.ShouldAutoOpenBuildMonitorHealth(currentSettings))
         {
             await OpenBuildMonitorHealthWhenReadyAsync();
             await WaitForUiIdleAsync();
@@ -170,7 +201,7 @@ public partial class App : System.Windows.Application
             orchestrator.ApplySettings(currentSettings);
             ApplyControlPlaneHost();
 
-            if (ShouldAutoStartAnyProjectsOnLaunch())
+            if (AppLaunchPolicy.ShouldAutoStartAnyProjectsOnLaunch(currentSettings))
             {
                 await orchestrator.StartActiveProjectsAsync(CancellationToken.None).ConfigureAwait(false);
             }
@@ -707,6 +738,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        displayChangeWatcher?.Dispose();
+        displayChangeWatcher = null;
         buildIconAnimationTimer?.Stop();
         buildIconAnimationTimer = null;
         dispatcherHealthProbe?.Dispose();
@@ -1866,67 +1899,5 @@ public partial class App : System.Windows.Application
         {
             RefreshStatusPanelIfVisible();
         }
-    }
-
-    private static void MigrateLegacyAppDataIfNeeded(string newAppDataDirectory)
-    {
-        if (Directory.Exists(newAppDataDirectory))
-        {
-            return;
-        }
-
-        var legacyDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AzureBuildMonitor");
-        if (!Directory.Exists(legacyDirectory))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Move(legacyDirectory, newAppDataDirectory);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Legacy app data migration failed: {ex.Message}");
-        }
-    }
-
-    private static bool ShouldSkipProjectStart()
-    {
-        var value = Environment.GetEnvironmentVariable("BUILDMONITOR_SKIP_PROJECT_START");
-        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private bool ShouldAutoStartAnyProjectsOnLaunch() =>
-        !ShouldSkipProjectStart()
-        && currentSettings.Projects.Any(p => p.IsActiveInSession && p.StartOnLaunch);
-
-    private bool ShouldAutoOpenBuildMonitorHealth()
-    {
-        var value = Environment.GetEnvironmentVariable("BUILDMONITOR_AUTO_BUILD_MONITOR_HEALTH");
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            value = Environment.GetEnvironmentVariable("BUILDMONITOR_AUTO_THREAD_HEALTH");
-        }
-
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            if (string.Equals(value, "0", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return currentSettings.Monitor.AutoOpenBuildMonitorHealthOnStartup;
     }
 }

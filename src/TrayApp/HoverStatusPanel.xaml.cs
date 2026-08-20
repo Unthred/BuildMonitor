@@ -547,12 +547,12 @@ public partial class HoverStatusPanel : Window
             {
                 fitLayoutPending = false;
                 var sizeChanged = FitPanelToContent();
-                if (sizeChanged || repositionAfterFit)
-                {
-                    ApplyTrayPlacementIfNeeded(force: sizeChanged);
-                }
-
+                var shouldReposition = sizeChanged || repositionAfterFit;
                 repositionAfterFit = false;
+                if (shouldReposition)
+                {
+                    ApplyTrayPlacementIfNeeded(force: true);
+                }
             });
     }
 
@@ -593,6 +593,18 @@ public partial class HoverStatusPanel : Window
 
     public void CaptureLayout(WindowLayoutState layout) =>
         WindowLayoutService.Capture(this, layout, sizeOnly: true);
+
+    /// <summary>
+    /// Clears cached tray placement so the next show/follow recomputes against the current display layout.
+    /// </summary>
+    public void InvalidateTrayPlacementCache()
+    {
+        lastTrayIconBounds = null;
+        lastPlacementBounds = null;
+        lastTrayIconWindowHandle = IntPtr.Zero;
+        lastPlacedLeft = double.NaN;
+        lastPlacedTop = double.NaN;
+    }
 
     public void ShowNearTray(Rectangle? trayIconBounds = null, IntPtr trayIconWindowHandle = default)
     {
