@@ -285,6 +285,13 @@
 
                                 <ComboBox x:Name="RunModeCombo" Margin="0,4,0,10" />
 
+                                <TextBlock Text="Build control" />
+                                <TextBlock Text="File Watching — automatic rebuilds on change. AI Controlled — observe only; agent/manual rebuild required."
+                                           TextWrapping="Wrap"
+                                           Opacity="0.75"
+                                           Margin="0,0,0,4" />
+                                <ComboBox x:Name="BuildControlModeCombo" Margin="0,4,0,10" />
+
                                 <CheckBox x:Name="StartOnLaunchCheck"
                                           Content="Start build when app launches"
                                           ToolTip="When checked, this project builds and runs automatically on app startup and after saving settings. Requires Active in session (left list)."

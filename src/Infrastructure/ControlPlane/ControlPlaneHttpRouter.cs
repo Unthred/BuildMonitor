@@ -288,7 +288,74 @@ internal static class ControlPlaneHttpRouter
             }
         }
 
+        if (method == "GET" && path == "/mode")
+        {
+            if (!TryGetProjectId(url, body: null, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            var mode = actions.GetBuildControlMode(projectId!);
+            return Ok(ModeJson(mode, includePrevious: false), projectId);
+        }
+
+        if (method == "POST" && path == "/mode")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? modeWire = null;
+            if (payload is not null
+                && payload.Value.TryGetProperty("mode", out var modeEl)
+                && modeEl.ValueKind == JsonValueKind.String)
+            {
+                modeWire = modeEl.GetString();
+            }
+
+            if (!ProjectBuildControlModeWire.TryParse(modeWire, out var mode))
+            {
+                return BadRequest(
+                    "mode must be 'file-watching' or 'ai-controlled'.");
+            }
+
+            var status = actions.SetBuildControlMode(projectId!, mode);
+            return Ok(ModeJson(status, includePrevious: true), projectId);
+        }
+
         return new ControlPlaneHttpResponse(404, new { error = $"Unknown route {method} {path}" });
+    }
+
+    private static object ModeJson(ControlPlaneModeStatus status, bool includePrevious)
+    {
+        if (includePrevious)
+        {
+            return new
+            {
+                projectId = status.ProjectId,
+                previousMode = status.PreviousModeWire ?? ProjectBuildControlModeWire.ToWire(
+                    status.PreviousMode ?? status.Mode),
+                mode = status.ModeWire
+            };
+        }
+
+        return new
+        {
+            projectId = status.ProjectId,
+            mode = status.ModeWire
+        };
     }
 
     private static object SessionJson(ControlPlaneSessionStatus session) => new

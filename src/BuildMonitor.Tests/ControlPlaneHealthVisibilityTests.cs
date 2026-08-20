@@ -186,6 +186,75 @@ public sealed class ControlPlaneHealthVisibilityTests
         Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
     }
 
+    [Fact]
+    public void Ai_controlled_file_changes_observe_but_never_start_build()
+    {
+        using var env = CreateRuntimeEnvironment();
+        var sessionStore = new ControlPlaneSessionStore();
+        env.Runtime.SetSessionStore(sessionStore);
+
+        env.Runtime.SetBuildControlMode(ProjectBuildControlMode.AiControlled);
+        sessionStore.MarkBusy(env.ProjectId);
+
+        InvokePrivateMethod(
+            env.Runtime,
+            "OnFileWatcherChanged",
+            new object[] { new[] { Path.Combine(env.LogsRoot, "A.cs") }, 0 });
+        InvokePrivateMethod(
+            env.Runtime,
+            "OnFileWatcherChanged",
+            new object[] { new[] { Path.Combine(env.LogsRoot, "B.cs") }, 0 });
+
+        sessionStore.MarkIdle(env.ProjectId);
+
+        InvokePrivateMethod(
+            env.Runtime,
+            "OnFileWatcherChanged",
+            new object[] { new[] { Path.Combine(env.LogsRoot, "C.cs") }, 0 });
+
+        var snapshot = env.Runtime.BuildSnapshot();
+        Assert.Equal(0, GetPrivateField<int>(env.Runtime, "buildInProgress"));
+        Assert.Equal(ProjectBuildControlMode.AiControlled, snapshot.ControlPlane!.BuildControlMode);
+        Assert.False(snapshot.ControlPlane.AutoBuildEnabled);
+        Assert.True(snapshot.ControlPlane.HasPendingFileChangeRebuild);
+        Assert.True(snapshot.ControlPlane.PendingFileChangeCount >= 1);
+    }
+
+    [Fact]
+    public void Switching_to_ai_controlled_cancels_pending_schedule_generation()
+    {
+        using var env = CreateRuntimeEnvironment();
+        var sessionStore = new ControlPlaneSessionStore();
+        env.Runtime.SetSessionStore(sessionStore);
+
+        SetPrivateField(env.Runtime, "pendingFileChangeRebuild", true);
+        SetPrivateField(env.Runtime, "pendingRebuildHoldFileCount", 4);
+        var before = GetPrivateField<int>(env.Runtime, "fileChangeRebuildScheduleGeneration");
+
+        var status = env.Runtime.SetBuildControlMode(ProjectBuildControlMode.AiControlled);
+
+        Assert.Equal(ProjectBuildControlMode.FileWatching, status.PreviousMode);
+        Assert.Equal(ProjectBuildControlMode.AiControlled, status.Mode);
+        Assert.True(GetPrivateField<bool>(env.Runtime, "pendingFileChangeRebuild"));
+        Assert.Equal(4, GetPrivateField<int>(env.Runtime, "pendingRebuildHoldFileCount"));
+        Assert.True(GetPrivateField<int>(env.Runtime, "fileChangeRebuildScheduleGeneration") > before);
+        Assert.Equal(0, GetPrivateField<int>(env.Runtime, "buildInProgress"));
+    }
+
+    [Fact]
+    public void Switching_to_file_watching_clears_pending_without_starting_build()
+    {
+        using var env = CreateRuntimeEnvironment();
+        env.Runtime.SetBuildControlMode(ProjectBuildControlMode.AiControlled);
+        SetPrivateField(env.Runtime, "pendingFileChangeRebuild", true);
+        SetPrivateField(env.Runtime, "pendingRebuildHoldFileCount", 3);
+
+        env.Runtime.SetBuildControlMode(ProjectBuildControlMode.FileWatching);
+
+        Assert.False(GetPrivateField<bool>(env.Runtime, "pendingFileChangeRebuild"));
+        Assert.Equal(0, GetPrivateField<int>(env.Runtime, "buildInProgress"));
+    }
+
     private static ProjectHealthSnapshot CreateHealthSnapshot(
         ControlPlaneSessionState sessionState,
         bool pendingRebuild,

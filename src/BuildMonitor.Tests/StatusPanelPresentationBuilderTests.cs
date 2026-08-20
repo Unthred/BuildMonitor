@@ -294,7 +294,7 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal("Rebuild · Building", Row(card, "BUILD").Primary);
+        Assert.Equal("Agent rebuild · Building", Row(card, "BUILD").Primary);
         Assert.Equal("Rebuilding…", card.CurrentActionText);
     }
 
@@ -309,6 +309,46 @@ public sealed class StatusPanelPresentationBuilderTests
             Now).Cards[0];
 
         Assert.Equal("4m ago", Row(card, "LAST BUILD").Secondary);
+    }
+
+    [Fact]
+    public void Mode_row_always_present()
+    {
+        var card = StatusPanelPresentationBuilder.Build(
+            [Snapshot(ProjectLifecycleState.Watching)],
+            null,
+            Now).Cards[0];
+
+        Assert.Equal("File Watching", Row(card, "MODE").Primary);
+        Assert.Equal("MODE", card.StatusRows[0].Label);
+    }
+
+    [Fact]
+    public void Ai_controlled_pending_changes_show_awaiting_explicit_build()
+    {
+        var card = StatusPanelPresentationBuilder.Build(
+            [Snapshot(
+                ProjectLifecycleState.Idle,
+                controlPlane: new ProjectControlPlaneSnapshot(
+                    SessionApiUsed: true,
+                    EffectiveSessionState: ControlPlaneSessionState.Idle,
+                    SessionSinceUtc: Now.AddSeconds(-5),
+                    AutoBuildBlockedBySession: false,
+                    HasPendingFileChangeRebuild: true,
+                    PendingFileChangeCount: 7,
+                    ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+                    LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+                    LastShipCheckCompletedUtc: null,
+                    ShipCheckInProgress: false,
+                    IdleCause: ControlPlaneIdleCause.Agent,
+                    BuildControlMode: ProjectBuildControlMode.AiControlled,
+                    AutoBuildEnabled: false))],
+            null,
+            Now).Cards[0];
+
+        Assert.Equal("AI Controlled", Row(card, "MODE").Primary);
+        Assert.Equal("7 detected", Row(card, "CHANGES").Primary);
+        Assert.Equal("Awaiting explicit build", Row(card, "CHANGES").Secondary);
     }
 
     private static StatusPanelStatusRow Row(StatusPanelCardPresentation card, string label) =>

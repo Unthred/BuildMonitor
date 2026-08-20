@@ -10,44 +10,62 @@ description: >-
 
 # BuildMonitor control plane handshake
 
-BuildMonitor is a separate tray app that watches configured folders and auto-builds.
-Talk to it over **loopback HTTP only** so it does not rebuild mid-edit and so you can
-request an explicit ship build/test. **Do not invent MCP** — HTTP only.
+BuildMonitor is a separate tray app that watches configured folders.
+Talk to it over **loopback HTTP only**. **Do not invent MCP** — HTTP only.
+
+Projects have an explicit **build-control mode**:
+
+| Mode | Wire value | Auto-build on file change |
+|------|------------|---------------------------|
+| File Watching | `file-watching` | Yes (debounced; held while busy) |
+| AI Controlled | `ai-controlled` | **Never** — observe only |
+
+For agent work, set **AI Controlled** so idle / busy timeout cannot start a build.
 
 ## When to use
 
 | Moment | Action |
 |--------|--------|
-| About to edit several files / a burst | `POST /session/busy` |
+| Start of task | Discover project → `GET /mode` → if not `ai-controlled`, `POST /mode` with `ai-controlled` → `POST /session/busy` |
 | Still editing after a pause | `POST /session/busy` again (extends the hold) |
-| Edit burst finished | `POST /session/idle` — **this starts auto-rebuild after debounce**. Do not send idle until every file for this turn is written. |
+| Edit burst finished | `POST /session/idle` — **does not build** in AI Controlled mode |
+| Iterative verify | `POST /run/rebuild` when a rebuild is actually required |
+| Final verification | `POST /run/ship-check` |
 | Run tests only | `POST /run/tests` — optional `"filter"`; does not rebuild first |
-| Stop running app | `POST /run/stop` — exit supervised `dotnet run`/`watch`; watch paused until resume/rebuild |
-| Before claiming the change builds / tests | `POST /run/ship-check` — do not assume idle ran tests |
-| Clean rebuild needed (optional) | `POST /run/rebuild` — only when watch host must exit, output is locked, or incremental state is unreliable |
-| Agent crash / forgotten idle | Busy auto-expires **120s after the last busy POST or file change while busy** |
+| Stop running app | `POST /run/stop` |
+| After task | Leave mode as `ai-controlled` (do **not** auto-switch back) |
 
-**Normal workflow:** `busy → edits → idle` — then let BuildMonitor debounce and rebuild. For final verification: `busy → edits → idle → ship-check`. For tests without a full ship-check: `idle` then `POST /run/tests`.
+**Normal AI workflow:**
 
-Do **not** send `/session/idle` after the first file (or first tool batch) if you still have more edits. Idle is the resume signal. There is **no separate resume endpoint** — idle means “editing finished; automatic builds may run”.
+```text
+discover project
+GET /mode
+POST /mode ai-controlled   (if needed)
+POST /session/busy
+edit files
+POST /session/idle
+POST /run/rebuild          (or /run/ship-check for final)
+```
 
-Do **not** call `/run/rebuild` after every edit burst.
+Do **not** treat `/session/idle` as “build now”.
+Do **not** rely on busy timeout to resume builds in AI Controlled mode.
+Do **not** call `/run/rebuild` after every edit burst — only when verification needs a compile.
 
-If the control plane is unreachable, continue editing; BuildMonitor falls back to its own debounce. Say briefly that the handshake was skipped.
+If the control plane is unreachable, continue editing; say briefly that the handshake was skipped.
 
 ## Efficient workflows (pick the smallest call)
 
 | Scenario | Workflow |
 |----------|----------|
-| Edit burst | `busy` → edit → `idle` — let debounce build (cheapest) |
-| One or a few tests | `idle` → `/run/tests` with `filter` — no rebuild unless compile failed |
-| Full verification | `idle` → `/run/ship-check` — before claiming tests pass |
-| Locked DLLs / bad incremental | `/run/rebuild` only — not after ordinary edits |
+| Edit burst (AI Controlled) | ensure mode → `busy` → edit → `idle` → explicit `/run/rebuild` if needed |
+| One or a few tests | `/run/tests` with `filter` — rebuild first if binaries may be stale |
+| Full verification | `/run/ship-check` — before claiming tests pass |
+| Locked DLLs / bad incremental | `/run/rebuild` |
 | Still editing after a pause | `busy` again before more writes |
 
-**Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all). `/run/tests` does not rebuild — use ship-check or rebuild first if binaries may be stale.
+**Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all).
 
-**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409 until prior run finishes).
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits.
 
 ## Discover base URL and projectId (probe)
 
@@ -65,11 +83,9 @@ Do this once per chat (or again if the workspace root changes).
 try { Invoke-RestMethod "http://127.0.0.1:7700/projects" } catch { $null }
 ```
 
-   If that fails, try nothing else unless the user gave another port. Match `rootFolder` to the workspace the same way.
-
 3. **Cache** `baseUrl` and `projectId` for the rest of the session.
 
-4. If no matching project: skip the handshake and tell the user BuildMonitor has no project for this folder (they may need to add it in Settings).
+4. If no matching project: skip the handshake and tell the user BuildMonitor has no project for this folder.
 
 ## API (all scoped calls need projectId)
 
@@ -78,20 +94,28 @@ Base example: `http://127.0.0.1:7700`
 | Method | Path | Body / query |
 |--------|------|----------------|
 | GET | `/projects` | — |
+| GET | `/mode` | `?projectId=` → `{ "mode": "file-watching" \| "ai-controlled" }` |
+| POST | `/mode` | `{ "projectId": "…", "mode": "ai-controlled" }` → includes `previousMode` |
 | POST | `/session/busy` | `{ "projectId": "…" }` |
 | POST | `/session/idle` | `{ "projectId": "…" }` |
 | GET | `/session` | `?projectId=` |
-| POST | `/run/stop` | `{ "projectId": "…" }` — stop app; watch paused |
-| POST | `/run/rebuild` | `{ "projectId": "…", "configuration": "Debug" }` optional — pause watch, build, resume |
-| POST | `/run/tests` | `{ "projectId": "…", "filter": "FullyQualifiedName~MyTest", "configuration": "Debug" }` optional |
+| POST | `/run/stop` | `{ "projectId": "…" }` |
+| POST | `/run/rebuild` | `{ "projectId": "…", "configuration": "Debug" }` optional |
+| POST | `/run/tests` | `{ "projectId": "…", "filter": "…", "configuration": "Debug" }` optional |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
 
 ### PowerShell
 
 ```powershell
-$base = "http://127.0.0.1:7700"   # or discovery baseUrl
+$base = "http://127.0.0.1:7700"
 $projectId = "<id>"
+
+$mode = Invoke-RestMethod -Uri "$base/mode?projectId=$projectId"
+if ($mode.mode -ne "ai-controlled") {
+  Invoke-RestMethod -Method Post -Uri "$base/mode" -ContentType "application/json" `
+    -Body (@{ projectId = $projectId; mode = "ai-controlled" } | ConvertTo-Json)
+}
 
 Invoke-RestMethod -Method Post -Uri "$base/session/busy" -ContentType "application/json" `
   -Body (@{ projectId = $projectId } | ConvertTo-Json)
@@ -101,31 +125,22 @@ Invoke-RestMethod -Method Post -Uri "$base/session/busy" -ContentType "applicati
 Invoke-RestMethod -Method Post -Uri "$base/session/idle" -ContentType "application/json" `
   -Body (@{ projectId = $projectId } | ConvertTo-Json)
 
-# BuildMonitor may auto-rebuild after debounce. Tests only (no rebuild):
-# $tests = Invoke-RestMethod -Method Post -Uri "$base/run/tests" -ContentType "application/json" `
-#   -Body (@{ projectId = $projectId; filter = "FullyQualifiedName~MyTest" } | ConvertTo-Json)
+# Explicit rebuild when needed (idle does NOT build in AI Controlled):
+$rebuild = Invoke-RestMethod -Method Post -Uri "$base/run/rebuild" -ContentType "application/json" `
+  -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
 
 # Before claiming tests passed:
 $result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentType "application/json" `
   -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
-
-# Optional — only when a clean rebuild is genuinely needed (locked output, bad incremental state):
-# $rebuild = Invoke-RestMethod -Method Post -Uri "$base/run/rebuild" -ContentType "application/json" `
-#   -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
 ```
 
 Treat `ok: false` on ship-check as a failed verification — read `failures` / `log` and fix before claiming success.
 
 ## Rules
 
-- Bind is loopback only; no auth.
-- Never require WitherbyConnect or a hard-coded product path — match `rootFolder` only.
-- Idle must **not** be treated as “tests passed”.
-- **Do not** send idle until all files for this turn are written. Idle starts the auto-rebuild; it is not a timer tick.
-- If you need more edits after idle, send **busy** again first.
-- **Do not** call `/run/rebuild` after ordinary edit bursts — use `idle` and let BuildMonitor debounce.
-- Use **`POST /run/tests`** to run the test suite (or a `filter`) without a full ship-check.
-- Use **`POST /run/rebuild`** only when the watch/run host must exit (locked DLLs, clean build required, recovery).
-- Use **`POST /run/ship-check`** before claiming tests passed.
-- Prefer control-plane pause/rebuild/ship-check over killing watch processes yourself.
-- Keep calls short; do not poll forever.
+- Prefer AI Controlled for agent edit sessions; leave it set after the task.
+- In AI Controlled, file changes are observed but never auto-build.
+- `/session/idle` never means “build now” in AI Controlled.
+- Prefer `/run/tests` with a filter over a full ship-check when only a subset matters.
+- Prefer `/run/rebuild` only when a clean rebuild is needed; prefer `/run/ship-check` for final verification.
+- Never invent MCP tools for BuildMonitor.

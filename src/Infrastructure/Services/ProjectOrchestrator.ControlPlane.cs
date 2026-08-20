@@ -180,6 +180,71 @@ public sealed partial class ProjectOrchestrator
         }
     }
 
+    public ControlPlaneModeStatus GetControlPlaneBuildControlMode(string projectId)
+    {
+        lock (sync)
+        {
+            var project = settings.Projects.FirstOrDefault(p =>
+                string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase));
+            if (project is null)
+            {
+                throw new InvalidOperationException($"Unknown projectId '{projectId}'.");
+            }
+
+            var mode = project.BuildControlMode;
+            if (runtimes.TryGetValue(project.Id, out var runtime))
+            {
+                mode = runtime.GetBuildControlMode();
+            }
+
+            return new ControlPlaneModeStatus(
+                project.Id,
+                mode,
+                ProjectBuildControlModeWire.ToWire(mode));
+        }
+    }
+
+    public ControlPlaneModeStatus SetControlPlaneBuildControlMode(
+        string projectId,
+        ProjectBuildControlMode mode)
+    {
+        ControlPlaneModeStatus status;
+        AppSettings snapshot;
+        lock (sync)
+        {
+            var project = settings.Projects.FirstOrDefault(p =>
+                string.Equals(p.Id, projectId, StringComparison.OrdinalIgnoreCase));
+            if (project is null)
+            {
+                throw new InvalidOperationException($"Unknown projectId '{projectId}'.");
+            }
+
+            if (runtimes.TryGetValue(project.Id, out var runtime))
+            {
+                status = runtime.SetBuildControlMode(mode);
+            }
+            else
+            {
+                var previous = project.BuildControlMode;
+                project.BuildControlMode = mode;
+                status = new ControlPlaneModeStatus(
+                    project.Id,
+                    mode,
+                    ProjectBuildControlModeWire.ToWire(mode),
+                    previous,
+                    ProjectBuildControlModeWire.ToWire(previous));
+            }
+
+            // Keep settings list in sync when runtime holds the same definition reference.
+            project.BuildControlMode = mode;
+            snapshot = settings;
+        }
+
+        settingsPersistRequested?.Invoke(snapshot);
+        healthCoalescer.Request(immediate: true);
+        return status;
+    }
+
     private ProjectRuntime EnsureControlPlaneRuntime(string projectId)
     {
         ProjectRuntime? runtime;

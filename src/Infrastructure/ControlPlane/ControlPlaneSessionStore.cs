@@ -67,7 +67,7 @@ public sealed class ControlPlaneSessionStore
         if (expiredBusy is { } duration)
         {
             metrics?.RecordBusyInterval(projectId, duration);
-            events?.Record(projectId, ControlPlaneEventKind.IdleTimeout, "Agent busy timed out", "Build allowed after timeout");
+            events?.Record(projectId, ControlPlaneEventKind.IdleTimeout, "Agent busy timed out", "Session ended");
         }
 
         return status;

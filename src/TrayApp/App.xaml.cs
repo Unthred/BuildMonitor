@@ -100,6 +100,15 @@ public partial class App : System.Windows.Application
         }
 
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
+        orchestrator.SetSettingsPersistHandler(settings =>
+        {
+            if (settingsStore is null)
+            {
+                return;
+            }
+
+            _ = settingsStore.SaveAsync(settings);
+        });
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
         controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory);

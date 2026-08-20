@@ -23,5 +23,7 @@ public interface IControlPlaneActions
     Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken);
+    ControlPlaneModeStatus GetBuildControlMode(string projectId);
+    ControlPlaneModeStatus SetBuildControlMode(string projectId, ProjectBuildControlMode mode);
     bool ProjectExists(string projectId);
 }

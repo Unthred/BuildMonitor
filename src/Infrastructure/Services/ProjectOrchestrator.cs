@@ -22,9 +22,14 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
     private AppSettings settings = new();
+    private Action<AppSettings>? settingsPersistRequested;
 
     public event Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth>? HealthUpdated;
     public event Action<string, string, string, UserNotificationKind, UserNotificationCategory>? UserNotification;
+
+    /// <summary>Optional disk persist hook (tray wires SettingsStore.SaveAsync).</summary>
+    public void SetSettingsPersistHandler(Action<AppSettings>? handler) =>
+        settingsPersistRequested = handler;
 
     public ProjectOrchestrator(string logsRootDirectory, string? appDataDirectory = null)
     {

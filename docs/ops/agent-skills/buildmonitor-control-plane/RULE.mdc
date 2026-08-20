@@ -20,11 +20,11 @@ unless the control plane is unreachable.
 
 1. Read `%LocalAppData%\BuildMonitor\control-plane.json` when present; else `GET http://127.0.0.1:7700/projects`.
 2. Match `projectId` by `rootFolder` to this workspace (case-insensitive path; parent/child OK).
-3. Before multi-file edits: `POST /session/busy` with `{ "projectId": "…" }`. Stay busy until **all** files for this turn are written. Send busy again if you continue after a pause.
-4. After the full edit burst: `POST /session/idle` with `{ "projectId": "…" }`. Idle starts auto-rebuild after debounce. Idle ≠ tests passed. Do not idle after the first file if more edits remain.
-5. To run tests without a full ship-check: `POST /run/tests` with `{ "projectId": "…" }` and optional `"filter"`.
-6. Before claiming build/test success: `POST /run/ship-check` with `{ "projectId": "…", "configuration": "Debug" }` and optional `"filter"`.
+3. `GET /mode?projectId=` — if not `ai-controlled`, `POST /mode` with `{ "projectId", "mode": "ai-controlled" }`. Leave AI Controlled after the task (do not auto-revert).
+4. Before multi-file edits: `POST /session/busy` with `{ "projectId": "…" }`. Stay busy until **all** files for this turn are written. Send busy again if you continue after a pause.
+5. After the full edit burst: `POST /session/idle`. In AI Controlled mode idle **does not** start a build.
+6. When a compile is needed: `POST /run/rebuild`. For final verification: `POST /run/ship-check`. Optional `/run/tests` with `"filter"`.
 7. If `ok` is false, read failures/log and fix — do not claim success.
 8. Prefer pause/ship-check over starting a second `dotnet watch` or killing processes.
 
-If the control plane cannot be reached, say so briefly and continue with normal editing; BuildMonitor falls back to its own debounce.
+If the control plane cannot be reached, say so briefly and continue with normal editing.

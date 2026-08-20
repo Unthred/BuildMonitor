@@ -11,7 +11,8 @@ public enum ControlPlaneEventKind
     ShipCheck = 6,
     RunStop = 7,
     WatchPause = 8,
-    WatchResume = 9
+    WatchResume = 9,
+    ModeChanged = 10
 }
 
 public sealed record ControlPlaneEventRecord(

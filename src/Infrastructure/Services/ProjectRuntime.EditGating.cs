@@ -182,6 +182,11 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        {
+            return false;
+        }
+
         var now = DateTimeOffset.UtcNow;
         if (GetEditGatingQuietUntilUtc() is not { } until || until <= now)
         {

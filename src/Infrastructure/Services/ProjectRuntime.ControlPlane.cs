@@ -38,7 +38,11 @@ internal sealed partial class ProjectRuntime
         var sessionStatus = sessionStore?.GetStatus(definition.Id, now);
         var sessionApiUsed = sessionStatus?.SessionApiUsed == true;
         var effectiveState = sessionStatus?.State ?? ControlPlaneSessionState.Idle;
-        var autoBuildBlocked = sessionStore?.ShouldBlockAutoBuild(definition.Id, now) == true;
+        var autoBuildEnabled = !BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode);
+        var autoBuildBlocked = !BuildTriggerPolicy.ShouldAutoBuildFromFileChange(
+            definition.BuildControlMode,
+            sessionStatus?.SessionApiUsed == true,
+            effectiveState);
         var inShipCheck = Volatile.Read(ref shipCheckInProgress) != 0;
         var inRebuild = Volatile.Read(ref agentRebuildInProgress) != 0;
 
@@ -46,7 +50,7 @@ internal sealed partial class ProjectRuntime
             SessionApiUsed: sessionApiUsed,
             EffectiveSessionState: effectiveState,
             SessionSinceUtc: sessionStatus?.Since,
-            AutoBuildBlockedBySession: autoBuildBlocked,
+            AutoBuildBlockedBySession: autoBuildBlocked && autoBuildEnabled,
             HasPendingFileChangeRebuild: pendingFileChangeRebuild,
             PendingFileChangeCount: pendingRebuildHoldFileCount,
             ShipCheckPhase: inShipCheck
@@ -64,7 +68,9 @@ internal sealed partial class ProjectRuntime
             IdleCause: sessionStatus?.IdleCause ?? ControlPlaneIdleCause.None,
             AgentTestsInProgress: Volatile.Read(ref agentTestsInProgress) != 0,
             LastAgentTestsOutcome: lastAgentTestsOutcome,
-            LastAgentTestsCompletedUtc: lastAgentTestsCompletedUtc);
+            LastAgentTestsCompletedUtc: lastAgentTestsCompletedUtc,
+            BuildControlMode: definition.BuildControlMode,
+            AutoBuildEnabled: autoBuildEnabled);
     }
 
     internal void RefreshControlPlaneHealthIfNeeded()
@@ -503,7 +509,68 @@ internal sealed partial class ProjectRuntime
     }
 
     private bool IsControlPlaneBusyBlockingAutoBuild() =>
-        sessionStore?.ShouldBlockAutoBuild(definition.Id) == true;
+        definition.BuildControlMode == ProjectBuildControlMode.FileWatching
+        && sessionStore?.ShouldBlockAutoBuild(definition.Id) == true;
+
+    public ProjectBuildControlMode GetBuildControlMode() => definition.BuildControlMode;
+
+    /// <summary>
+    /// Applies a build-control mode change. Cancels pending file-triggered schedules when entering AI Controlled;
+    /// clears AI pending schedule state without building when returning to File Watching.
+    /// </summary>
+    public ControlPlaneModeStatus SetBuildControlMode(ProjectBuildControlMode mode)
+    {
+        var previous = definition.BuildControlMode;
+        if (previous == mode)
+        {
+            return new ControlPlaneModeStatus(
+                definition.Id,
+                mode,
+                ProjectBuildControlModeWire.ToWire(mode),
+                previous,
+                ProjectBuildControlModeWire.ToWire(previous));
+        }
+
+        definition.BuildControlMode = mode;
+
+        if (mode == ProjectBuildControlMode.AiControlled)
+        {
+            // Cancel any pending file-triggered rebuild timer; keep observed change counts for the UI.
+            Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+            if (pendingFileChangeRebuild)
+            {
+                pendingRebuildHoldReason = PendingRebuildHoldReason.EditsSettling;
+            }
+
+            if (state == ProjectLifecycleState.WaitingForEdits
+                && Volatile.Read(ref buildInProgress) == 0)
+            {
+                SetState(ProjectLifecycleState.Idle);
+                SetProjectCurrentAction("AI Controlled — changes awaiting explicit build");
+            }
+        }
+        else
+        {
+            // Leaving AI Controlled: do not surprise-build stale pending changes.
+            Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
+            pendingFileChangeRebuild = false;
+            ClearPendingRebuildHold();
+            if (state == ProjectLifecycleState.WaitingForEdits
+                && Volatile.Read(ref buildInProgress) == 0)
+            {
+                SetState(ProjectLifecycleState.Idle);
+                SetProjectCurrentAction("File Watching — waiting for next change");
+            }
+        }
+
+        NotifyControlPlaneChanged(immediate: true);
+        return new ControlPlaneModeStatus(
+            definition.Id,
+            mode,
+            ProjectBuildControlModeWire.ToWire(mode),
+            previous,
+            ProjectBuildControlModeWire.ToWire(previous));
+    }
 
     private void NoteAutoBuildBlockedByControlPlane() =>
         metricsStore?.RecordAutoBuildBlocked(definition.Id);

@@ -32,8 +32,10 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/projects` | List configured projects (`id`, `displayName`, `rootFolder`, …) |
-| POST | `/session/busy` | Body: `{ "projectId": "…" }` — do not auto-build |
-| POST | `/session/idle` | Edit burst done — auto-build may run after debounce |
+| GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
+| POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |
+| POST | `/session/busy` | Body: `{ "projectId": "…" }` — agent editing |
+| POST | `/session/idle` | Edit burst done — **File Watching** may auto-build; **AI Controlled** does **not** |
 | GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since", "idleCause": "none"\|"agent"\|"timeout", "lastActivity" }` |
 | POST | `/run/stop` | Stop supervised app (`dotnet run`/`watch`); watch becomes **paused** until resume/rebuild |
 | POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch |
@@ -48,6 +50,21 @@ Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": nu
 Optional rebuild body: `{ "projectId", "configuration": "Debug" }`.
 Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQualifiedName~MyTest" }`.
 
+## Build-control modes (per project)
+
+Each project stores `buildControlMode` in settings (`file-watching` default):
+
+| Mode | Wire | File-change auto-build |
+|------|------|------------------------|
+| File Watching | `file-watching` | Yes — debounced; held while `/session/busy` |
+| AI Controlled | `ai-controlled` | **Never** — watcher observes and counts only |
+
+**AI Controlled invariant:** the file watcher may observe source changes but must never initiate build work. Busy timeout and `/session/idle` do **not** start builds. Use `/run/rebuild` or `/run/ship-check` (or tray Rebuild).
+
+Switching File Watching → AI Controlled cancels pending file-triggered schedules (not an in-flight build). Switching AI Controlled → File Watching clears held pending triggers without a surprise build.
+
+Settings → Projects → **Build control**. Agents: `GET`/`POST /mode`.
+
 ## Agent capability matrix (efficient build control)
 
 Use this table to pick the **smallest** call that achieves the goal. Avoid redundant rebuilds and premature `idle`.
@@ -56,11 +73,13 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 
 | Agent goal | Endpoint | Notes |
 |------------|----------|--------|
-| Pause auto-build on file changes | `POST /session/busy` | Holds automatic rebuilds; watcher may still detect and **queue** changes |
-| Re-enable auto-build on file changes | `POST /session/idle` | **Only** resume signal — starts debounced auto-build. No separate “resume” path |
+| Take ownership of builds | `POST /mode` `ai-controlled` | Persist; do not auto-revert after the task |
+| Inspect build-control mode | `GET /mode?projectId=` | `file-watching` or `ai-controlled` |
+| Pause auto-build (File Watching) | `POST /session/busy` | Holds automatic rebuilds; watcher may still **queue** changes |
+| Signal editing finished | `POST /session/idle` | File Watching: may debounce-build. AI Controlled: **no** auto-build |
 | Extend the hold while still editing | `POST /session/busy` again | Resets the busy timeout clock |
-| Build only (no tests) | `POST /run/rebuild` | Pauses watch host → build → resume. Use when output is locked or incremental state is bad |
-| Build only (lightest) | `POST /session/idle` | Let debounced auto-build run — **no** watch pause, **no** tests |
+| Build only (no tests) | `POST /run/rebuild` | Required path in AI Controlled; also works in File Watching |
+| Build only (File Watching, lightest) | `POST /session/idle` | Debounced auto-build — **not** available in AI Controlled |
 | Run one unit test | `POST /run/tests` | `"filter": "FullyQualifiedName=Namespace.Class.Method"` |
 | Run a class or namespace of tests | `POST /run/tests` | `"filter": "FullyQualifiedName~Namespace.Class"` or `"FullyQualifiedName~Namespace"` |
 | Run tests by category / trait | `POST /run/tests` | `"filter": "Category=Unit"` (or any trait your tests expose) |
@@ -73,7 +92,7 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 | Read watch host state | `GET /watch?projectId=` | `running` / `paused` / `stopped` |
 | Discover project + port | `GET /projects` or `%LocalAppData%\BuildMonitor\control-plane.json` | Required once per chat |
 
-**Busy vs watch pause:** `/session/busy` gates **automatic rebuilds on file change**. `/watch/pause` stops the supervised `dotnet run`/`watch` child. Ship-check and agent rebuild pause watch internally; you rarely need `/watch/pause` directly.
+**Busy vs watch pause:** `/session/busy` marks agent editing. In **File Watching** it also holds auto-rebuilds. In **AI Controlled** auto-rebuilds are already off. `/watch/pause` stops the supervised `dotnet run`/`watch` child.
 
 **Tests without rebuild:** `/run/tests` does **not** compile first. If binaries may be stale, run `/run/rebuild` or `/run/ship-check` first.
 
@@ -81,13 +100,13 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 
 | Scenario | Workflow | Why |
 |----------|----------|-----|
-| Multi-file edit burst | `busy` → edit → `idle` | Cheapest path; debounce coalesces saves into one build |
-| Quick compile after edits | `idle` only | Auto-build is lighter than `/run/rebuild` (no watch exit) |
-| One failing test to iterate | `idle` → `/run/tests` with narrow `filter` | Faster than full suite; rebuild only if compile errors |
+| Agent multi-file edit | mode→`ai-controlled` → `busy` → edit → `idle` → `/run/rebuild` | No race with debounce/timeout |
+| Human File Watching edit | save files (or `busy`/`idle`) | Debounce coalesces saves |
+| One failing test to iterate | `/run/tests` with narrow `filter` | Faster than full suite; rebuild only if compile errors |
 | Class-level test focus | `/run/tests` with `FullyQualifiedName~MyClass` | Same as above, broader slice |
-| Before claiming PR-ready | `busy` → edit → `idle` → `/run/ship-check` | Single authoritative build + full test run |
+| Before claiming PR-ready | `idle` → `/run/ship-check` | Single authoritative build + full test run |
 | Locked output / bad incremental | `/run/rebuild` | Watch host must exit so MSBuild can overwrite DLLs |
-| Agent still editing after a pause | `busy` again **before** more writes | Prevents idle timeout or accidental debounced build mid-edit |
+| Agent still editing after a pause | `busy` again **before** more writes | Prevents mid-edit confusion |
 
 ### Test filter examples (`dotnet test` syntax)
 

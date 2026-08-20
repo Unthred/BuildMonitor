@@ -126,4 +126,20 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
             result.Build);
         return result;
     }
+
+    public ControlPlaneModeStatus GetBuildControlMode(string projectId) =>
+        orchestrator.GetControlPlaneBuildControlMode(projectId);
+
+    public ControlPlaneModeStatus SetBuildControlMode(string projectId, ProjectBuildControlMode mode)
+    {
+        var status = orchestrator.SetControlPlaneBuildControlMode(projectId, mode);
+        events.Record(
+            projectId,
+            ControlPlaneEventKind.ModeChanged,
+            $"Build control → {status.ModeWire}",
+            status.PreviousModeWire is null
+                ? null
+                : $"was {status.PreviousModeWire}");
+        return status;
+    }
 }

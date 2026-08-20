@@ -16,6 +16,84 @@ public sealed class ControlPlaneStatusFormatterTests
 
         Assert.False(presentation.ShowControlPlaneSection);
         Assert.Null(presentation.AgentPrimary);
+        Assert.Equal("File Watching", presentation.ModePrimary);
+    }
+
+    [Fact]
+    public void Format_ai_controlled_busy_uses_agent_editing_not_builds_paused()
+    {
+        var controlPlane = new ProjectControlPlaneSnapshot(
+            SessionApiUsed: true,
+            EffectiveSessionState: ControlPlaneSessionState.Busy,
+            SessionSinceUtc: Now.AddSeconds(-20),
+            AutoBuildBlockedBySession: false,
+            HasPendingFileChangeRebuild: true,
+            PendingFileChangeCount: 7,
+            ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+            LastShipCheckCompletedUtc: null,
+            ShipCheckInProgress: false,
+            BuildControlMode: ProjectBuildControlMode.AiControlled,
+            AutoBuildEnabled: false);
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("AI Controlled", presentation.ModePrimary);
+        Assert.Equal("Busy", presentation.AgentPrimary);
+        Assert.Contains("Agent editing", presentation.AgentSecondary);
+        Assert.DoesNotContain("Builds paused", presentation.AgentSecondary);
+        Assert.Equal("7 detected", presentation.ChangesPrimary);
+        Assert.Equal("Awaiting agent", presentation.ChangesSecondary);
+    }
+
+    [Fact]
+    public void Format_ai_controlled_idle_with_pending_awaits_explicit_build()
+    {
+        var controlPlane = new ProjectControlPlaneSnapshot(
+            SessionApiUsed: true,
+            EffectiveSessionState: ControlPlaneSessionState.Idle,
+            SessionSinceUtc: Now.AddSeconds(-5),
+            AutoBuildBlockedBySession: false,
+            HasPendingFileChangeRebuild: true,
+            PendingFileChangeCount: 7,
+            ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+            LastShipCheckCompletedUtc: null,
+            ShipCheckInProgress: false,
+            IdleCause: ControlPlaneIdleCause.Agent,
+            BuildControlMode: ProjectBuildControlMode.AiControlled,
+            AutoBuildEnabled: false);
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Idle", presentation.AgentPrimary);
+        Assert.Equal("Editing finished", presentation.AgentSecondary);
+        Assert.Equal("7 detected", presentation.ChangesPrimary);
+        Assert.Equal("Awaiting explicit build", presentation.ChangesSecondary);
+    }
+
+    [Fact]
+    public void Format_ai_controlled_timeout_awaits_explicit_build()
+    {
+        var controlPlane = new ProjectControlPlaneSnapshot(
+            SessionApiUsed: true,
+            EffectiveSessionState: ControlPlaneSessionState.Idle,
+            SessionSinceUtc: Now.AddSeconds(-5),
+            AutoBuildBlockedBySession: false,
+            HasPendingFileChangeRebuild: true,
+            PendingFileChangeCount: 2,
+            ShipCheckPhase: ControlPlaneShipCheckPhase.None,
+            LastShipCheckOutcome: ControlPlaneShipCheckOutcome.None,
+            LastShipCheckCompletedUtc: null,
+            ShipCheckInProgress: false,
+            IdleCause: ControlPlaneIdleCause.Timeout,
+            BuildControlMode: ProjectBuildControlMode.AiControlled,
+            AutoBuildEnabled: false);
+
+        var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
+
+        Assert.Equal("Agent session ended", presentation.AgentSecondary);
+        Assert.Equal("Awaiting explicit build", presentation.ChangesSecondary);
     }
 
     [Fact]
@@ -169,7 +247,7 @@ public sealed class ControlPlaneStatusFormatterTests
 
         var presentation = ControlPlaneStatusFormatter.Format(CreateSnapshot(controlPlane), Now);
 
-        Assert.Equal("Rebuild · Building", presentation.BuildActivityOverride);
+        Assert.Equal("Agent rebuild · Building", presentation.BuildActivityOverride);
         Assert.Equal("Rebuilding…", presentation.TransientAction);
     }
 

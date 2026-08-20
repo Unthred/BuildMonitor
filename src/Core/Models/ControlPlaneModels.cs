@@ -121,7 +121,9 @@ public sealed record ProjectControlPlaneSnapshot(
     ControlPlaneIdleCause IdleCause = ControlPlaneIdleCause.None,
     bool AgentTestsInProgress = false,
     ControlPlaneShipCheckOutcome LastAgentTestsOutcome = ControlPlaneShipCheckOutcome.None,
-    DateTimeOffset? LastAgentTestsCompletedUtc = null)
+    DateTimeOffset? LastAgentTestsCompletedUtc = null,
+    ProjectBuildControlMode BuildControlMode = ProjectBuildControlMode.FileWatching,
+    bool AutoBuildEnabled = true)
 {
     public static ProjectControlPlaneSnapshot Unused { get; } = new(
         SessionApiUsed: false,
@@ -141,5 +143,14 @@ public sealed record ProjectControlPlaneSnapshot(
         IdleCause: ControlPlaneIdleCause.None,
         AgentTestsInProgress: false,
         LastAgentTestsOutcome: ControlPlaneShipCheckOutcome.None,
-        LastAgentTestsCompletedUtc: null);
+        LastAgentTestsCompletedUtc: null,
+        BuildControlMode: ProjectBuildControlMode.FileWatching,
+        AutoBuildEnabled: true);
 }
+
+public sealed record ControlPlaneModeStatus(
+    string ProjectId,
+    ProjectBuildControlMode Mode,
+    string ModeWire,
+    ProjectBuildControlMode? PreviousMode = null,
+    string? PreviousModeWire = null);

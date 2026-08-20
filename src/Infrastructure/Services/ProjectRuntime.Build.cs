@@ -320,7 +320,8 @@ internal sealed partial class ProjectRuntime
                 }
             }
 
-            if (pendingFileChangeRebuild)
+            if (pendingFileChangeRebuild
+                && !BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
             {
                 var nextReason = pendingRebuildHoldReason == PendingRebuildHoldReason.StartupDeferred
                     ? "startup"
@@ -397,6 +398,14 @@ internal sealed partial class ProjectRuntime
                 return;
             }
 
+            // AI Controlled: never auto-start from this wait loop (mode may have changed mid-wait).
+            // Startup builds are allowed once (not a file-change schedule).
+            if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+                && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             if (IsControlPlaneBusyBlockingAutoBuild())
             {
                 await Task.Delay(500);
@@ -412,6 +421,12 @@ internal sealed partial class ProjectRuntime
         }
 
         if (generation != Volatile.Read(ref fileChangeRebuildScheduleGeneration))
+        {
+            return;
+        }
+
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+            && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -581,6 +596,32 @@ internal sealed partial class ProjectRuntime
         SyncFileWatcherDebounceMs();
         var wasAlreadyPending = pendingFileChangeRebuild;
 
+        // Always observe; only schedule auto-build when policy allows.
+        if (!ShouldScheduleAutoBuildFromFileChange())
+        {
+            if (IsControlPlaneBusyBlockingAutoBuild()
+                && definition.BuildControlMode == ProjectBuildControlMode.FileWatching)
+            {
+                NoteAutoBuildBlockedByControlPlane();
+                sessionStore?.TouchBusy(definition.Id);
+            }
+
+            QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
+            NotifyControlPlaneChanged(immediate: true);
+            if (definition.BuildControlMode == ProjectBuildControlMode.FileWatching)
+            {
+                // Busy hold: keep waiting until idle, then debounce may resume.
+                _ = WaitForEditQuietThenBuildAsync("file change (queued)");
+            }
+            else
+            {
+                // AI Controlled: observe only — never start the auto-build scheduler.
+                EnterWaitingForEditsState("AI Controlled — changes awaiting explicit build");
+            }
+
+            return;
+        }
+
         if (DateTimeOffset.UtcNow < fileChangeBuildCooldownUntil)
         {
             QueuePendingRebuild(PendingRebuildHoldReason.PostBuildCooldown, meaningful, wasAlreadyPending);
@@ -610,16 +651,6 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (IsControlPlaneBusyBlockingAutoBuild())
-        {
-            NoteAutoBuildBlockedByControlPlane();
-            sessionStore?.TouchBusy(definition.Id);
-            QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
-            NotifyControlPlaneChanged(immediate: true);
-            _ = WaitForEditQuietThenBuildAsync("file change (queued)");
-            return;
-        }
-
         if (IsAgentEditSessionActive() || EvaluateEditActivity().IsActive)
         {
             var reason = wasAlreadyPending
@@ -645,9 +676,23 @@ internal sealed partial class ProjectRuntime
         _ = BuildAsync(CancellationToken.None);
     }
 
+    private bool ShouldScheduleAutoBuildFromFileChange()
+    {
+        var session = sessionStore?.GetStatus(definition.Id);
+        return BuildTriggerPolicy.ShouldAutoBuildFromFileChange(
+            definition.BuildControlMode,
+            session?.SessionApiUsed == true,
+            session?.State ?? ControlPlaneSessionState.Idle);
+    }
+
     private void SchedulePendingRebuildWhenReady(string buildReason)
     {
         if (!pendingFileChangeRebuild)
+        {
+            return;
+        }
+
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
         {
             return;
         }

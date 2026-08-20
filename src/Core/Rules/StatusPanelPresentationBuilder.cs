@@ -97,10 +97,14 @@ public static class StatusPanelPresentationBuilder
         ControlPlaneStatusFormatter.Presentation controlPlane,
         DateTimeOffset utcNow)
     {
-        var rows = new List<StatusPanelStatusRow>(4)
-        {
-            BuildBuildRow(snapshot, controlPlane)
-        };
+        var rows = new List<StatusPanelStatusRow>(5);
+
+        var modePrimary = controlPlane.ModePrimary
+            ?? ProjectBuildControlModeWire.ToDisplayLabel(
+                (snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused).BuildControlMode);
+        rows.Add(new StatusPanelStatusRow("MODE", modePrimary));
+
+        rows.Add(BuildBuildRow(snapshot, controlPlane));
 
         if (controlPlane.ShowControlPlaneSection
             && !string.IsNullOrWhiteSpace(controlPlane.AgentPrimary))

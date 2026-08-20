@@ -105,6 +105,77 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Equal("abc", actions.LastStopProjectId);
     }
 
+    [Fact]
+    public async Task Get_mode_returns_wire_value()
+    {
+        var actions = new FakeActions { Exists = true, Mode = ProjectBuildControlMode.FileWatching };
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "GET",
+            new Uri("http://127.0.0.1:7700/mode?projectId=abc"),
+            new MemoryStream(),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("file-watching", json, StringComparison.Ordinal);
+        Assert.Contains("abc", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_mode_returns_previous_and_current()
+    {
+        var actions = new FakeActions { Exists = true, Mode = ProjectBuildControlMode.FileWatching };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc","mode":"ai-controlled"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/mode"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(ProjectBuildControlMode.AiControlled, actions.Mode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("previousMode", json, StringComparison.Ordinal);
+        Assert.Contains("file-watching", json, StringComparison.Ordinal);
+        Assert.Contains("ai-controlled", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_mode_invalid_returns_400()
+    {
+        var actions = new FakeActions { Exists = true };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc","mode":"hybrid"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/mode"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_mode_unknown_project_returns_404()
+    {
+        var actions = new FakeActions { Exists = false };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"missing","mode":"ai-controlled"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/mode"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(404, response.StatusCode);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
@@ -113,6 +184,7 @@ public sealed class ControlPlaneHttpRouterTests
         public bool? LastBusySuppress { get; private set; }
         public string? LastRebuildProjectId { get; private set; }
         public string? LastStopProjectId { get; private set; }
+        public ProjectBuildControlMode Mode { get; set; } = ProjectBuildControlMode.FileWatching;
 
         public IReadOnlyList<ControlPlaneProjectInfo> ListProjects()
         {
@@ -141,6 +213,21 @@ public sealed class ControlPlaneHttpRouterTests
 
         public ControlPlaneSessionStatus MarkIdle(string projectId, bool? suppressAutoBuildTests) =>
             new(ControlPlaneSessionState.Idle, DateTimeOffset.UtcNow, true, suppressAutoBuildTests ?? true);
+
+        public ControlPlaneModeStatus GetBuildControlMode(string projectId) =>
+            new(projectId, Mode, ProjectBuildControlModeWire.ToWire(Mode));
+
+        public ControlPlaneModeStatus SetBuildControlMode(string projectId, ProjectBuildControlMode mode)
+        {
+            var previous = Mode;
+            Mode = mode;
+            return new ControlPlaneModeStatus(
+                projectId,
+                mode,
+                ProjectBuildControlModeWire.ToWire(mode),
+                previous,
+                ProjectBuildControlModeWire.ToWire(previous));
+        }
 
         public Task<ControlPlaneRebuildResult> RebuildAsync(
             ControlPlaneRebuildRequest request,

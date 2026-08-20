@@ -17,6 +17,7 @@ public static class ControlPlaneEventKindFormatter
             ControlPlaneEventKind.RunStop => "App stop",
             ControlPlaneEventKind.WatchPause => "Watch pause",
             ControlPlaneEventKind.WatchResume => "Watch resume",
+            ControlPlaneEventKind.ModeChanged => "Mode changed",
             _ => kind.ToString()
         };
 }
