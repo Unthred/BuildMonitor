@@ -16,7 +16,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 5d | Post-build tests no longer clear build warning/error counts used for tray health | `ProjectRuntime.TestAsync` |
 | 5e | **Agent-aware build suppression** — defer startup until edits settle; cancel superseded startup/file-change builds; optional agent-transcript activity signal | `EditActivityEvaluator`, `BuildSuppressionPolicy`, `ProjectRuntime` |
 | 5f | Edit gating auto-shows status panel with hold detail + countdown | `App.AutoShowStatusPanelForEditGating`, `HoverStatusPanel` |
-| 6 | Tray hover opens the status panel (project health, counts, gating detail, actions); native shell tooltip is suppressed | `HoverStatusPanel`, `TrayIconShellInterop` |
+| 6 | Tray hover opens the status panel (project health, counts, gating detail, actions); native shell tooltip is suppressed. Panel stays open while the cursor is on the icon or panel — no Closing countdown on hover | `HoverStatusPanel`, `TrayIconShellInterop`, `App.OnNotifyIconMouseMove` |
 | 7 | Status panel shows `IssueCountsText` (build vs run context) | `HoverStatusPanel` |
 | 7b | **AI working?** (header only) — extends rebuild wait when countdown is active; marks in-flight build **Unexpected** while building. Countdown auto-extends on agent tooling activity and resets on meaningful source saves. | `HoverStatusPanel`, `ProjectRuntime.HandleStillEditingClick`, `EditGatingQuietUntilResolver` |
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
