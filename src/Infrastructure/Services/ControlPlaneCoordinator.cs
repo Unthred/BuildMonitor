@@ -10,15 +10,18 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
     private readonly ProjectOrchestrator orchestrator;
     private readonly ControlPlaneSessionStore sessions;
     private readonly ControlPlaneEventJournal events;
+    private readonly Action? requestAppQuit;
 
     public ControlPlaneCoordinator(
         ProjectOrchestrator orchestrator,
         ControlPlaneSessionStore sessions,
-        ControlPlaneEventJournal events)
+        ControlPlaneEventJournal events,
+        Action? requestAppQuit = null)
     {
         this.orchestrator = orchestrator;
         this.sessions = sessions;
         this.events = events;
+        this.requestAppQuit = requestAppQuit;
     }
 
     public IReadOnlyList<ControlPlaneProjectInfo> ListProjects() =>
@@ -26,6 +29,17 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
 
     public bool ProjectExists(string projectId) =>
         orchestrator.ControlPlaneProjectExists(projectId);
+
+    public bool RequestAppQuit()
+    {
+        if (requestAppQuit is null)
+        {
+            return false;
+        }
+
+        requestAppQuit();
+        return true;
+    }
 
     public ControlPlaneSessionStatus GetSession(string projectId) =>
         sessions.GetStatus(projectId);

@@ -176,10 +176,46 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Equal(404, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Post_app_quit_schedules_quit()
+    {
+        var actions = new FakeActions();
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/app/quit"),
+            new MemoryStream(),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(202, response.StatusCode);
+        Assert.True(actions.QuitRequested);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("quitting", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_app_quit_unavailable_returns_503()
+    {
+        var actions = new FakeActions { QuitAvailable = false };
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/app/quit"),
+            new MemoryStream(),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.False(actions.QuitRequested);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
         public bool Exists { get; set; }
+        public bool QuitAvailable { get; set; } = true;
+        public bool QuitRequested { get; private set; }
         public string? LastBusyProjectId { get; private set; }
         public bool? LastBusySuppress { get; private set; }
         public string? LastRebuildProjectId { get; private set; }
@@ -196,6 +232,17 @@ public sealed class ControlPlaneHttpRouterTests
         }
 
         public bool ProjectExists(string projectId) => Exists;
+
+        public bool RequestAppQuit()
+        {
+            if (!QuitAvailable)
+            {
+                return false;
+            }
+
+            QuitRequested = true;
+            return true;
+        }
 
         public ControlPlaneSessionStatus GetSession(string projectId) =>
             new(ControlPlaneSessionState.Idle, DateTimeOffset.UtcNow, false, true);

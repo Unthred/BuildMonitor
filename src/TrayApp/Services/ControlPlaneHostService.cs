@@ -12,14 +12,18 @@ public sealed class ControlPlaneHostService : IDisposable
     private readonly string appDataDirectory;
     private readonly object sync = new();
 
-    public ControlPlaneHostService(ProjectOrchestrator orchestrator, string appDataDirectory)
+    public ControlPlaneHostService(
+        ProjectOrchestrator orchestrator,
+        string appDataDirectory,
+        Action? requestAppQuit = null)
     {
         this.orchestrator = orchestrator;
         this.appDataDirectory = appDataDirectory;
         var coordinator = new ControlPlaneCoordinator(
             orchestrator,
             orchestrator.SessionStore,
-            orchestrator.ControlPlaneEventJournal);
+            orchestrator.ControlPlaneEventJournal,
+            requestAppQuit);
         host = new LocalControlPlaneHost(coordinator, orchestrator.MetricsStore);
     }
 

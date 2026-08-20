@@ -32,6 +32,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/projects` | List configured projects (`id`, `displayName`, `rootFolder`, …) |
+| POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — use before Release deploy |
 | GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
 | POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — agent editing |
@@ -87,7 +88,7 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 | Run tests by category / trait | `POST /run/tests` | `"filter": "Category=Unit"` (or any trait your tests expose) |
 | Run all unit tests | `POST /run/tests` | Omit `filter`, or use ship-check if you also need a fresh build |
 | Build + all tests (verification) | `POST /run/ship-check` | Preferred before claiming “builds and tests pass” |
-| Stop running app (exit site) | `POST /run/stop` | Stops process; watch **paused** — use `/watch/resume` or `/run/rebuild` to start again |
+| Stop BuildMonitor tray (before deploy) | `POST /app/quit` | Graceful exit; wait until port closes, then replace binaries |
 | Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Same stop semantics as `/run/stop` (alias for agents that think in watch terms) |
 | Resume watch/run host | `POST /watch/resume` | After manual pause or external need |
 | Read session state | `GET /session?projectId=` | `idleCause`: `agent` (you sent idle) vs `timeout` (120s expired) |

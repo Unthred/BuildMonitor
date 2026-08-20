@@ -26,4 +26,10 @@ public interface IControlPlaneActions
     ControlPlaneModeStatus GetBuildControlMode(string projectId);
     ControlPlaneModeStatus SetBuildControlMode(string projectId, ProjectBuildControlMode mode);
     bool ProjectExists(string projectId);
+
+    /// <summary>
+    /// Requests a graceful BuildMonitor tray exit (same path as tray Exit).
+    /// Used before replacing the installed binary. Returns whether quit was accepted.
+    /// </summary>
+    bool RequestAppQuit();
 }

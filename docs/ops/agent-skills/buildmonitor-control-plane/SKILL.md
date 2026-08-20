@@ -51,6 +51,7 @@ Do **not** stay silent on handshake or `/run/*`. Do **not** invent extra MCP or 
 | Final verification | `POST /run/ship-check` |
 | Run tests only | `POST /run/tests` — optional `"filter"`; does not rebuild first |
 | Stop running app | `POST /run/stop` |
+| Quit BuildMonitor tray (before deploy) | `POST /app/quit` |
 | After task | Leave mode as `ai-controlled` (do **not** auto-switch back) |
 
 **Normal AI workflow:**

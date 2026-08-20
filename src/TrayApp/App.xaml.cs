@@ -111,7 +111,7 @@ public partial class App : System.Windows.Application
         });
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
-        controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory);
+        controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory, RequestExit);
 
         WorkerHealthRegistry.Shared.Register(
             "ui.health-callback",

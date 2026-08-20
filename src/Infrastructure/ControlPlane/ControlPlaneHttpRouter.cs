@@ -63,6 +63,21 @@ internal static class ControlPlaneHttpRouter
             return Ok(actions.ListProjects());
         }
 
+        if (method == "POST" && path == "/app/quit")
+        {
+            // Schedule graceful tray exit (same as Exit menu). Response returns first;
+            // exit is deferred on the UI thread so this HTTP call can complete.
+            var accepted = actions.RequestAppQuit();
+            if (!accepted)
+            {
+                return new ControlPlaneHttpResponse(
+                    503,
+                    new { ok = false, error = "App quit is not available in this host." });
+            }
+
+            return new ControlPlaneHttpResponse(202, new { ok = true, quitting = true });
+        }
+
         if (method == "GET" && path == "/session")
         {
             if (!TryGetProjectId(url, body: null, out var projectId, out var error))
