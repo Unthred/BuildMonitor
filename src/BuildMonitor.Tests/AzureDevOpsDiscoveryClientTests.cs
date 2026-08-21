@@ -26,14 +26,14 @@ public sealed class AzureDevOpsDiscoveryClientTests
     }
 
     [Fact]
-    public async Task TestConnection_success_parses_authenticated_user()
+    public async Task TestConnection_success_parses_projects_payload()
     {
         var handler = new QueueHttpHandler();
-        handler.Enqueue(HttpStatusCode.OK, """{"authenticatedUser":{"providerDisplayName":"Ada Lovelace"}}""");
+        handler.Enqueue(HttpStatusCode.OK, """{"count":1,"value":[{"id":"p1","name":"Proj","state":"wellFormed"}]}""");
         using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
         var result = await client.TestConnectionAsync(Conn(), "secret-pat", CancellationToken.None);
         Assert.Equal(AzureConnectionTestOutcome.Success, result.Outcome);
-        Assert.Equal("Ada Lovelace", result.AuthenticatedUserDisplayName);
+        Assert.Contains("/_apis/projects", handler.Requests[0].RequestUri!.AbsoluteUri, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secret-pat", handler.Requests[0].Headers.Authorization!.Parameter!, StringComparison.Ordinal);
     }
 
@@ -45,6 +45,29 @@ public sealed class AzureDevOpsDiscoveryClientTests
         using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
         var result = await client.TestConnectionAsync(Conn(), "bad", CancellationToken.None);
         Assert.Equal(AzureConnectionTestOutcome.AuthenticationRejected, result.Outcome);
+    }
+
+    [Fact]
+    public async Task TestConnection_203_anonymous_is_authentication_rejected()
+    {
+        var handler = new QueueHttpHandler();
+        handler.Enqueue(HttpStatusCode.NonAuthoritativeInformation, """{"authenticatedUser":{"providerDisplayName":"Anonymous"}}""");
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
+        Assert.Equal(AzureConnectionTestOutcome.AuthenticationRejected, result.Outcome);
+        Assert.Contains("203", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestConnection_strips_bearer_prefix_from_pasted_pat()
+    {
+        var handler = new QueueHttpHandler();
+        handler.Enqueue(HttpStatusCode.OK, """{"count":0,"value":[]}""");
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        _ = await client.TestConnectionAsync(Conn(), "Bearer my-real-pat-token", CancellationToken.None);
+        var parameter = handler.Requests[0].Headers.Authorization!.Parameter!;
+        var decoded = Encoding.ASCII.GetString(Convert.FromBase64String(parameter));
+        Assert.Equal(":my-real-pat-token", decoded);
     }
 
     [Fact]
@@ -99,6 +122,18 @@ public sealed class AzureDevOpsDiscoveryClientTests
         using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
         var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
         Assert.Equal(AzureConnectionTestOutcome.UnexpectedResponse, result.Outcome);
+    }
+
+    [Fact]
+    public async Task TestConnection_400_includes_detail_and_is_organization_unreachable()
+    {
+        var handler = new QueueHttpHandler();
+        handler.Enqueue(HttpStatusCode.BadRequest, """{"message":"The requested REST API version is out of range."}""");
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
+        Assert.Equal(AzureConnectionTestOutcome.OrganizationUnreachable, result.Outcome);
+        Assert.Contains("400", result.Message, StringComparison.Ordinal);
+        Assert.Contains("out of range", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

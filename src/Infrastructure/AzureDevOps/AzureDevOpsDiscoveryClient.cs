@@ -51,10 +51,12 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
 
         try
         {
+            // Prefer Projects ($top=1) over connectionData: anonymous/unauthenticated
+            // calls often return HTTP 203, which must not be treated as success.
             var url = AzureDevOpsRequestFactory.ApiUrl(
                 orgUrl,
-                $"/_apis/connectionData?api-version={AzureDevOpsApiVersions.RestApi}");
-            using var request = AzureDevOpsRequestFactory.CreateGet(url, pat);
+                $"/_apis/projects?$top=1&api-version={AzureDevOpsApiVersions.RestApi}");
+            using var request = AzureDevOpsRequestFactory.CreateGet(url, SanitizePat(pat));
             using var response = await httpClient.SendAsync(request, cancellationToken);
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -65,27 +67,33 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
                     "Azure DevOps rejected the credentials (401/403). Check the PAT and organisation URL.");
             }
 
-            if (!response.IsSuccessStatusCode)
+            // 203 Non-Authoritative Information is commonly returned for anonymous access.
+            if (response.StatusCode == HttpStatusCode.NonAuthoritativeInformation)
+            {
+                return new AzureConnectionTestResult(
+                    AzureConnectionTestOutcome.AuthenticationRejected,
+                    "Azure DevOps did not accept the PAT (anonymous/203 response). Check the token value and scopes.");
+            }
+
+            if (response.StatusCode != HttpStatusCode.OK)
             {
                 return MapHttpFailure(response.StatusCode, body);
             }
 
-            string? displayName = null;
             try
             {
-                displayName = AzureDevOpsDiscoveryJson.ParseAuthenticatedUserDisplayName(body);
+                _ = AzureDevOpsDiscoveryJson.ParseProjects(body);
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 return new AzureConnectionTestResult(
                     AzureConnectionTestOutcome.UnexpectedResponse,
-                    "Connected but the Azure connectionData response could not be parsed.");
+                    "Connected but the Azure projects response could not be parsed.");
             }
 
-            var message = string.IsNullOrWhiteSpace(displayName)
-                ? "Connection succeeded."
-                : $"Connection succeeded as {displayName}.";
-            return new AzureConnectionTestResult(AzureConnectionTestOutcome.Success, message, displayName);
+            return new AzureConnectionTestResult(
+                AzureConnectionTestOutcome.Success,
+                "Connection succeeded — organisation is reachable with this PAT.");
         }
         // Caller cancellation must win over HttpClient timeout (also OperationCanceledException).
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -177,7 +185,7 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
 
     private async Task<string> SendForJsonAsync(string url, string pat, CancellationToken cancellationToken)
     {
-        using var request = AzureDevOpsRequestFactory.CreateGet(url, pat);
+        using var request = AzureDevOpsRequestFactory.CreateGet(url, SanitizePat(pat));
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -188,7 +196,14 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
                 "Azure DevOps rejected the credentials (401/403).");
         }
 
-        if (!response.IsSuccessStatusCode)
+        if (response.StatusCode == HttpStatusCode.NonAuthoritativeInformation)
+        {
+            throw new AzureDevOpsDiscoveryException(
+                AzureConnectionTestOutcome.AuthenticationRejected,
+                "Azure DevOps did not accept the PAT (anonymous/203 response).");
+        }
+
+        if (response.StatusCode != HttpStatusCode.OK)
         {
             var mapped = MapHttpFailure(response.StatusCode, body);
             throw new AzureDevOpsDiscoveryException(mapped.Outcome, mapped.Message);
@@ -219,17 +234,39 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
 
     private static AzureConnectionTestResult MapHttpFailure(HttpStatusCode statusCode, string body)
     {
+        var snippet = string.IsNullOrWhiteSpace(body)
+            ? string.Empty
+            : (body.Length > 240 ? body[..240] + "…" : body).Replace('\r', ' ').Replace('\n', ' ');
+
         if (statusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
         {
+            var detail = string.IsNullOrWhiteSpace(snippet) ? string.Empty : $" Details: {snippet}";
             return new AzureConnectionTestResult(
                 AzureConnectionTestOutcome.OrganizationUnreachable,
-                $"Azure DevOps returned {(int)statusCode}. Check the organisation URL.");
+                $"Azure DevOps returned {(int)statusCode}. Check the organisation URL (https://dev.azure.com/{{org}}).{detail}");
         }
 
-        var snippet = body.Length > 180 ? body[..180] + "…" : body;
         return new AzureConnectionTestResult(
             AzureConnectionTestOutcome.UnexpectedResponse,
-            $"Unexpected Azure DevOps response {(int)statusCode}: {snippet}");
+            string.IsNullOrWhiteSpace(snippet)
+                ? $"Unexpected Azure DevOps response {(int)statusCode}."
+                : $"Unexpected Azure DevOps response {(int)statusCode}: {snippet}");
+    }
+
+    /// <summary>Trims PAT and strips accidental auth scheme prefixes from paste.</summary>
+    private static string SanitizePat(string pat)
+    {
+        var value = pat.Trim();
+        if (value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value["Bearer ".Length..].Trim();
+        }
+        else if (value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value["Basic ".Length..].Trim();
+        }
+
+        return value;
     }
 }
 
