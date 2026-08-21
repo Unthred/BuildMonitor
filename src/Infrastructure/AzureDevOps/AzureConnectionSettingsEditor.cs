@@ -7,8 +7,8 @@ namespace BuildMonitor.Infrastructure.AzureDevOps;
 
 /// <summary>
 /// Draft Azure connection editor for Settings (v1: single connection).
-/// Persists connection metadata into <see cref="AppSettings.Connections"/> only on commit;
-/// PAT is written to <see cref="IAzureConnectionSecretStore"/> only when the user provides a new value.
+/// Metadata and PAT stay draft until <see cref="TryCommitAfterValidationAsync"/> succeeds.
+/// Test connection may use a pending PAT without persisting it.
 /// </summary>
 public sealed class AzureConnectionSettingsEditor(
     AppSettings settings,
@@ -40,6 +40,8 @@ public sealed class AzureConnectionSettingsEditor(
 
     public string ConnectionId => draftConnectionId;
 
+    public bool HasPendingPat => !string.IsNullOrWhiteSpace(pendingPat);
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         var existing = settings.Connections.FirstOrDefault();
@@ -60,7 +62,7 @@ public sealed class AzureConnectionSettingsEditor(
         pendingPat = null;
     }
 
-    /// <summary>Stores a PAT in memory only until <see cref="CommitToSettingsAsync"/>.</summary>
+    /// <summary>Stores a PAT in memory only until a successful validated commit.</summary>
     public void SetPendingPat(string? pat)
     {
         pendingPat = string.IsNullOrWhiteSpace(pat) ? null : pat.Trim();
@@ -92,36 +94,30 @@ public sealed class AzureConnectionSettingsEditor(
     }
 
     /// <summary>
-    /// Writes connection metadata into settings and optional pending PAT to the secret store.
-    /// Does not delete an existing PAT when the password box is empty.
+    /// Applies draft connection metadata for validation, runs <paramref name="validate"/>,
+    /// and only then persists a pending PAT. On validation failure, restores prior Connections
+    /// and leaves the secret store unchanged.
     /// </summary>
-    public async Task CommitToSettingsAsync(CancellationToken cancellationToken)
+    public async Task<AzureConnectionCommitResult> TryCommitAfterValidationAsync(
+        Func<AppSettings, IReadOnlyList<string>> validate,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(draftOrganizationUrl) && string.IsNullOrWhiteSpace(draftDisplayName) && !credentialStored && pendingPat is null)
+        ArgumentNullException.ThrowIfNull(validate);
+
+        if (!TryBuildConnectionsForSave(out var nextConnections, out var buildError))
         {
-            settings.Connections = [];
-            return;
+            return AzureConnectionCommitResult.Failed([buildError!]);
         }
 
-        if (!AzureOrganizationUrl.TryNormalize(draftOrganizationUrl, out var normalized, out var error))
-        {
-            throw new InvalidOperationException(error);
-        }
+        var previousConnections = CloneConnections(settings.Connections);
+        settings.Connections = nextConnections;
 
-        if (string.IsNullOrWhiteSpace(draftDisplayName))
+        var errors = validate(settings);
+        if (errors.Count > 0)
         {
-            draftDisplayName = DeriveDisplayName(normalized);
+            settings.Connections = previousConnections;
+            return AzureConnectionCommitResult.Failed(errors);
         }
-
-        settings.Connections =
-        [
-            new AzureDevOpsConnectionSettings
-            {
-                Id = draftConnectionId,
-                DisplayName = draftDisplayName.Trim(),
-                OrganizationUrl = normalized
-            }
-        ];
 
         if (!string.IsNullOrWhiteSpace(pendingPat))
         {
@@ -129,7 +125,55 @@ public sealed class AzureConnectionSettingsEditor(
             credentialStored = true;
             pendingPat = null;
         }
+
+        return AzureConnectionCommitResult.Ok();
     }
+
+    internal bool TryBuildConnectionsForSave(
+        out List<AzureDevOpsConnectionSettings> connections,
+        out string? error)
+    {
+        connections = [];
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(draftOrganizationUrl)
+            && string.IsNullOrWhiteSpace(draftDisplayName)
+            && !credentialStored
+            && pendingPat is null)
+        {
+            return true;
+        }
+
+        if (!AzureOrganizationUrl.TryNormalize(draftOrganizationUrl, out var normalized, out var urlError))
+        {
+            error = urlError;
+            return false;
+        }
+
+        var displayName = string.IsNullOrWhiteSpace(draftDisplayName)
+            ? DeriveDisplayName(normalized)
+            : draftDisplayName.Trim();
+
+        connections =
+        [
+            new AzureDevOpsConnectionSettings
+            {
+                Id = draftConnectionId,
+                DisplayName = displayName,
+                OrganizationUrl = normalized
+            }
+        ];
+        return true;
+    }
+
+    private static List<AzureDevOpsConnectionSettings> CloneConnections(
+        IEnumerable<AzureDevOpsConnectionSettings> source) =>
+        source.Select(c => new AzureDevOpsConnectionSettings
+        {
+            Id = c.Id,
+            DisplayName = c.DisplayName,
+            OrganizationUrl = c.OrganizationUrl
+        }).ToList();
 
     private static string DeriveDisplayName(string organizationUrl)
     {
@@ -146,4 +190,22 @@ public sealed class AzureConnectionSettingsEditor(
 
         return "Azure DevOps";
     }
+}
+
+public sealed class AzureConnectionCommitResult
+{
+    private AzureConnectionCommitResult(bool succeeded, IReadOnlyList<string> errors)
+    {
+        Succeeded = succeeded;
+        Errors = errors;
+    }
+
+    public bool Succeeded { get; }
+
+    public IReadOnlyList<string> Errors { get; }
+
+    public static AzureConnectionCommitResult Ok() => new(true, []);
+
+    public static AzureConnectionCommitResult Failed(IReadOnlyList<string> errors) =>
+        new(false, errors);
 }

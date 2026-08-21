@@ -53,7 +53,52 @@ public sealed class AzureDevOpsDiscoveryClientTests
         var handler = new QueueHttpHandler { ThrowOnSend = new HttpRequestException("no route") };
         using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
         var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
+        Assert.Equal(AzureConnectionTestOutcome.NetworkFailure, result.Outcome);
+        Assert.Contains("Network error", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TestConnection_timeout_maps_to_network_failure()
+    {
+        var handler = new QueueHttpHandler { ThrowOnSend = new TaskCanceledException("timeout") };
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
+        Assert.Equal(AzureConnectionTestOutcome.NetworkFailure, result.Outcome);
+        Assert.Contains("timed out", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TestConnection_caller_cancellation_propagates()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var handler = new QueueHttpHandler
+        {
+            ThrowOnSend = new OperationCanceledException(cts.Token)
+        };
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.TestConnectionAsync(Conn(), "pat", cts.Token));
+    }
+
+    [Fact]
+    public async Task TestConnection_404_maps_to_organization_unreachable()
+    {
+        var handler = new QueueHttpHandler();
+        handler.Enqueue(HttpStatusCode.NotFound, "{}");
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
         Assert.Equal(AzureConnectionTestOutcome.OrganizationUnreachable, result.Outcome);
+    }
+
+    [Fact]
+    public async Task TestConnection_malformed_success_payload_is_unexpected_response()
+    {
+        var handler = new QueueHttpHandler();
+        handler.Enqueue(HttpStatusCode.OK, "{ not-json");
+        using var client = new AzureDevOpsDiscoveryClient(new HttpClient(handler));
+        var result = await client.TestConnectionAsync(Conn(), "pat", CancellationToken.None);
+        Assert.Equal(AzureConnectionTestOutcome.UnexpectedResponse, result.Outcome);
     }
 
     [Fact]

@@ -87,27 +87,29 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
                 : $"Connection succeeded as {displayName}.";
             return new AzureConnectionTestResult(AzureConnectionTestOutcome.Success, message, displayName);
         }
+        // Caller cancellation must win over HttpClient timeout (also OperationCanceledException).
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception ex) when (IsTransportFailure(ex))
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout (and similar) surfaces as TaskCanceledException without caller cancel.
+            return new AzureConnectionTestResult(
+                AzureConnectionTestOutcome.NetworkFailure,
+                "The Azure DevOps request timed out.");
+        }
+        catch (HttpRequestException ex)
         {
             return new AzureConnectionTestResult(
                 AzureConnectionTestOutcome.NetworkFailure,
                 $"Network error contacting Azure DevOps: {ex.Message}");
         }
-        catch (HttpRequestException ex)
-        {
-            return new AzureConnectionTestResult(
-                AzureConnectionTestOutcome.OrganizationUnreachable,
-                $"Organisation URL unreachable: {ex.Message}");
-        }
-        catch (TaskCanceledException)
+        catch (Exception ex) when (ex is SocketException or IOException)
         {
             return new AzureConnectionTestResult(
                 AzureConnectionTestOutcome.NetworkFailure,
-                "The Azure DevOps request timed out.");
+                $"Network error contacting Azure DevOps: {ex.Message}");
         }
     }
 
@@ -229,11 +231,6 @@ public sealed class AzureDevOpsDiscoveryClient : IAzureDevOpsDiscoveryClient, ID
             AzureConnectionTestOutcome.UnexpectedResponse,
             $"Unexpected Azure DevOps response {(int)statusCode}: {snippet}");
     }
-
-    private static bool IsTransportFailure(Exception ex) =>
-        ex is SocketException
-        || ex is IOException
-        || (ex is HttpRequestException hre && hre.InnerException is SocketException);
 }
 
 /// <summary>Structured discovery failure suitable for UI (not a raw HTTP exception).</summary>

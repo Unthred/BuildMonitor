@@ -68,7 +68,7 @@ Top-level `connections[]` entries store **`id`**, **`displayName`**, and **`orga
 | Settings metadata | `%LOCALAPPDATA%/BuildMonitor/settings.json` → `connections[]` |
 | PAT at rest | `%LOCALAPPDATA%/BuildMonitor/secrets/ado-{connectionId}.dpapi` (CurrentUser DPAPI) |
 | Settings UI | **Azure** tab — org URL, display name, masked PAT, **Test connection**, Save via window Save |
-| Draft semantics | Org/PAT edits stay in the Settings dialog until **Save**. **Test** uses draft PAT if entered, otherwise the stored secret; a failed test does **not** overwrite a stored PAT. |
+| Draft semantics | Org/PAT edits stay in the Settings dialog until **Save**. **Test** uses draft PAT if entered, otherwise the stored secret; a failed test does **not** overwrite a stored PAT. **Save** validates the full settings model first; if validation fails, connection metadata and any replacement PAT are **not** persisted. |
 
 ### Minimum PAT scopes (read-only)
 

@@ -9,7 +9,7 @@ namespace BuildMonitor.Tests;
 public sealed class AzureConnectionSettingsEditorTests
 {
     [Fact]
-    public async Task Commit_persists_connection_without_pat_in_settings_and_keeps_id_stable()
+    public async Task Validated_commit_persists_connection_without_pat_in_settings_and_keeps_id_stable()
     {
         var settings = new AppSettings();
         var dir = Path.Combine(Path.GetTempPath(), "bm-ed-" + Guid.NewGuid().ToString("N"));
@@ -24,8 +24,9 @@ public sealed class AzureConnectionSettingsEditorTests
             editor.DraftDisplayName = "Contoso";
             editor.DraftOrganizationUrl = "https://dev.azure.com/contoso/";
             editor.SetPendingPat("super-secret-pat");
-            await editor.CommitToSettingsAsync(CancellationToken.None);
+            var result = await editor.TryCommitAfterValidationAsync(_ => [], CancellationToken.None);
 
+            Assert.True(result.Succeeded);
             Assert.Single(settings.Connections);
             Assert.Equal(id, settings.Connections[0].Id);
             Assert.Equal("https://dev.azure.com/contoso", settings.Connections[0].OrganizationUrl);
@@ -71,6 +72,65 @@ public sealed class AzureConnectionSettingsEditorTests
             Assert.Equal(AzureConnectionTestOutcome.Success, result.Outcome);
             Assert.Equal("draft-pat", stub.LastPat);
             Assert.Equal("stored-pat", await store.LoadAsync("fixedid", CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Rejected_save_keeps_original_pat_and_does_not_persist_pending_replacement()
+    {
+        var settings = new AppSettings
+        {
+            Connections =
+            [
+                new AzureDevOpsConnectionSettings
+                {
+                    Id = "fixedid",
+                    DisplayName = "Contoso",
+                    OrganizationUrl = "https://dev.azure.com/contoso"
+                }
+            ],
+            Projects =
+            [
+                new MonitoredProjectSettings
+                {
+                    Id = "p1",
+                    DisplayName = "Local",
+                    IsActiveInSession = true,
+                    Local = new LocalProjectAttachment
+                    {
+                        RootFolder = @"C:\src\App",
+                        ProjectFile = "App.csproj"
+                    }
+                }
+            ]
+        };
+        var dir = Path.Combine(Path.GetTempPath(), "bm-ed3-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var store = new AzureConnectionSecretStore(dir, new FakeSecretProtector());
+            await store.SaveAsync("fixedid", "original-pat", CancellationToken.None);
+            var editor = new AzureConnectionSettingsEditor(settings, store, new StubDiscovery());
+            await editor.LoadAsync(CancellationToken.None);
+
+            editor.DraftDisplayName = "Contoso Renamed";
+            editor.DraftOrganizationUrl = "https://dev.azure.com/contoso-new";
+            editor.SetPendingPat("replacement-pat-should-not-persist");
+
+            var result = await editor.TryCommitAfterValidationAsync(
+                _ => ["Unrelated project setting is invalid."],
+                CancellationToken.None);
+
+            Assert.False(result.Succeeded);
+            Assert.Contains("Unrelated project setting is invalid.", result.Errors);
+            Assert.Equal("Contoso", settings.Connections[0].DisplayName);
+            Assert.Equal("https://dev.azure.com/contoso", settings.Connections[0].OrganizationUrl);
+            Assert.Equal("original-pat", await store.LoadAsync("fixedid", CancellationToken.None));
+            Assert.True(editor.HasPendingPat);
         }
         finally
         {

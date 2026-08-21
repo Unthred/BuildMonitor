@@ -703,26 +703,14 @@ public partial class SettingsWindow : Window
         Settings.Projects = projectItems.ToList();
 
         SyncAzureDraftFromUi();
-        try
-        {
-            await azureConnectionEditor.CommitToSettingsAsync(CancellationToken.None);
-        }
-        catch (InvalidOperationException ex)
-        {
-            ToastNotificationService.ShowIfEnabled(
-                "Settings not saved",
-                ex.Message,
-                ToastKind.Warning,
-                UserNotificationCategory.Warning);
-            return;
-        }
-
-        var errors = AppSettingsValidator.Validate(Settings);
-        if (errors.Count > 0)
+        var azureCommit = await azureConnectionEditor.TryCommitAfterValidationAsync(
+            AppSettingsValidator.Validate,
+            CancellationToken.None);
+        if (!azureCommit.Succeeded)
         {
             ToastNotificationService.ShowIfEnabled(
                 "Settings not saved",
-                string.Join(Environment.NewLine, errors),
+                string.Join(Environment.NewLine, azureCommit.Errors),
                 ToastKind.Warning,
                 UserNotificationCategory.Warning);
             return;
