@@ -45,15 +45,15 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode)
             && Volatile.Read(ref agentRebuildInProgress) == 0
             && Volatile.Read(ref shipCheckInProgress) == 0)
         {
             return;
         }
 
-        if (!definition.RunOptions.AutoRestartOnHotReloadRequest
-            || definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (!Local.RunOptions.AutoRestartOnHotReloadRequest
+            || Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             return;
         }
@@ -69,7 +69,7 @@ internal sealed partial class ProjectRuntime
     private bool ShouldDeferRestartToDotNetWatch(string line, HotReloadRestartRequest request) =>
         request == HotReloadRestartRequest.RestartApp
         && UsesDotNetWatchProcess()
-        && definition.RunOptions.AutoRestartOnWatchChanges
+        && Local.RunOptions.AutoRestartOnWatchChanges
         && HotReloadRestartDetector.IsWatchAutoRestartMessage(line);
 
     private void ScheduleHotReloadRestart(HotReloadRestartRequest request)
@@ -132,7 +132,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             return;
         }
@@ -151,10 +151,10 @@ internal sealed partial class ProjectRuntime
         }
 
         notifyUser?.Invoke(
-            definition.Id,
+            projectSettings.Id,
             request == HotReloadRestartRequest.RebuildAndRestart
-                ? $"Rebuild required — {definition.DisplayName}"
-                : $"Restart required — {definition.DisplayName}",
+                ? $"Rebuild required — {projectSettings.DisplayName}"
+                : $"Restart required — {projectSettings.DisplayName}",
             "Output indicated hot reload could not apply the latest changes. Restarting automatically.",
             UserNotificationKind.Info,
             UserNotificationCategory.Info);
@@ -171,8 +171,8 @@ internal sealed partial class ProjectRuntime
         catch (Exception ex)
         {
             notifyUser?.Invoke(
-                definition.Id,
-                $"Auto-restart failed — {definition.DisplayName}",
+                projectSettings.Id,
+                $"Auto-restart failed — {projectSettings.DisplayName}",
                 ex.Message,
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
@@ -205,7 +205,7 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
-        var logPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+        var logPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Build);
         var (parsedErrors, parsedWarnings) = BuildIssueCountResolver.Resolve(buildSegment, logPath);
         if (!BuildIssueCountResolver.ShouldApplyWatchOutputCounts(
                 buildSegment,
@@ -285,9 +285,9 @@ internal sealed partial class ProjectRuntime
     }
 
     private string ResolveProjectFileArg() =>
-        Path.IsPathRooted(definition.ProjectFile)
-            ? definition.ProjectFile
-            : Path.Combine(definition.RootFolder, definition.ProjectFile);
+        Path.IsPathRooted(Local.ProjectFile)
+            ? Local.ProjectFile
+            : Path.Combine(Local.RootFolder, Local.ProjectFile);
     public async Task<BuildOutputRepairResult> RepairBuildOutputAsync(
         CancellationToken cancellationToken,
         bool restartAfter)
@@ -301,8 +301,8 @@ internal sealed partial class ProjectRuntime
                 await Task.Delay(500, cancellationToken);
             }
 
-            var result = BuildOutputTreeRepairer.Repair(definition.RootFolder);
-            if (result.Repaired && restartAfter && definition.RunOptions.RunMode != ProjectRunMode.None)
+            var result = BuildOutputTreeRepairer.Repair(Local.RootFolder);
+            if (result.Repaired && restartAfter && Local.RunOptions.RunMode != ProjectRunMode.None)
             {
                 StartRunProcess(skipEmbeddedBuild: false);
             }
@@ -325,16 +325,16 @@ internal sealed partial class ProjectRuntime
     private void WarnIfRiskyBaseOutputPath()
     {
         if (baseOutputPathWarningShown
-            || definition.RunOptions.RunMode != ProjectRunMode.Watch
-            || !CorruptedOutputTreeDetector.HasRiskyBaseOutputPath(definition.ExtraDotNetArgs))
+            || Local.RunOptions.RunMode != ProjectRunMode.Watch
+            || !CorruptedOutputTreeDetector.HasRiskyBaseOutputPath(Local.ExtraDotNetArgs))
         {
             return;
         }
 
         baseOutputPathWarningShown = true;
         notifyUser?.Invoke(
-            definition.Id,
-            $"Risky build args — {definition.DisplayName}",
+            projectSettings.Id,
+            $"Risky build args — {projectSettings.DisplayName}",
             "Extra dotnet args include BaseOutputPath while watch mode is enabled. "
             + "This can corrupt artifacts/bin/obj output trees. Remove BaseOutputPath for local watch.",
             UserNotificationKind.Warning,

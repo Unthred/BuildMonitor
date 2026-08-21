@@ -236,12 +236,15 @@ public sealed class BuildIntelligenceSnapshotTests
             pendingRebuildSamplePaths: pendingRebuildSamplePaths,
             rebuildTimerResetCount: rebuildTimerResetCount);
 
-    private static LocalProjectDefinition SampleProject() => new()
+    private static MonitoredProjectSettings SampleProject() => new()
     {
         Id = "p1",
         DisplayName = "Sample",
         IsActiveInSession = true,
-        RootFolder = @"C:\sample",
-        ProjectFile = "Sample.csproj"
+        Local = new LocalProjectAttachment
+        {
+            RootFolder = @"C:\sample",
+            ProjectFile = "Sample.csproj"
+        }
     };
 }

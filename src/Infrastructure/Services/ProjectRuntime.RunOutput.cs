@@ -17,7 +17,7 @@ internal sealed partial class ProjectRuntime
         if (DotNetRunOutputParser.TryExtractListeningUrl(line, out var parsedUrl))
         {
             var hadUrl = !string.IsNullOrWhiteSpace(pendingListenUrl);
-            var preference = definition.PreferredSiteUrlScheme;
+            var preference = Local.PreferredSiteUrlScheme;
             // Never downgrade a preferred HTTPS pending URL with the first HTTP listen line.
             if (string.IsNullOrWhiteSpace(pendingListenUrl)
                 || LocalPortProbe.IsBetterCanonicalUrl(
@@ -47,8 +47,8 @@ internal sealed partial class ProjectRuntime
             runErrorCount = Math.Max(runErrorCount, 1);
             SetState(ProjectLifecycleState.Crashed);
             notifyUser?.Invoke(
-                definition.Id,
-                $"App failed to start — {definition.DisplayName}",
+                projectSettings.Id,
+                $"App failed to start — {projectSettings.DisplayName}",
                 line.Trim(),
                 UserNotificationKind.Error,
                 UserNotificationCategory.Error);
@@ -69,7 +69,7 @@ internal sealed partial class ProjectRuntime
 
     private void HandleWatchProcessOutputLine(string line)
     {
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             // Should not be hosting watch in AI Controlled; ignore if a stale watch process remains.
             return;
@@ -122,8 +122,8 @@ internal sealed partial class ProjectRuntime
             if (wasWatchRebuild)
             {
                 notifyUser?.Invoke(
-                    definition.Id,
-                    $"Build succeeded — {definition.DisplayName}",
+                    projectSettings.Id,
+                    $"Build succeeded — {projectSettings.DisplayName}",
                     "Watch rebuild completed successfully.",
                     UserNotificationKind.Info,
                     UserNotificationCategory.BuildSuccess);
@@ -162,8 +162,8 @@ internal sealed partial class ProjectRuntime
 
         lastWatchFileChangeNotifyUtc = now;
         notifyUser?.Invoke(
-            definition.Id,
-            $"File change — {definition.DisplayName}",
+            projectSettings.Id,
+            $"File change — {projectSettings.DisplayName}",
             "Source change detected. Rebuilding…",
             UserNotificationKind.Info,
             UserNotificationCategory.FileChangeDetected);
@@ -214,7 +214,7 @@ internal sealed partial class ProjectRuntime
             try
             {
                 await logStore.SaveAsync(
-                    definition.Id,
+                    projectSettings.Id,
                     BuildLogKind.Run,
                     commandLine,
                     exitCode,
@@ -231,7 +231,7 @@ internal sealed partial class ProjectRuntime
 
     public void EnsureRunProcessStartedAfterBuild()
     {
-        if (definition.RunOptions.RunMode == ProjectRunMode.None || lastBuildExitCode != 0)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None || lastBuildExitCode != 0)
         {
             return;
         }
@@ -255,7 +255,7 @@ internal sealed partial class ProjectRuntime
         CancellationToken cancellationToken,
         string? buildReason = null)
     {
-        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             return;
         }
@@ -263,8 +263,8 @@ internal sealed partial class ProjectRuntime
         if (Volatile.Read(ref buildInProgress) != 0)
         {
             notifyUser?.Invoke(
-                definition.Id,
-                $"Restart skipped — {definition.DisplayName}",
+                projectSettings.Id,
+                $"Restart skipped — {projectSettings.DisplayName}",
                 "Wait for the current build to finish, then try again.",
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
@@ -307,8 +307,8 @@ internal sealed partial class ProjectRuntime
             else
             {
                 notifyUser?.Invoke(
-                    definition.Id,
-                    $"Restarting app — {definition.DisplayName}",
+                    projectSettings.Id,
+                    $"Restarting app — {projectSettings.DisplayName}",
                     "Stopping run/watch and starting again with --no-build.",
                     UserNotificationKind.Info,
                     UserNotificationCategory.Info);

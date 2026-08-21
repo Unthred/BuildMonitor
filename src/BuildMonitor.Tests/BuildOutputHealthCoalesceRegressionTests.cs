@@ -16,18 +16,12 @@ public class BuildOutputHealthCoalesceRegressionTests
         var dataRoot = CreateTempDir();
         try
         {
-            var definition = new LocalProjectDefinition
-            {
-                DisplayName = "WitherbyConnect",
-                RootFolder = @"C:\src\WitherbyConnectDotNet9",
-                ProjectFile = @"C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj",
-                LaunchProfile = "https",
-                IsActiveInSession = true,
-                RunOptions = new ProjectRunOptions
-                {
-                    RunMode = ProjectRunMode.Watch
-                }
-            };
+            var definition = TestProjectFactory.LocalOnly(
+                displayName: "WitherbyConnect",
+                rootFolder: @"C:\src\WitherbyConnectDotNet9",
+                projectFile: @"C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj",
+                launchProfile: "https",
+                runOptions: new ProjectRunOptions { RunMode = ProjectRunMode.Watch });
 
             var logStore = new BuildLogStore(logsRoot);
             var triggerJournal = new BuildTriggerJournal(dataRoot);
@@ -84,15 +78,12 @@ public class BuildOutputHealthCoalesceRegressionTests
         var dataRoot = CreateTempDir();
         try
         {
-            var definition = new LocalProjectDefinition
-            {
-                DisplayName = "WitherbyConnect",
-                RootFolder = @"C:\src\WitherbyConnectDotNet9",
-                ProjectFile = @"C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj",
-                LaunchProfile = "https",
-                IsActiveInSession = true,
-                RunOptions = new ProjectRunOptions { RunMode = ProjectRunMode.Watch }
-            };
+            var definition = TestProjectFactory.LocalOnly(
+                displayName: "WitherbyConnect",
+                rootFolder: @"C:\src\WitherbyConnectDotNet9",
+                projectFile: @"C:\src\WitherbyConnectDotNet9\WitherbyConnect.csproj",
+                launchProfile: "https",
+                runOptions: new ProjectRunOptions { RunMode = ProjectRunMode.Watch });
 
             var logStore = new BuildLogStore(logsRoot);
             var triggerJournal = new BuildTriggerJournal(dataRoot);

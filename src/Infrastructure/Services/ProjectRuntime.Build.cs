@@ -20,7 +20,7 @@ internal sealed partial class ProjectRuntime
         {
             fileChangeDebounceMs = ResolveFileChangeDebounceMs();
             fileWatcher = new DebouncedFileWatcher(
-                definition.RootFolder,
+                Local.RootFolder,
                 fileChangeDebounceMs,
                 GetEffectiveWatchIgnoreSegments());
             fileWatcher.Changed += OnFileWatcherChanged;
@@ -28,9 +28,9 @@ internal sealed partial class ProjectRuntime
         catch (Exception ex)
         {
             notifyUser?.Invoke(
-                definition.Id,
-                $"File watcher disabled — {definition.DisplayName}",
-                $"Could not watch '{definition.RootFolder}': {ex.Message}",
+                projectSettings.Id,
+                $"File watcher disabled — {projectSettings.DisplayName}",
+                $"Could not watch '{Local.RootFolder}': {ex.Message}",
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
         }
@@ -119,7 +119,7 @@ internal sealed partial class ProjectRuntime
             progressSteps = buildProgressTracker.Steps;
             NotifyProgressChanged(force: true);
 
-            var releaseLocks = definition.RunOptions.ReleaseOutputLocksBeforeBuild;
+            var releaseLocks = Local.RunOptions.ReleaseOutputLocksBeforeBuild;
             if (releaseLocks)
             {
                 SetProjectCurrentAction("Building — releasing output locks");
@@ -129,7 +129,7 @@ internal sealed partial class ProjectRuntime
             SetProjectCurrentAction("Building — dotnet build");
             var forceFullRebuild = DotNetBuildArguments.ShouldForceFullRebuild(
                 buildReason,
-                definition.RunOptions.ForceCompleteWarningCounts);
+                Local.RunOptions.ForceCompleteWarningCounts);
             var args = BuildProjectArgs(forceFullRebuild);
             var result = await RunBuildAttemptAsync(args, buildToken, buildBanner);
 
@@ -167,16 +167,16 @@ internal sealed partial class ProjectRuntime
             }
 
             if (result.ExitCode != 0
-                && definition.RunOptions.AutoRepairCorruptedOutput
-                && CorruptedOutputTreeDetector.IsCorruptedTreeFailure(result.Output, definition.RootFolder))
+                && Local.RunOptions.AutoRepairCorruptedOutput
+                && CorruptedOutputTreeDetector.IsCorruptedTreeFailure(result.Output, Local.RootFolder))
             {
                 SetProjectCurrentAction("Building — repairing output folders");
                 var repair = await RepairBuildOutputInternalAsync(cancellationToken, restartAfter: false);
                 if (repair.Repaired)
                 {
                     notifyUser?.Invoke(
-                        definition.Id,
-                        $"Repaired build output — {definition.DisplayName}",
+                        projectSettings.Id,
+                        $"Repaired build output — {projectSettings.DisplayName}",
                         $"Removed {string.Join(", ", repair.RemovedFolders)}. Retrying build…",
                         UserNotificationKind.Warning,
                         UserNotificationCategory.Warning);
@@ -232,7 +232,7 @@ internal sealed partial class ProjectRuntime
             var logText = result.Output + Environment.NewLine + finishBanner;
 
             var buildLog = await logStore.SaveAsync(
-                definition.Id,
+                projectSettings.Id,
                 BuildLogKind.Build,
                 result.CommandLine,
                 result.ExitCode,
@@ -245,7 +245,7 @@ internal sealed partial class ProjectRuntime
             if (result.Duration.TotalMilliseconds > 0)
             {
                 burstStatsStore.RecordBuildDuration(
-                    definition.Id,
+                    projectSettings.Id,
                     (int)result.Duration.TotalMilliseconds,
                     result.ExitCode == 0);
             }
@@ -254,7 +254,7 @@ internal sealed partial class ProjectRuntime
             {
                 progressSteps = [];
                 SetState(ProjectLifecycleState.BuildOk);
-            if (definition.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess
+            if (Local.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess
                 && !ShouldSkipAutoBuildTests())
             {
                 PrepareTest("build success");
@@ -278,8 +278,8 @@ internal sealed partial class ProjectRuntime
             buildProgressTracker = null;
 
             var restartedAfterBuild = false;
-            if (definition.RunOptions.RestartAppAfterRebuild
-                && definition.RunOptions.RunMode != ProjectRunMode.None
+            if (Local.RunOptions.RestartAppAfterRebuild
+                && Local.RunOptions.RunMode != ProjectRunMode.None
                 && result.ExitCode == 0
                 && runProcess?.IsRunning != true
                 && Volatile.Read(ref shipCheckInProgress) == 0
@@ -321,7 +321,7 @@ internal sealed partial class ProjectRuntime
             }
 
             if (pendingFileChangeRebuild
-                && !BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+                && !BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
             {
                 var nextReason = pendingRebuildHoldReason == PendingRebuildHoldReason.StartupDeferred
                     ? "startup"
@@ -347,7 +347,7 @@ internal sealed partial class ProjectRuntime
         logText += cancelBanner;
 
         await logStore.SaveAsync(
-            definition.Id,
+            projectSettings.Id,
             BuildLogKind.Build,
             result.CommandLine,
             result.ExitCode,
@@ -360,8 +360,8 @@ internal sealed partial class ProjectRuntime
         EnterWaitingForEditsState("Build cancelled — waiting for edits to settle");
 
         notifyUser?.Invoke(
-            definition.Id,
-            $"Build cancelled — {definition.DisplayName}",
+            projectSettings.Id,
+            $"Build cancelled — {projectSettings.DisplayName}",
             "Newer source changes detected. Rebuilding when edits settle.",
             UserNotificationKind.Info,
             UserNotificationCategory.FileChangeDetected);
@@ -372,7 +372,7 @@ internal sealed partial class ProjectRuntime
         var generation = Interlocked.Increment(ref fileChangeRebuildScheduleGeneration);
 
         // AI Controlled: never enter WaitingForEdits / quiet countdown for file-change schedules.
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode)
             && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -407,7 +407,7 @@ internal sealed partial class ProjectRuntime
             }
 
             // Mode may have flipped to AI Controlled mid-wait.
-            if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+            if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode)
                 && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -432,7 +432,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode)
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode)
             && !string.Equals(buildReason, "startup", StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -466,8 +466,8 @@ internal sealed partial class ProjectRuntime
         pendingBuildReason = "file change (queued)";
 
         notifyUser?.Invoke(
-            definition.Id,
-            $"File change — {definition.DisplayName}",
+            projectSettings.Id,
+            $"File change — {projectSettings.DisplayName}",
             "Source change detected. Rebuilding…",
             UserNotificationKind.Info,
             UserNotificationCategory.FileChangeDetected);
@@ -477,7 +477,7 @@ internal sealed partial class ProjectRuntime
 
     private async Task HydrateLastBuildFromStoreAsync(CancellationToken cancellationToken)
     {
-        var metadata = await logStore.LoadMetadataAsync(definition.Id, BuildLogKind.Build, cancellationToken);
+        var metadata = await logStore.LoadMetadataAsync(projectSettings.Id, BuildLogKind.Build, cancellationToken);
         if (metadata is null)
         {
             return;
@@ -521,7 +521,7 @@ internal sealed partial class ProjectRuntime
         CancellationToken cancellationToken,
         string? logBanner = null) =>
         await cliRunner.RunAsync(
-            definition.RootFolder,
+            Local.RootFolder,
             args,
             cancellationToken,
             OnBuildOutputLine,
@@ -530,8 +530,8 @@ internal sealed partial class ProjectRuntime
     private async Task ReleaseOutputLocksAsync(CancellationToken cancellationToken)
     {
         var releaseResult = await OutputLockReleaser.ReleaseAsync(
-            definition.RootFolder,
-            definition.ProjectFile,
+            Local.RootFolder,
+            Local.ProjectFile,
             cancellationToken);
 
         if (notifyUser is null)
@@ -558,10 +558,10 @@ internal sealed partial class ProjectRuntime
             }
 
             notifyUser(
-                definition.Id,
+                projectSettings.Id,
                 accessDeniedOnly
-                    ? $"Couldn't release locks — {definition.DisplayName}"
-                    : $"Lock release issues — {definition.DisplayName}",
+                    ? $"Couldn't release locks — {projectSettings.DisplayName}"
+                    : $"Lock release issues — {projectSettings.DisplayName}",
                 string.Join(Environment.NewLine, lines),
                 accessDeniedOnly ? UserNotificationKind.Warning : UserNotificationKind.Error,
                 accessDeniedOnly ? UserNotificationCategory.Warning : UserNotificationCategory.Error);
@@ -571,8 +571,8 @@ internal sealed partial class ProjectRuntime
         if (releaseResult.ProcessesStopped > 0)
         {
             notifyUser(
-                definition.Id,
-                $"Released locks — {definition.DisplayName}",
+                projectSettings.Id,
+                $"Released locks — {projectSettings.DisplayName}",
                 string.Join(Environment.NewLine, releaseResult.StoppedDescriptions.Take(4)),
                 UserNotificationKind.Info,
                 UserNotificationCategory.Info);
@@ -583,7 +583,7 @@ internal sealed partial class ProjectRuntime
     {
         if (burstDurationMs > 0)
         {
-            burstStatsStore.RecordBurst(definition.Id, burstDurationMs);
+            burstStatsStore.RecordBurst(projectSettings.Id, burstDurationMs);
         }
 
         var meaningful = WatchIgnoreRules.FilterMeaningfulPaths(
@@ -596,7 +596,7 @@ internal sealed partial class ProjectRuntime
 
         lastMeaningfulFileChangeUtc = DateTimeOffset.UtcNow;
         HeartbeatProjectWorker("file-watcher", $"{meaningful.Count} file(s)");
-        if (definition.BuildControlMode == ProjectBuildControlMode.AiControlled)
+        if (Local.BuildControlMode == ProjectBuildControlMode.AiControlled)
         {
             SetProjectCurrentAction(
                 $"AI Controlled — {meaningful.Count} change(s) detected (awaiting explicit build)");
@@ -616,15 +616,15 @@ internal sealed partial class ProjectRuntime
         if (!ShouldScheduleAutoBuildFromFileChange())
         {
             if (IsControlPlaneBusyBlockingAutoBuild()
-                && definition.BuildControlMode == ProjectBuildControlMode.FileWatching)
+                && Local.BuildControlMode == ProjectBuildControlMode.FileWatching)
             {
                 NoteAutoBuildBlockedByControlPlane();
-                sessionStore?.TouchBusy(definition.Id);
+                sessionStore?.TouchBusy(projectSettings.Id);
             }
 
             QueuePendingRebuild(PendingRebuildHoldReason.EditsSettling, meaningful, wasAlreadyPending);
             NotifyControlPlaneChanged(immediate: true);
-            if (definition.BuildControlMode == ProjectBuildControlMode.FileWatching)
+            if (Local.BuildControlMode == ProjectBuildControlMode.FileWatching)
             {
                 // Busy hold: keep waiting until idle, then debounce may resume.
                 _ = WaitForEditQuietThenBuildAsync("file change (queued)");
@@ -692,8 +692,8 @@ internal sealed partial class ProjectRuntime
             GetSessionAdjustedFileChangeDebounceMs());
 
         notifyUser?.Invoke(
-            definition.Id,
-            $"File change — {definition.DisplayName}",
+            projectSettings.Id,
+            $"File change — {projectSettings.DisplayName}",
             "Source change detected. Rebuilding…",
             UserNotificationKind.Info,
             UserNotificationCategory.FileChangeDetected);
@@ -703,9 +703,9 @@ internal sealed partial class ProjectRuntime
 
     private bool ShouldScheduleAutoBuildFromFileChange()
     {
-        var session = sessionStore?.GetStatus(definition.Id);
+        var session = sessionStore?.GetStatus(projectSettings.Id);
         return BuildTriggerPolicy.ShouldAutoBuildFromFileChange(
-            definition.BuildControlMode,
+            Local.BuildControlMode,
             session?.SessionApiUsed == true,
             session?.State ?? ControlPlaneSessionState.Idle);
     }
@@ -717,7 +717,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             return;
         }

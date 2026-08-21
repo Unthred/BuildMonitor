@@ -40,7 +40,7 @@ internal static class AppLaunchPolicy
 
     public static bool ShouldAutoStartAnyProjectsOnLaunch(AppSettings settings) =>
         !ShouldSkipProjectStart()
-        && settings.Projects.Any(p => p.IsActiveInSession && p.StartOnLaunch);
+        && settings.Projects.Any(p => p.IsActiveInSession && p.Local is { StartOnLaunch: true });
 
     public static bool ShouldAutoOpenBuildMonitorHealth(AppSettings settings)
     {

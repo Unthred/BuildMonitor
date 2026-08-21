@@ -14,7 +14,7 @@ internal sealed class HealthCoalescer : IDisposable
 {
     private const int CoalesceIntervalMs = 250;
 
-    private readonly Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<LocalProjectDefinition> Inactive)> getState;
+    private readonly Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive)> getState;
     private readonly Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish;
     private readonly Channel<bool> wakeChannel = Channel.CreateUnbounded<bool>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -27,7 +27,7 @@ internal sealed class HealthCoalescer : IDisposable
     private int pendingPublish;
 
     public HealthCoalescer(
-        Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<LocalProjectDefinition> Inactive)> getState,
+        Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive)> getState,
         Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish)
     {
         this.getState = getState;
@@ -199,7 +199,7 @@ internal sealed class HealthCoalescer : IDisposable
         return true;
     }
 
-    private void EnsureInactiveInCache(IReadOnlyList<LocalProjectDefinition> inactive)
+    private void EnsureInactiveInCache(IReadOnlyList<MonitoredProjectSettings> inactive)
     {
         foreach (var project in inactive)
         {
@@ -220,13 +220,14 @@ internal sealed class HealthCoalescer : IDisposable
                 [],
                 null,
                 false,
-                project.RunOptions.RunMode != ProjectRunMode.None);
+                project.Local?.RunOptions.RunMode is not null
+                    && project.Local.RunOptions.RunMode != ProjectRunMode.None);
         }
     }
 
     private List<ProjectHealthSnapshot> BuildSnapshotList(
         IReadOnlyList<ProjectRuntime> runtimes,
-        IReadOnlyList<LocalProjectDefinition> inactive)
+        IReadOnlyList<MonitoredProjectSettings> inactive)
     {
         var list = new List<ProjectHealthSnapshot>(runtimes.Count + inactive.Count);
         foreach (var runtime in runtimes)

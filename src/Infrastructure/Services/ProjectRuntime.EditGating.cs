@@ -46,7 +46,7 @@ internal sealed partial class ProjectRuntime
 
     private bool IsEditGatingActive()
     {
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             // Pending observed changes are not a "quiet countdown" — no edit-gating UI.
             return false;
@@ -62,7 +62,7 @@ internal sealed partial class ProjectRuntime
 
     private DateTimeOffset? GetEditGatingQuietUntilUtc()
     {
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             return null;
         }
@@ -88,7 +88,7 @@ internal sealed partial class ProjectRuntime
 
     private string? BuildEditGatingDetailText()
     {
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             return null;
         }
@@ -117,7 +117,7 @@ internal sealed partial class ProjectRuntime
 
         try
         {
-            agentActivityWatcher = new AgentActivityWatcher(definition.RootFolder);
+            agentActivityWatcher = new AgentActivityWatcher(Local.RootFolder);
             agentActivityWatcher.ActivityDetected += OnAgentActivityDetected;
         }
         catch
@@ -181,8 +181,8 @@ internal sealed partial class ProjectRuntime
         triggerJournal.SetUserNote(currentBuildTriggerId, note);
         if (learnFromDiagnosticsVerdicts && Volatile.Read(ref buildTriggeredByFileChange) != 0)
         {
-            trainingStore.RecordUnexpectedVerdict(definition.Id);
-            burstStatsStore.RecordUnexpectedVerdict(definition.Id);
+            trainingStore.RecordUnexpectedVerdict(projectSettings.Id);
+            burstStatsStore.RecordUnexpectedVerdict(projectSettings.Id);
             SyncFileWatcherDebounceMs();
         }
 
@@ -198,7 +198,7 @@ internal sealed partial class ProjectRuntime
             return false;
         }
 
-        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode))
+        if (BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode))
         {
             return false;
         }

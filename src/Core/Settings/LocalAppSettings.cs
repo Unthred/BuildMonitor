@@ -1,4 +1,3 @@
-using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using BuildMonitor.Core.Models;
@@ -7,24 +6,27 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 20;
-    public List<LocalProjectDefinition> Projects { get; set; } = [];
+    public int SchemaVersion { get; set; } = 21;
+    /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
+    public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
+    public List<MonitoredProjectSettings> Projects { get; set; } = [];
     public GlobalMonitorSettings Monitor { get; set; } = new();
     public AppBehaviorSettings AppBehavior { get; set; } = new();
 }
 
-public sealed class LocalProjectDefinition : INotifyPropertyChanged
+/// <summary>Top-level Azure DevOps organisation connection. PATs are not stored here.</summary>
+public sealed class AzureDevOpsConnectionSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string DisplayName { get; set; } = string.Empty;
+    public string OrganizationUrl { get; set; } = string.Empty;
+}
+
+/// <summary>Logical BuildMonitor project with optional Local and/or Azure attachments.</summary>
+public sealed class MonitoredProjectSettings : INotifyPropertyChanged
 {
     private string displayName = string.Empty;
-    private string rootFolder = string.Empty;
-    private string projectFile = string.Empty;
-    private string launchProfile = string.Empty;
-    private string extraDotNetArgs = string.Empty;
-    private string testProjectFile = string.Empty;
     private bool isActiveInSession;
-    private bool startOnLaunch = true;
-    private ProjectBuildControlMode buildControlMode = ProjectBuildControlMode.FileWatching;
-    private PreferredSiteUrlScheme preferredSiteUrlScheme = PreferredSiteUrlScheme.Auto;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -45,6 +47,45 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
     }
 
     public string ListLabel => string.IsNullOrWhiteSpace(DisplayName) ? "(unnamed)" : DisplayName;
+
+    public bool IsActiveInSession
+    {
+        get => isActiveInSession;
+        set => SetField(ref isActiveInSession, value);
+    }
+
+    public LocalProjectAttachment? Local { get; set; }
+
+    public AzureDevOpsProjectAttachment? Azure { get; set; }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return;
+        }
+
+        field = value;
+        OnPropertyChanged(propertyName);
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
+/// <summary>Local build/run/watch/test attachment for a monitored project.</summary>
+public sealed class LocalProjectAttachment : INotifyPropertyChanged
+{
+    private string rootFolder = string.Empty;
+    private string projectFile = string.Empty;
+    private string launchProfile = string.Empty;
+    private string extraDotNetArgs = string.Empty;
+    private string testProjectFile = string.Empty;
+    private bool startOnLaunch = true;
+    private ProjectBuildControlMode buildControlMode = ProjectBuildControlMode.FileWatching;
+    private PreferredSiteUrlScheme preferredSiteUrlScheme = PreferredSiteUrlScheme.Auto;
 
     public string RootFolder
     {
@@ -77,32 +118,19 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
         set => SetField(ref testProjectFile, value);
     }
 
-    public bool IsActiveInSession
-    {
-        get => isActiveInSession;
-        set => SetField(ref isActiveInSession, value);
-    }
-
-    /// <summary>When true and active in session, build/run starts automatically when the app launches or settings are saved.</summary>
+    /// <summary>When true and the project is active in session, build/run starts automatically on launch or settings save.</summary>
     public bool StartOnLaunch
     {
         get => startOnLaunch;
         set => SetField(ref startOnLaunch, value);
     }
 
-    /// <summary>
-    /// Who owns automatic rebuilds from file changes.
-    /// File Watching = debounced auto-build; AI Controlled = observe only, explicit rebuild/ship-check.
-    /// </summary>
     public ProjectBuildControlMode BuildControlMode
     {
         get => buildControlMode;
         set => SetField(ref buildControlMode, value);
     }
 
-    /// <summary>
-    /// Which launch-profile site URL to show / open when both HTTP and HTTPS are advertised.
-    /// </summary>
     public PreferredSiteUrlScheme PreferredSiteUrlScheme
     {
         get => preferredSiteUrlScheme;
@@ -128,33 +156,46 @@ public sealed class LocalProjectDefinition : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
+/// <summary>Repository-centric Azure DevOps attachment. Zero pipelines means Connected / Not monitored.</summary>
+public sealed class AzureDevOpsProjectAttachment
+{
+    public string ConnectionId { get; set; } = string.Empty;
+    public string AdoProjectId { get; set; } = string.Empty;
+    public string AdoProjectName { get; set; } = string.Empty;
+    public string RepositoryId { get; set; } = string.Empty;
+    public string RepositoryName { get; set; } = string.Empty;
+    public string? RepositoryRemoteUrl { get; set; }
+    /// <summary>Last-known default branch from Azure (normalized short name). Not a manual override.</summary>
+    public string? DefaultBranch { get; set; }
+    public List<string> ExtraWatchedBranches { get; set; } = [];
+    public List<AzurePipelineSelection> Pipelines { get; set; } = [];
+}
+
+public sealed class AzurePipelineSelection
+{
+    public int DefinitionId { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public List<string> IncludedBranches { get; set; } = [];
+    public NotificationMode NotificationMode { get; set; } = NotificationMode.FailuresAndRecovery;
+    public int Priority { get; set; }
+}
+
 public sealed class ProjectRunOptions
 {
     public ProjectRunMode RunMode { get; set; } = ProjectRunMode.Watch;
     public bool RestartOnCrash { get; set; } = true;
     public int MaxRestartRetries { get; set; } = 5;
-    /// <summary>When watch mode detects source changes, restart without prompting (tray has no stdin).</summary>
     public bool AutoRestartOnWatchChanges { get; set; } = true;
-    /// <summary>When build/run output says hot reload needs a restart or rebuild, act automatically.</summary>
     public bool AutoRestartOnHotReloadRequest { get; set; } = true;
-    /// <summary>After a manual or file-triggered rebuild, start run/watch again if it was running.</summary>
     public bool RestartAppAfterRebuild { get; set; } = true;
     public TestRunTrigger RunTests { get; set; } = TestRunTrigger.Off;
     public FileChangeMode FileChanges { get; set; } = FileChangeMode.WatchOnly;
     public bool ReleaseOutputLocksBeforeBuild { get; set; }
-    /// <summary>
-    /// When true, every build passes <c>--no-incremental</c> so MSBuild re-emits the full warning/error summary.
-    /// When false, only startup / Rebuild / Rebuild &amp; restart force a full compile (file-change builds may report 0/0).
-    /// </summary>
     public bool ForceCompleteWarningCounts { get; set; } = true;
-    /// <summary>When build output indicates a poisoned artifacts/bin/obj tree, stop, clean output folders, and retry.</summary>
     public bool AutoRepairCorruptedOutput { get; set; } = true;
-    /// <summary>Path segments ignored by file watcher (semicolon-separated). Default includes IDE folders.</summary>
     public string WatchExcludeSegments { get; set; } =
         ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode;docs;templates;.github";
-    /// <summary>When to open the log viewer automatically after builds or tests.</summary>
     public AutoOpenLogMode AutoOpenLog { get; set; } = AutoOpenLogMode.Never;
-    /// <summary>When true, open the hover status panel when a build starts and hide it when the build finishes.</summary>
     public bool ShowStatusPanelWhileBuilding { get; set; } = true;
 }
 
@@ -167,41 +208,23 @@ public enum FileChangeDebounceMode
 public sealed class GlobalMonitorSettings
 {
     public int HealthRefreshSeconds { get; set; } = 5;
-    /// <summary>Quiet period after the last file change before a coalesced rebuild starts.</summary>
     public int FileChangeDebounceMs { get; set; } = 3000;
     public FileChangeDebounceMode FileChangeDebounceMode { get; set; } = FileChangeDebounceMode.Manual;
-    /// <summary>When watch mode is enabled, batch file changes and rebuild once edits settle (instead of dotnet watch per-save rebuilds).</summary>
     public bool CoalesceWatchRebuilds { get; set; } = true;
     public int MaxConcurrentActiveProjects { get; set; } = 3;
     [Obsolete("Migrated to per-project ProjectRunOptions.AutoOpenLog (schema v11).")]
     public bool AutoOpenLogOnFailure { get; set; }
-    /// <summary>Open the Build Monitor Health window when the app starts.</summary>
     public bool AutoOpenBuildMonitorHealthOnStartup { get; set; } = true;
     public bool PlaySoundOnBuildError { get; set; } = true;
     public bool PlaySoundOnBuildSuccess { get; set; }
     public int MaxLogDisplayBytes { get; set; } = 2_097_152;
-    /// <summary>Wait for edit quiet before the first startup build.</summary>
     public bool DeferStartupBuildUntilQuiet { get; set; } = true;
-    /// <summary>Cancel startup/file-change builds when newer saves arrive.</summary>
     public bool CancelSupersededBuilds { get; set; } = true;
-    /// <summary>Treat agent-transcripts / .cursor writes as active editing.</summary>
     public bool UseAgentTranscriptActivity { get; set; } = true;
-    /// <summary>Learn from Unexpected verdicts in Build diagnostics (exclude suggestions and debounce feedback).</summary>
     public bool LearnFromDiagnosticsVerdicts { get; set; } = true;
-
-    /// <summary>Listen for the loopback HTTP control plane (Cursor agent busy/idle + ship-check).</summary>
     public bool ControlPlaneEnabled { get; set; } = true;
-
-    /// <summary>Port for http://127.0.0.1:{port}/ (loopback only).</summary>
     public int ControlPlanePort { get; set; } = 7700;
-
-    /// <summary>If busy and no idle for this many seconds, treat as idle (agent crash).</summary>
     public int ControlPlaneBusyTimeoutSeconds { get; set; } = 120;
-
-    /// <summary>
-    /// When true, file-change / coalesced auto-builds skip OnBuildSuccess tests.
-    /// Explicit ship-check and tray Run tests are unchanged. Overridable per project via the control-plane API.
-    /// </summary>
     public bool SuppressAutoBuildTests { get; set; } = true;
 }
 
@@ -246,8 +269,33 @@ public sealed class AppBehaviorSettings
     public int ToastDurationSeconds { get; set; } = 7;
     public TrayMenuLayout TrayMenuLayout { get; set; } = TrayMenuLayout.ByOperation;
     public ToastNotificationSettings Toasts { get; set; } = new();
-    /// <summary>Move the hover status panel onto the virtual desktop you are viewing when it opens.</summary>
     public bool FollowStatusPanelToVirtualDesktop { get; set; } = true;
-    /// <summary>Move the build log window onto the virtual desktop you are viewing when it opens or is activated.</summary>
     public bool FollowBuildLogToVirtualDesktop { get; set; } = true;
+}
+
+/// <summary>
+/// Flat project shape used only when loading schema ≤20 JSON before nesting under <see cref="MonitoredProjectSettings.Local"/>.
+/// </summary>
+public sealed class LegacyFlatProjectSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string DisplayName { get; set; } = string.Empty;
+    public string RootFolder { get; set; } = string.Empty;
+    public string ProjectFile { get; set; } = string.Empty;
+    public string LaunchProfile { get; set; } = string.Empty;
+    public string ExtraDotNetArgs { get; set; } = string.Empty;
+    public string TestProjectFile { get; set; } = string.Empty;
+    public bool IsActiveInSession { get; set; }
+    public bool StartOnLaunch { get; set; } = true;
+    public ProjectBuildControlMode BuildControlMode { get; set; } = ProjectBuildControlMode.FileWatching;
+    public PreferredSiteUrlScheme PreferredSiteUrlScheme { get; set; } = PreferredSiteUrlScheme.Auto;
+    public ProjectRunOptions RunOptions { get; set; } = new();
+}
+
+public sealed class LegacyAppSettingsV20
+{
+    public int SchemaVersion { get; set; } = 20;
+    public List<LegacyFlatProjectSettings> Projects { get; set; } = [];
+    public GlobalMonitorSettings Monitor { get; set; } = new();
+    public AppBehaviorSettings AppBehavior { get; set; } = new();
 }

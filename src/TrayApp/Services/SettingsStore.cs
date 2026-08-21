@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
 
 namespace BuildMonitor.TrayApp.Services;
@@ -23,12 +24,55 @@ public sealed class SettingsStore(string settingsPath)
         }
 
         var json = await File.ReadAllTextAsync(settingsPath);
-        var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-        if (settings is null)
+        var schemaVersion = ReadSchemaVersion(json);
+
+        if (schemaVersion < SettingsSchemaV21.Version)
         {
-            return BuildDefaults();
+            var legacy = JsonSerializer.Deserialize<LegacyAppSettingsV20>(json, JsonOptions);
+            if (legacy is null)
+            {
+                return BuildDefaults();
+            }
+
+            ApplyLegacyMigrations(json, legacy);
+            var migrated = SettingsSchemaV21.FromLegacyV20(legacy);
+            await SaveAsync(migrated);
+            return migrated;
         }
 
+        var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+        return settings ?? BuildDefaults();
+    }
+
+    public Task SaveAsync(AppSettings settings)
+    {
+        settings.SchemaVersion = SettingsSchemaV21.Version;
+        settings.Connections ??= [];
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        return File.WriteAllTextAsync(settingsPath, json);
+    }
+
+    private static int ReadSchemaVersion(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("schemaVersion", out var version)
+                && version.TryGetInt32(out var value))
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+            // treat as legacy
+        }
+
+        return 0;
+    }
+
+    private static void ApplyLegacyMigrations(string json, LegacyAppSettingsV20 settings)
+    {
         if (settings.SchemaVersion < 2)
         {
             settings.SchemaVersion = 2;
@@ -118,7 +162,6 @@ public sealed class SettingsStore(string settingsPath)
 
         if (settings.SchemaVersion < 16)
         {
-            // New default: always force full warning counts on every build.
             foreach (var project in settings.Projects)
             {
                 project.RunOptions.ForceCompleteWarningCounts = true;
@@ -172,11 +215,9 @@ public sealed class SettingsStore(string settingsPath)
 
             settings.SchemaVersion = 20;
         }
-
-        return settings;
     }
 
-    private static void MigrateAutoOpenLog(string json, AppSettings settings)
+    private static void MigrateAutoOpenLog(string json, LegacyAppSettingsV20 settings)
     {
         var legacyErrorsOnly = false;
         try
@@ -200,7 +241,7 @@ public sealed class SettingsStore(string settingsPath)
         }
     }
 
-    private static void MigrateStartOnLaunch(string json, AppSettings settings)
+    private static void MigrateStartOnLaunch(string json, LegacyAppSettingsV20 settings)
     {
         var autoStart = true;
         try
@@ -223,7 +264,7 @@ public sealed class SettingsStore(string settingsPath)
         }
     }
 
-    private static void MigrateAutoOpenBuildMonitorHealth(string json, AppSettings settings)
+    private static void MigrateAutoOpenBuildMonitorHealth(string json, LegacyAppSettingsV20 settings)
     {
         try
         {
@@ -249,12 +290,5 @@ public sealed class SettingsStore(string settingsPath)
         }
     }
 
-    public Task SaveAsync(AppSettings settings)
-    {
-        settings.SchemaVersion = 20;
-        var json = JsonSerializer.Serialize(settings, JsonOptions);
-        return File.WriteAllTextAsync(settingsPath, json);
-    }
-
-    private static AppSettings BuildDefaults() => new();
+    private static AppSettings BuildDefaults() => new() { SchemaVersion = SettingsSchemaV21.Version };
 }

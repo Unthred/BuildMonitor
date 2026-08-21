@@ -349,7 +349,7 @@ public partial class App : System.Windows.Application
         {
             var project = currentSettings.Projects.FirstOrDefault(p =>
                 p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase));
-            var mode = project?.RunOptions.AutoOpenLog ?? AutoOpenLogMode.Never;
+            var mode = project?.Local?.RunOptions.AutoOpenLog ?? AutoOpenLogMode.Never;
             if (mode == AutoOpenLogMode.Never)
             {
                 continue;
@@ -382,7 +382,7 @@ public partial class App : System.Windows.Application
         {
             var enabled = currentSettings.Projects
                 .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.RunOptions.ShowStatusPanelWhileBuilding == true;
+                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
             if (!enabled)
             {
                 continue;
@@ -406,7 +406,7 @@ public partial class App : System.Windows.Application
         {
             var enabled = currentSettings.Projects
                 .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.RunOptions.ShowStatusPanelWhileBuilding == true;
+                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
             return (ShowWhileBuildingEnabled: enabled == true, snapshot.State);
         });
 
@@ -599,7 +599,7 @@ public partial class App : System.Windows.Application
         {
             var showWhileBuilding = currentSettings.Projects
                 .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.RunOptions.ShowStatusPanelWhileBuilding == true;
+                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
             previousEditGatingActive.TryGetValue(snapshot.ProjectId, out var wasGating);
             previousProjectLifecycleState.TryGetValue(snapshot.ProjectId, out var previousState);
             var isBusy = StatusPanelBuildVisibilityEvaluator.IsBusyWorkState(snapshot.State);
@@ -1699,7 +1699,7 @@ public partial class App : System.Windows.Application
         TrayMenuTheme.Apply(trayContextMenu, ThemeService.Resolve(currentSettings.AppBehavior.Theme));
     }
 
-    private void StartRunTestsForProjects(IReadOnlyList<LocalProjectDefinition> projects)
+    private void StartRunTestsForProjects(IReadOnlyList<MonitoredProjectSettings> projects)
     {
         foreach (var project in projects)
         {
