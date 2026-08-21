@@ -11,7 +11,7 @@ alwaysApply: false
 - Never commit `%LocalAppData%/BuildMonitor/settings.json` or log files with user paths.
 - Never hardcode PATs, tokens, or connection strings in source or docs.
 - Validate project paths from settings — reject traversal outside intended roots when practical.
-- `PatSecretStore` uses ProtectedData — do not log decrypted values.
+- `AzureConnectionSecretStore` / `PatSecretStore` use ProtectedData — do not log decrypted values.
 - Child processes inherit sanitized env via `DotNetProcessConfigurator` — do not pass host watch pollution through.
 - TrayApp runs locally for one user — no multi-tenant auth; still treat monitored project output as untrusted when parsing.
 

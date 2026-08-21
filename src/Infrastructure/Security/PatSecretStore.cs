@@ -3,6 +3,9 @@ using System.Text;
 
 namespace BuildMonitor.Infrastructure.Security;
 
+/// <summary>
+/// Legacy single-file PAT store. Prefer <see cref="AzureConnectionSecretStore"/> keyed by connection id.
+/// </summary>
 public sealed class PatSecretStore(string patFilePath)
 {
     public async Task SaveAsync(string pat, CancellationToken cancellationToken)

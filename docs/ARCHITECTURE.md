@@ -5,13 +5,14 @@
 - `TrayApp` — WPF shell, tray icon, hover panel, settings, log viewer
 - `Core` — models, validation, local tray rollup rules, settings schema (v21 attachments)
 - `Infrastructure` — dotnet CLI runner, process supervisor, build logs, project orchestrator
-- `Infrastructure/AzureDevOps` — parked legacy polling module (not wired; superseded by schema attachments — see [ADR 0002](adr/0002-project-azure-attachments.md))
+- `Infrastructure/AzureDevOps` — connection test + discovery client (`AzureDevOpsDiscoveryClient`, REST API **7.1**); parked legacy polling (`AzureDevOpsMonitorClient` / `MonitoringCoordinator`) remains **unwired**
+- `Infrastructure/Security` — `AzureConnectionSecretStore` (DPAPI PAT files under `%LocalAppData%/BuildMonitor/secrets/`)
 
 ## Logical project model (schema v21)
 
 A BuildMonitor **project** is a logical software product with optional **Local** and/or **Azure DevOps** attachments (at least one required). Azure DevOps **connections** (org URL) are top-level; PATs are not in `settings.json`. Azure association is repository-centric with 0..N pipelines.
 
-**Foundation only:** Azure schema/association exists; **runtime polling, discovery UI, and Azure status rows are not enabled yet.**
+**Connection + discovery (Slice 2):** Settings can store an Azure organisation connection and test a PAT. Discovery APIs list projects, repositories, and candidate pipelines for a repository. **Continuous polling, Azure status rows, notifications, and Add/Attach wizards are not enabled yet.**
 
 ## Flow
 

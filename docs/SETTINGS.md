@@ -7,7 +7,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 A **project** is a logical software product with optional attachments:
 
 - `local` — folder + .csproj/.sln + run/watch/test options (existing behaviour)
-- `azure` — Azure DevOps repository association (schema only in this release; **polling/UI not enabled yet**)
+- `azure` — Azure DevOps repository association (**schema + connection/discovery**; continuous polling and status-panel Azure rows **not** enabled yet)
 
 At least one attachment is required. Top-level `connections` hold Azure DevOps organisation URLs (credentials are **not** stored in this file).
 
@@ -59,16 +59,50 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 }
 ```
 
-## Azure association (schema foundation)
+## Azure DevOps connection (Slice 2)
 
-`connections[]` entries have `id`, `displayName`, `organizationUrl` only — **no PAT**.  
+Top-level `connections[]` entries store **`id`**, **`displayName`**, and **`organizationUrl` only** — **never a PAT**.
+
+| Concern | Location / behaviour |
+|--------|----------------------|
+| Settings metadata | `%LOCALAPPDATA%/BuildMonitor/settings.json` → `connections[]` |
+| PAT at rest | `%LOCALAPPDATA%/BuildMonitor/secrets/ado-{connectionId}.dpapi` (CurrentUser DPAPI) |
+| Settings UI | **Azure** tab — org URL, display name, masked PAT, **Test connection**, Save via window Save |
+| Draft semantics | Org/PAT edits stay in the Settings dialog until **Save**. **Test** uses draft PAT if entered, otherwise the stored secret; a failed test does **not** overwrite a stored PAT. |
+
+### Minimum PAT scopes (read-only)
+
+Create a PAT with these scopes (names as shown in Azure DevOps):
+
+| Scope | Purpose |
+|-------|---------|
+| **Project and Team** — Read | List organisation projects |
+| **Code** — Read | List Git repositories and default branch metadata |
+| **Build** — Read | List build definitions / pipelines for a repository |
+
+Do **not** grant write, manage, or execute scopes for BuildMonitor connection/discovery.
+
+### Discovery (services; wizard later)
+
+`IAzureDevOpsDiscoveryClient` (Infrastructure) can:
+
+1. Test connection (`/_apis/connectionData`, API **7.1**)
+2. List projects (`/_apis/projects`)
+3. List repositories for a project (`/_apis/git/repositories`)
+4. List candidate pipelines for a repository (`/_apis/build/definitions?repositoryId=&repositoryType=TfsGit&includeAllProperties=true`)
+
+Pipeline association uses Azure’s **repositoryId** filter on build definitions. Definitions that are not linked as `TfsGit` with that repository id may be omitted — the future Add/Attach wizard will surface what discovery returns (no auto-selection policy in this slice).
+
+**Continuous Azure build polling, tray/status Azure rows, notifications, and Add/Attach wizards are not enabled yet.** Local-only monitoring is unchanged.
+
+## Azure association (project attachment)
+
 `projects[].azure` may reference a connection, ADO project, repository, optional `defaultBranch` (last known from Azure), `extraWatchedBranches`, and `pipelines[]` (0..N). Zero pipelines means **Connected / Not monitored**.
-
-**Runtime Azure polling, PAT UI, and status-panel Azure rows are not enabled yet** (see ADR 0002 / issue #30). Local monitoring is unchanged.
 
 ## Settings UI tabs
 
 - **Projects** — per-project folder, csproj/sln, launch profile, **preferred site URL** (Auto/HTTPS/HTTP), **build control** (File Watching vs AI Controlled), run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
+- **Azure** — organisation connection (URL, display name), PAT entry (masked; stored under `secrets/`), Test connection. Does not add Azure projects/repos to the project list yet.
 - **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, **auto-open Build Monitor Health on startup**, max log bytes.
 - **App** — theme (`System`, `Light`, `Dark`) and startup behavior. **Run when Windows starts** adds/removes an entry under `HKCU\...\Run` named `LocalBuildMonitor`.
 

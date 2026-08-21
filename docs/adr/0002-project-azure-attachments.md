@@ -10,7 +10,7 @@ BuildMonitor evolved into a project-centric local build/run/watch tray app (`Mon
 ## Decision
 
 1. A BuildMonitor **Project** is a logical software project with optional **Local** and optional **Azure DevOps** attachments; **at least one** attachment is required.
-2. **Azure DevOps connections** (organisation URL + credential reference) are top-level settings. Credentials are **never** stored in `settings.json` (DPAPI/PAT store in a later slice).
+2. Azure DevOps **connections** (organisation URL + credential reference) are top-level settings. Credentials are **never** stored in `settings.json` (CurrentUser DPAPI under `%LocalAppData%/BuildMonitor/secrets/ado-{connectionId}.dpapi`).
 3. An Azure attachment is **repository-centric**: connection id, ADO project, repository, and **0..N** selected pipelines (children of the attachment, not separate BM projects).
 4. **Empty pipeline selection** means **Connected / Not monitored** (`AzureCiMonitoringState.NotMonitored`). It is valid settings, not CI failure or monitoring failure.
 5. **Current Git branch** (via installed `git` on PATH in a later slice) controls **presentation focus only**, not health eligibility. Detached/unavailable HEAD is not an error.
@@ -32,7 +32,7 @@ BuildMonitor evolved into a project-centric local build/run/watch tray app (`Mon
 **Trade-offs:**
 
 - Settings UI and orchestrator must understand optional Local (Azure-only has no `ProjectRuntime` until later slices).
-- Polling, PAT UI, Git branch reader, and status-panel Azure rows are deferred to later slices; parked `MonitoringCoordinator` stays unwired for now.
+- Polling, Git branch reader, status-panel Azure rows, and Add/Attach wizards remain deferred; parked `MonitoringCoordinator` stays unwired. Connection test + discovery are available for Settings / future wizard use.
 
 ## References
 
