@@ -6,6 +6,7 @@ using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.AzureDevOps;
 using BuildMonitor.Infrastructure.ControlPlane;
+using BuildMonitor.Infrastructure.Git;
 using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Security;
 using BuildMonitor.TrayApp.Services;
@@ -26,6 +27,8 @@ public partial class SettingsWindow : Window
     private readonly AppWindowsLayoutStore windowsLayoutStore;
     private readonly AzureDevOpsDiscoveryClient azureDiscoveryClient = new();
     private readonly AzureConnectionSettingsEditor azureConnectionEditor;
+    private readonly AzureConnectionSecretStore azureSecretStore;
+    private readonly LocalGitContextReader localGitContextReader = new();
 
     public AppSettings Settings { get; }
 
@@ -35,9 +38,12 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         Settings = settings;
         themeAtOpen = Settings.AppBehavior.Theme;
+        azureSecretStore = new AzureConnectionSecretStore(
+            AzureConnectionSecretStore.DefaultSecretsDirectory,
+            new DpapiSecretProtector());
         azureConnectionEditor = new AzureConnectionSettingsEditor(
             Settings,
-            new AzureConnectionSecretStore(AzureConnectionSecretStore.DefaultSecretsDirectory, new DpapiSecretProtector()),
+            azureSecretStore,
             azureDiscoveryClient);
 
         RunModeCombo.ItemsSource = Enum.GetValues<ProjectRunMode>();
@@ -221,34 +227,104 @@ public partial class SettingsWindow : Window
         try
         {
             DisplayNameText.Text = project.DisplayName;
-            RootFolderText.Text = EnsureLocal(project).RootFolder;
-            ProjectFileText.Text = EnsureLocal(project).ProjectFile;
-            ExtraArgsText.Text = EnsureLocal(project).ExtraDotNetArgs;
-            RunModeCombo.SelectedItem = EnsureLocal(project).RunOptions.RunMode;
-            SelectBuildControlMode(EnsureLocal(project).BuildControlMode);
-            SelectPreferredSiteUrlScheme(EnsureLocal(project).PreferredSiteUrlScheme);
-            StartOnLaunchCheck.IsChecked = EnsureLocal(project).StartOnLaunch;
-            RestartOnCrashCheck.IsChecked = EnsureLocal(project).RunOptions.RestartOnCrash;
-            MaxRetriesText.Text = EnsureLocal(project).RunOptions.MaxRestartRetries.ToString();
-            AutoRestartOnWatchChangesCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRestartOnWatchChanges;
-            AutoRestartOnHotReloadRequestCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRestartOnHotReloadRequest;
-            RestartAppAfterRebuildCheck.IsChecked = EnsureLocal(project).RunOptions.RestartAppAfterRebuild;
-            RunTestsCombo.SelectedItem = EnsureLocal(project).RunOptions.RunTests;
-            AutoOpenLogCombo.SelectedItem = EnsureLocal(project).RunOptions.AutoOpenLog;
-            ShowStatusPanelWhileBuildingCheck.IsChecked = EnsureLocal(project).RunOptions.ShowStatusPanelWhileBuilding;
-            FileChangesCombo.SelectedItem = EnsureLocal(project).RunOptions.FileChanges;
-            WatchExcludeSegmentsText.Text = EnsureLocal(project).RunOptions.WatchExcludeSegments;
-            ReleaseOutputLocksCheck.IsChecked = EnsureLocal(project).RunOptions.ReleaseOutputLocksBeforeBuild;
-            ForceCompleteWarningCountsCheck.IsChecked = EnsureLocal(project).RunOptions.ForceCompleteWarningCounts;
-            AutoRepairCorruptedOutputCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRepairCorruptedOutput;
-            ReloadLaunchProfiles(selectCurrent: true);
-            ReloadTestProjectCandidates(selectCurrent: true);
-            RefreshAgentSkillStatus();
+            UpdateAzureAttachmentUi(project);
+
+            var local = project.Local;
+            var hasLocal = local is not null;
+            AzureOnlyHint.Visibility = hasLocal ? Visibility.Collapsed : Visibility.Visible;
+            SetLocalEditorEnabled(hasLocal);
+
+            if (local is not null)
+            {
+                RootFolderText.Text = local.RootFolder;
+                ProjectFileText.Text = local.ProjectFile;
+                ExtraArgsText.Text = local.ExtraDotNetArgs;
+                RunModeCombo.SelectedItem = local.RunOptions.RunMode;
+                SelectBuildControlMode(local.BuildControlMode);
+                SelectPreferredSiteUrlScheme(local.PreferredSiteUrlScheme);
+                StartOnLaunchCheck.IsChecked = local.StartOnLaunch;
+                RestartOnCrashCheck.IsChecked = local.RunOptions.RestartOnCrash;
+                MaxRetriesText.Text = local.RunOptions.MaxRestartRetries.ToString();
+                AutoRestartOnWatchChangesCheck.IsChecked = local.RunOptions.AutoRestartOnWatchChanges;
+                AutoRestartOnHotReloadRequestCheck.IsChecked = local.RunOptions.AutoRestartOnHotReloadRequest;
+                RestartAppAfterRebuildCheck.IsChecked = local.RunOptions.RestartAppAfterRebuild;
+                RunTestsCombo.SelectedItem = local.RunOptions.RunTests;
+                AutoOpenLogCombo.SelectedItem = local.RunOptions.AutoOpenLog;
+                ShowStatusPanelWhileBuildingCheck.IsChecked = local.RunOptions.ShowStatusPanelWhileBuilding;
+                FileChangesCombo.SelectedItem = local.RunOptions.FileChanges;
+                WatchExcludeSegmentsText.Text = local.RunOptions.WatchExcludeSegments;
+                ReleaseOutputLocksCheck.IsChecked = local.RunOptions.ReleaseOutputLocksBeforeBuild;
+                ForceCompleteWarningCountsCheck.IsChecked = local.RunOptions.ForceCompleteWarningCounts;
+                AutoRepairCorruptedOutputCheck.IsChecked = local.RunOptions.AutoRepairCorruptedOutput;
+                ReloadLaunchProfiles(selectCurrent: true);
+                ReloadTestProjectCandidates(selectCurrent: true);
+                RefreshAgentSkillStatus();
+            }
+            else
+            {
+                RootFolderText.Text = string.Empty;
+                ProjectFileText.Text = string.Empty;
+                AgentSkillStatusSummary.Text = "Azure-only project";
+                AgentSkillStatusDetail.Text = "Associate a local folder to enable agent skill install and local build options.";
+                InstallAgentSkillButton.IsEnabled = false;
+            }
         }
         finally
         {
             isLoadingEditor = false;
         }
+    }
+
+    private void SetLocalEditorEnabled(bool enabled)
+    {
+        RootFolderText.IsEnabled = enabled;
+        ProjectFileText.IsEnabled = enabled;
+        ExtraArgsText.IsEnabled = enabled;
+        LaunchProfileCombo.IsEnabled = enabled;
+        PreferredSiteUrlCombo.IsEnabled = enabled;
+        RunModeCombo.IsEnabled = enabled;
+        BuildControlModeCombo.IsEnabled = enabled;
+        StartOnLaunchCheck.IsEnabled = enabled;
+        RestartOnCrashCheck.IsEnabled = enabled;
+        MaxRetriesText.IsEnabled = enabled;
+        AutoRestartOnWatchChangesCheck.IsEnabled = enabled;
+        AutoRestartOnHotReloadRequestCheck.IsEnabled = enabled;
+        RestartAppAfterRebuildCheck.IsEnabled = enabled;
+        RunTestsCombo.IsEnabled = enabled;
+        AutoOpenLogCombo.IsEnabled = enabled;
+        ShowStatusPanelWhileBuildingCheck.IsEnabled = enabled;
+        FileChangesCombo.IsEnabled = enabled;
+        WatchExcludeSegmentsText.IsEnabled = enabled;
+        ReleaseOutputLocksCheck.IsEnabled = enabled;
+        ForceCompleteWarningCountsCheck.IsEnabled = enabled;
+        AutoRepairCorruptedOutputCheck.IsEnabled = enabled;
+        TestProjectCombo.IsEnabled = enabled;
+    }
+
+    private void UpdateAzureAttachmentUi(MonitoredProjectSettings project)
+    {
+        if (project.Azure is null)
+        {
+            AzureAttachmentSummary.Text = "No Azure association. Continuous monitoring is not enabled yet.";
+            AttachAzureButton.Visibility = project.Local is not null ? Visibility.Visible : Visibility.Collapsed;
+            ChangeAzureButton.Visibility = Visibility.Collapsed;
+            DetachAzureButton.Visibility = Visibility.Collapsed;
+            AssociateLocalButton.Visibility = project.Local is null ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        var azure = project.Azure;
+        var pipeCount = azure.Pipelines.Count;
+        var pipeLabel = pipeCount == 0
+            ? "Connected / Not monitored (0 pipelines)"
+            : $"{pipeCount} pipeline(s) selected";
+        AzureAttachmentSummary.Text =
+            $"{azure.AdoProjectName} / {azure.RepositoryName} — {pipeLabel}"
+            + (string.IsNullOrWhiteSpace(azure.DefaultBranch) ? string.Empty : $"; default branch {azure.DefaultBranch}");
+        AttachAzureButton.Visibility = Visibility.Collapsed;
+        ChangeAzureButton.Visibility = Visibility.Visible;
+        DetachAzureButton.Visibility = Visibility.Visible;
+        AssociateLocalButton.Visibility = project.Local is null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SelectBuildControlMode(ProjectBuildControlMode mode)
@@ -435,36 +511,51 @@ public partial class SettingsWindow : Window
         }
 
         selectedProject.DisplayName = DisplayNameText.Text.Trim();
-        EnsureLocal(selectedProject).RootFolder = RootFolderText.Text.Trim();
-        EnsureLocal(selectedProject).ProjectFile = ProjectFileText.Text.Trim();
-        EnsureLocal(selectedProject).LaunchProfile = LaunchProfileCombo.Text.Trim();
-        EnsureLocal(selectedProject).TestProjectFile = TestProjectCombo.Text.Trim();
-        EnsureLocal(selectedProject).ExtraDotNetArgs = ExtraArgsText.Text.Trim();
-        EnsureLocal(selectedProject).RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
-        EnsureLocal(selectedProject).BuildControlMode = ResolveBuildControlMode();
-        EnsureLocal(selectedProject).PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
-        EnsureLocal(selectedProject).StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
-        if (int.TryParse(MaxRetriesText.Text, out var retries))
+        if (selectedProject.Local is null)
         {
-            EnsureLocal(selectedProject).RunOptions.MaxRestartRetries = retries;
+            return;
         }
 
-        EnsureLocal(selectedProject).RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
+        var local = selectedProject.Local;
+        local.RootFolder = RootFolderText.Text.Trim();
+        local.ProjectFile = ProjectFileText.Text.Trim();
+        local.LaunchProfile = LaunchProfileCombo.Text.Trim();
+        local.TestProjectFile = TestProjectCombo.Text.Trim();
+        local.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
+        local.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
+        local.BuildControlMode = ResolveBuildControlMode();
+        local.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
+        local.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
+        local.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
+        if (int.TryParse(MaxRetriesText.Text, out var retries))
+        {
+            local.RunOptions.MaxRestartRetries = retries;
+        }
 
-        EnsureLocal(selectedProject).RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
-        EnsureLocal(selectedProject).RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
-        EnsureLocal(selectedProject).RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
-        EnsureLocal(selectedProject).RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
-        EnsureLocal(selectedProject).RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.ForceCompleteWarningCounts = ForceCompleteWarningCountsCheck.IsChecked == true;
-        EnsureLocal(selectedProject).RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
+        local.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
+        local.RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
+        local.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
+
+        local.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
+        local.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
+        local.RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
+        local.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
+        local.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
+        local.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
+        local.RunOptions.ForceCompleteWarningCounts = ForceCompleteWarningCountsCheck.IsChecked == true;
+        local.RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
     }
 
     private void AddProjectClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button { ContextMenu: { } menu } button)
+        {
+            menu.PlacementTarget = button;
+            menu.IsOpen = true;
+        }
+    }
+
+    private void AddLocalProjectClicked(object sender, RoutedEventArgs e)
     {
         CommitEditorToSelected();
         var project = new MonitoredProjectSettings
@@ -474,6 +565,146 @@ public partial class SettingsWindow : Window
         };
         projectItems.Add(project);
         ProjectsList.SelectedItem = project;
+    }
+
+    private async void AddFromAzureClicked(object sender, RoutedEventArgs e)
+    {
+        CommitEditorToSelected();
+        var attachment = await RunAzureAssociationWizardAsync(
+            AzureAssociationMode.AddFromAzure,
+            title: "Add from Azure DevOps",
+            subtitle: "Create an Azure-only BuildMonitor project. Continuous monitoring is not enabled yet.",
+            localRoot: null,
+            existing: null);
+        if (attachment is null)
+        {
+            return;
+        }
+
+        var project = AzureAssociationCoordinator.CreateAzureOnlyProject(attachment);
+        projectItems.Add(project);
+        ProjectsList.SelectedItem = project;
+    }
+
+    private async void AttachAzureClicked(object sender, RoutedEventArgs e)
+    {
+        if (selectedProject?.Local is null || selectedProject.Azure is not null)
+        {
+            return;
+        }
+
+        CommitEditorToSelected();
+        var attachment = await RunAzureAssociationWizardAsync(
+            AzureAssociationMode.AttachToExisting,
+            title: "Attach Azure DevOps",
+            subtitle: "Associate a repository with this local project. Local settings are preserved.",
+            localRoot: selectedProject.Local.RootFolder,
+            existing: null);
+        if (attachment is null)
+        {
+            return;
+        }
+
+        AzureAssociationCoordinator.AttachAzure(selectedProject, attachment);
+        UpdateAzureAttachmentUi(selectedProject);
+    }
+
+    private async void ChangeAzureClicked(object sender, RoutedEventArgs e)
+    {
+        if (selectedProject?.Azure is null)
+        {
+            return;
+        }
+
+        CommitEditorToSelected();
+        var attachment = await RunAzureAssociationWizardAsync(
+            AzureAssociationMode.ChangeExisting,
+            title: "Change Azure association",
+            subtitle: "Replace the Azure repository/pipeline selection for this project.",
+            localRoot: selectedProject.Local?.RootFolder,
+            existing: selectedProject.Azure);
+        if (attachment is null)
+        {
+            return;
+        }
+
+        AzureAssociationCoordinator.ChangeAzure(selectedProject, attachment);
+        UpdateAzureAttachmentUi(selectedProject);
+    }
+
+    private void DetachAzureClicked(object sender, RoutedEventArgs e)
+    {
+        if (selectedProject is null)
+        {
+            return;
+        }
+
+        if (!AzureAssociationCoordinator.TryDetachAzure(selectedProject, out var error))
+        {
+            System.Windows.MessageBox.Show(this, error, "Cannot detach Azure", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        UpdateAzureAttachmentUi(selectedProject);
+    }
+
+    private void AssociateLocalClicked(object sender, RoutedEventArgs e)
+    {
+        if (selectedProject is null || selectedProject.Local is not null)
+        {
+            return;
+        }
+
+        var dialog = new OpenFolderDialog();
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        selectedProject.Local = new LocalProjectAttachment { RootFolder = dialog.FolderName };
+        if (string.IsNullOrWhiteSpace(selectedProject.DisplayName)
+            || selectedProject.DisplayName.Equals("Azure project", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedProject.DisplayName = Path.GetFileName(dialog.FolderName.TrimEnd('\\', '/'));
+            DisplayNameText.Text = selectedProject.DisplayName;
+        }
+
+        LoadEditorFromProject(selectedProject);
+    }
+
+    private async Task<AzureDevOpsProjectAttachment?> RunAzureAssociationWizardAsync(
+        AzureAssociationMode mode,
+        string title,
+        string subtitle,
+        string? localRoot,
+        AzureDevOpsProjectAttachment? existing)
+    {
+        var connection = Settings.Connections.FirstOrDefault();
+        if (connection is null || string.IsNullOrWhiteSpace(connection.OrganizationUrl))
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                "Configure an Azure DevOps connection on the Azure tab first.",
+                "Azure connection required",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return null;
+        }
+
+        var coordinator = new AzureAssociationCoordinator(
+            azureDiscoveryClient,
+            (id, ct) => azureSecretStore.LoadAsync(id, ct),
+            localGitContextReader);
+
+        var ok = await coordinator.InitializeAsync(mode, connection, CancellationToken.None, localRoot, existing);
+        if (!ok && !string.IsNullOrWhiteSpace(coordinator.StatusMessage))
+        {
+            System.Windows.MessageBox.Show(this, coordinator.StatusMessage, "Azure discovery", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var wizard = new AzureAssociationWizardWindow(coordinator, title, subtitle) { Owner = this };
+        return wizard.ShowDialog() == true ? wizard.ResultAttachment : null;
     }
 
     private void RemoveProjectClicked(object sender, RoutedEventArgs e)

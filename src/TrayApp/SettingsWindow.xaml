@@ -57,7 +57,14 @@
 
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
 
-                            <Button Content="Add" Width="60" Click="AddProjectClicked" />
+                            <Button Content="Add" Width="60" Click="AddProjectClicked">
+                                <Button.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Add local project" Click="AddLocalProjectClicked" />
+                                        <MenuItem Header="Add from Azure DevOps…" Click="AddFromAzureClicked" />
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
 
                             <Button Content="Remove" Width="70" Margin="6,0,0,0" Click="RemoveProjectClicked" />
 
@@ -168,6 +175,39 @@
                                              Margin="0,4,0,10"
 
                                              TextChanged="DisplayNameTextChanged" />
+
+                                    <TextBlock Text="Azure DevOps" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="AzureAttachmentSummary"
+                                               Text="No Azure association"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,6" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="AttachAzureButton"
+                                                Content="Attach Azure DevOps…"
+                                                Padding="8,4"
+                                                Click="AttachAzureClicked" />
+                                        <Button x:Name="ChangeAzureButton"
+                                                Content="Change…"
+                                                Margin="6,0,0,0"
+                                                Padding="8,4"
+                                                Click="ChangeAzureClicked" />
+                                        <Button x:Name="DetachAzureButton"
+                                                Content="Detach"
+                                                Margin="6,0,0,0"
+                                                Padding="8,4"
+                                                Click="DetachAzureClicked" />
+                                        <Button x:Name="AssociateLocalButton"
+                                                Content="Associate local…"
+                                                Margin="6,0,0,0"
+                                                Padding="8,4"
+                                                Click="AssociateLocalClicked" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="AzureOnlyHint"
+                                               Text="Azure-only project: local build/run options are hidden until a local folder is associated. Continuous Azure monitoring is not enabled yet."
+                                               TextWrapping="Wrap"
+                                               Opacity="0.8"
+                                               Margin="0,0,0,10"
+                                               Visibility="Collapsed" />
 
                                     <TextBlock Text="Root folder" />
 
@@ -533,7 +573,7 @@
 
                                        Margin="0,0,0,16"
 
-                                       Text="Configure an organisation connection and PAT for discovery. Continuous Azure build monitoring and Add-from-Azure are not enabled yet." />
+                                       Text="Configure an organisation connection and PAT for discovery. Use Projects → Add from Azure / Attach to associate repositories. Continuous Azure build monitoring is not enabled yet." />
 
                             <TextBlock Text="Display name" Margin="0,0,0,4" />
 

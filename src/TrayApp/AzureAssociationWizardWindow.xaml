@@ -1,0 +1,76 @@
+<Window x:Class="BuildMonitor.TrayApp.AzureAssociationWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Azure DevOps association"
+        Width="720"
+        Height="560"
+        MinWidth="640"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" />
+            <TextBlock x:Name="SubtitleText" TextWrapping="Wrap" Opacity="0.85" Margin="0,4,0,0" />
+            <TextBlock x:Name="SuggestionText" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Azure project" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <ListBox x:Name="ProjectsList" DisplayMemberPath="Name" SelectionChanged="ProjectsList_OnSelectionChanged" />
+            </DockPanel>
+
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="Repository" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <ListBox x:Name="ReposList" DisplayMemberPath="Name" SelectionChanged="ReposList_OnSelectionChanged" />
+            </DockPanel>
+
+            <DockPanel Grid.Column="4">
+                <TextBlock DockPanel.Dock="Top" Text="Pipelines (0..N)" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <ListBox x:Name="PipelinesList">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Label}"
+                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      Checked="PipelineCheckChanged"
+                                      Unchecked="PipelineCheckChanged"
+                                      Margin="0,2" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Grid>
+
+        <TextBlock Grid.Row="2"
+                   x:Name="StatusText"
+                   TextWrapping="Wrap"
+                   Margin="0,12,0,8"
+                   MinHeight="36" />
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="ApplySuggestionButton"
+                    Content="Use suggested repository"
+                    Width="180"
+                    Margin="0,0,8,0"
+                    Visibility="Collapsed"
+                    Click="ApplySuggestionClicked" />
+            <Button Content="Cancel" Width="90" Margin="0,0,8,0" IsCancel="True" Click="CancelClicked" />
+            <Button Content="Finish" Width="90" IsDefault="True" Click="FinishClicked" />
+        </StackPanel>
+    </Grid>
+</Window>
