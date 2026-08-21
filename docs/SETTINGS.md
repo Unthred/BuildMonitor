@@ -1,34 +1,47 @@
-# Settings schema (v2)
+# Settings schema (v21)
 
 File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
+**Current schema version is 21.** Older files migrate on load (flat projects → nested `local`).
+
+A **project** is a logical software product with optional attachments:
+
+- `local` — folder + .csproj/.sln + run/watch/test options (existing behaviour)
+- `azure` — Azure DevOps repository association (schema only in this release; **polling/UI not enabled yet**)
+
+At least one attachment is required. Top-level `connections` hold Azure DevOps organisation URLs (credentials are **not** stored in this file).
+
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 21,
+  "connections": [],
   "projects": [
     {
       "id": "abc123",
       "displayName": "My App",
-      "rootFolder": "C:\\src\\MyApp",
-      "projectFile": "MyApp.csproj",
-      "launchProfile": "https",
-      "testProjectFile": "",
-      "extraDotNetArgs": "",
       "isActiveInSession": true,
-      "startOnLaunch": true,
-      "buildControlMode": "FileWatching",
-      "preferredSiteUrlScheme": "Auto",
-      "runOptions": {
-        "runMode": "Watch",
-        "restartOnCrash": true,
-        "maxRestartRetries": 5,
-        "autoRestartOnWatchChanges": true,
-        "restartAppAfterRebuild": true,
-        "runTests": "Off",
-        "fileChanges": "WatchOnly",
-        "forceCompleteWarningCounts": true,
-        "watchExcludeSegments": ".cursor;agent-transcripts;terminals;mcps;.idea;.vscode"
-      }
+      "local": {
+        "rootFolder": "C:\\src\\MyApp",
+        "projectFile": "MyApp.csproj",
+        "launchProfile": "https",
+        "testProjectFile": "",
+        "extraDotNetArgs": "",
+        "startOnLaunch": true,
+        "buildControlMode": "FileWatching",
+        "preferredSiteUrlScheme": "Auto",
+        "runOptions": {
+          "runMode": "Watch",
+          "restartOnCrash": true,
+          "maxRestartRetries": 5,
+          "autoRestartOnWatchChanges": true,
+          "restartAppAfterRebuild": true,
+          "runTests": "Off",
+          "fileChanges": "WatchOnly",
+          "forceCompleteWarningCounts": true,
+          "watchExcludeSegments": ".cursor;agent-transcripts;terminals;mcps;.idea;.vscode"
+        }
+      },
+      "azure": null
     }
   ],
   "monitor": {
@@ -45,6 +58,13 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
   }
 }
 ```
+
+## Azure association (schema foundation)
+
+`connections[]` entries have `id`, `displayName`, `organizationUrl` only — **no PAT**.  
+`projects[].azure` may reference a connection, ADO project, repository, optional `defaultBranch` (last known from Azure), `extraWatchedBranches`, and `pipelines[]` (0..N). Zero pipelines means **Connected / Not monitored**.
+
+**Runtime Azure polling, PAT UI, and status-panel Azure rows are not enabled yet** (see ADR 0002 / issue #30). Local monitoring is unchanged.
 
 ## Settings UI tabs
 

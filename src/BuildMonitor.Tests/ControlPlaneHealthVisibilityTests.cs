@@ -229,16 +229,13 @@ public sealed class ControlPlaneHealthVisibilityTests
     public void Ai_controlled_disables_dotnet_watch_even_when_coalesce_off()
     {
         using var env = CreateRuntimeEnvironment();
-        var definition = new LocalProjectDefinition
-        {
-            Id = env.ProjectId,
-            DisplayName = "Demo",
-            RootFolder = env.LogsRoot,
-            ProjectFile = Path.Combine(env.LogsRoot, "Demo.csproj"),
-            IsActiveInSession = true,
-            BuildControlMode = ProjectBuildControlMode.FileWatching,
-            RunOptions = new ProjectRunOptions { RunMode = ProjectRunMode.Watch }
-        };
+        var definition = TestProjectFactory.LocalOnly(
+            displayName: "Demo",
+            id: env.ProjectId,
+            rootFolder: env.LogsRoot,
+            projectFile: Path.Combine(env.LogsRoot, "Demo.csproj"),
+            buildControlMode: ProjectBuildControlMode.FileWatching,
+            runOptions: new ProjectRunOptions { RunMode = ProjectRunMode.Watch });
         env.Runtime.UpdateDefinition(definition, new GlobalMonitorSettings { CoalesceWatchRebuilds = false });
 
         Assert.True(InvokePrivateBool(env.Runtime, "UsesDotNetWatchProcess"));
@@ -256,16 +253,13 @@ public sealed class ControlPlaneHealthVisibilityTests
         var sessionStore = new ControlPlaneSessionStore();
         env.Runtime.SetSessionStore(sessionStore);
         env.Runtime.UpdateDefinition(
-            new LocalProjectDefinition
-            {
-                Id = env.ProjectId,
-                DisplayName = "Demo",
-                RootFolder = env.LogsRoot,
-                ProjectFile = Path.Combine(env.LogsRoot, "Demo.csproj"),
-                IsActiveInSession = true,
-                BuildControlMode = ProjectBuildControlMode.FileWatching,
-                RunOptions = new ProjectRunOptions { RunMode = ProjectRunMode.Watch }
-            },
+            TestProjectFactory.LocalOnly(
+                displayName: "Demo",
+                id: env.ProjectId,
+                rootFolder: env.LogsRoot,
+                projectFile: Path.Combine(env.LogsRoot, "Demo.csproj"),
+                buildControlMode: ProjectBuildControlMode.FileWatching,
+                runOptions: new ProjectRunOptions { RunMode = ProjectRunMode.Watch }),
             new GlobalMonitorSettings
             {
                 CoalesceWatchRebuilds = false,
@@ -365,18 +359,12 @@ public sealed class ControlPlaneHealthVisibilityTests
     {
         var logsRoot = CreateTempDir();
         var dataRoot = CreateTempDir();
-        var definition = new LocalProjectDefinition
-        {
-            Id = "demo",
-            DisplayName = "Demo",
-            RootFolder = logsRoot,
-            ProjectFile = Path.Combine(logsRoot, "Demo.csproj"),
-            IsActiveInSession = true,
-            RunOptions = new ProjectRunOptions
-            {
-                RunMode = ProjectRunMode.Watch
-            }
-        };
+        var definition = TestProjectFactory.LocalOnly(
+            displayName: "Demo",
+            id: "demo",
+            rootFolder: logsRoot,
+            projectFile: Path.Combine(logsRoot, "Demo.csproj"),
+            runOptions: new ProjectRunOptions { RunMode = ProjectRunMode.Watch });
 
         var runtime = new ProjectRuntime(
             definition,

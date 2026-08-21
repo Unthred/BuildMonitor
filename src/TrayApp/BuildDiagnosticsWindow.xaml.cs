@@ -192,7 +192,7 @@ public partial class BuildDiagnosticsWindow : Window
                 }
 
                 tab.Intelligence = snapshot ?? BuildIntelligenceSnapshot.FromStoredStats(
-                    new LocalProjectDefinition
+                    new MonitoredProjectSettings
                     {
                         Id = projectId,
                         DisplayName = displayName,

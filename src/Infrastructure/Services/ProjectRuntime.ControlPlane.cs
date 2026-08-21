@@ -35,12 +35,12 @@ internal sealed partial class ProjectRuntime
     public ProjectControlPlaneSnapshot BuildControlPlaneSnapshot(DateTimeOffset? utcNow = null)
     {
         var now = utcNow ?? DateTimeOffset.UtcNow;
-        var sessionStatus = sessionStore?.GetStatus(definition.Id, now);
+        var sessionStatus = sessionStore?.GetStatus(projectSettings.Id, now);
         var sessionApiUsed = sessionStatus?.SessionApiUsed == true;
         var effectiveState = sessionStatus?.State ?? ControlPlaneSessionState.Idle;
-        var autoBuildEnabled = !BuildTriggerPolicy.IsAutoBuildDisabledByMode(definition.BuildControlMode);
+        var autoBuildEnabled = !BuildTriggerPolicy.IsAutoBuildDisabledByMode(Local.BuildControlMode);
         var autoBuildBlocked = !BuildTriggerPolicy.ShouldAutoBuildFromFileChange(
-            definition.BuildControlMode,
+            Local.BuildControlMode,
             sessionStatus?.SessionApiUsed == true,
             effectiveState);
         var inShipCheck = Volatile.Read(ref shipCheckInProgress) != 0;
@@ -69,7 +69,7 @@ internal sealed partial class ProjectRuntime
             AgentTestsInProgress: Volatile.Read(ref agentTestsInProgress) != 0,
             LastAgentTestsOutcome: lastAgentTestsOutcome,
             LastAgentTestsCompletedUtc: lastAgentTestsCompletedUtc,
-            BuildControlMode: definition.BuildControlMode,
+            BuildControlMode: Local.BuildControlMode,
             AutoBuildEnabled: autoBuildEnabled);
     }
 
@@ -182,15 +182,15 @@ internal sealed partial class ProjectRuntime
             await BuildAsync(cancellationToken).ConfigureAwait(false);
 
             var buildOk = lastBuildExitCode == 0;
-            var projectLabel = definition.ProjectFile;
-            var buildLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+            var projectLabel = Local.ProjectFile;
+            var buildLogPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Build);
             var failures = new List<string>();
             if (!buildOk && !string.IsNullOrWhiteSpace(lastErrorPreview))
             {
                 failures.Add(lastErrorPreview);
             }
 
-            if (buildOk && RestartAppAfterRebuild && definition.RunOptions.RunMode != ProjectRunMode.None)
+            if (buildOk && RestartAppAfterRebuild && Local.RunOptions.RunMode != ProjectRunMode.None)
             {
                 EnsureRunProcessStartedAfterBuild();
             }
@@ -208,7 +208,7 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
 
-            if (wasRunning && definition.RunOptions.RunMode != ProjectRunMode.None)
+            if (wasRunning && Local.RunOptions.RunMode != ProjectRunMode.None)
             {
                 SetAgentRebuildPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
                 ResumeWatch();
@@ -249,7 +249,7 @@ internal sealed partial class ProjectRuntime
             watchPausedByControlPlane = true;
             await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
         }
-        else if (definition.RunOptions.RunMode != ProjectRunMode.None)
+        else if (Local.RunOptions.RunMode != ProjectRunMode.None)
         {
             watchPausedByControlPlane = true;
         }
@@ -260,7 +260,7 @@ internal sealed partial class ProjectRuntime
     public ControlPlaneWatchStatus ResumeWatch()
     {
         if (watchPausedByControlPlane
-            && definition.RunOptions.RunMode != ProjectRunMode.None
+            && Local.RunOptions.RunMode != ProjectRunMode.None
             && runProcess?.IsRunning != true)
         {
             StartRunProcess(skipEmbeddedBuild: true);
@@ -333,8 +333,8 @@ internal sealed partial class ProjectRuntime
             await BuildAsync(cancellationToken).ConfigureAwait(false);
 
             var buildOk = lastBuildExitCode == 0;
-            var projectLabel = definition.ProjectFile;
-            var buildLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Build);
+            var projectLabel = Local.ProjectFile;
+            var buildLogPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Build);
             var failures = new List<string>();
 
             if (!buildOk)
@@ -355,9 +355,9 @@ internal sealed partial class ProjectRuntime
             }
 
             var resolution = TestProjectDiscovery.Resolve(
-                definition.RootFolder,
-                definition.ProjectFile,
-                definition.TestProjectFile);
+                Local.RootFolder,
+                Local.ProjectFile,
+                Local.TestProjectFile);
 
             if (resolution.Targets.Count == 0)
             {
@@ -375,9 +375,9 @@ internal sealed partial class ProjectRuntime
             PrepareTest("ship-check");
             await TestAsync(cancellationToken).ConfigureAwait(false);
 
-            var meta = await logStore.LoadMetadataAsync(definition.Id, BuildLogKind.Test, cancellationToken)
+            var meta = await logStore.LoadMetadataAsync(projectSettings.Id, BuildLogKind.Test, cancellationToken)
                 .ConfigureAwait(false);
-            var testLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Test);
+            var testLogPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Test);
             var testText = meta is null
                 ? string.Empty
                 : await logStore.LoadLogTextAsync(meta, maxBytes: 1_000_000, cancellationToken)
@@ -412,7 +412,7 @@ internal sealed partial class ProjectRuntime
             shipCheckConfiguration = null;
             shipCheckFilter = null;
 
-            if (wasRunning && definition.RunOptions.RunMode != ProjectRunMode.None)
+            if (wasRunning && Local.RunOptions.RunMode != ProjectRunMode.None)
             {
                 SetShipCheckPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
                 ResumeWatch();
@@ -466,10 +466,10 @@ internal sealed partial class ProjectRuntime
             PrepareTest("agent tests");
             await TestAsync(cancellationToken).ConfigureAwait(false);
 
-            var projectLabel = definition.ProjectFile;
-            var testLogPath = logStore.GetLogPath(definition.Id, BuildLogKind.Test);
+            var projectLabel = Local.ProjectFile;
+            var testLogPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Test);
             var failures = new List<string>();
-            var meta = await logStore.LoadMetadataAsync(definition.Id, BuildLogKind.Test, cancellationToken)
+            var meta = await logStore.LoadMetadataAsync(projectSettings.Id, BuildLogKind.Test, cancellationToken)
                 .ConfigureAwait(false);
             var testText = meta is null
                 ? string.Empty
@@ -509,10 +509,10 @@ internal sealed partial class ProjectRuntime
     }
 
     private bool IsControlPlaneBusyBlockingAutoBuild() =>
-        definition.BuildControlMode == ProjectBuildControlMode.FileWatching
-        && sessionStore?.ShouldBlockAutoBuild(definition.Id) == true;
+        Local.BuildControlMode == ProjectBuildControlMode.FileWatching
+        && sessionStore?.ShouldBlockAutoBuild(projectSettings.Id) == true;
 
-    public ProjectBuildControlMode GetBuildControlMode() => definition.BuildControlMode;
+    public ProjectBuildControlMode GetBuildControlMode() => Local.BuildControlMode;
 
     /// <summary>
     /// Applies a build-control mode change. Cancels pending file-triggered schedules when entering AI Controlled;
@@ -520,18 +520,18 @@ internal sealed partial class ProjectRuntime
     /// </summary>
     public ControlPlaneModeStatus SetBuildControlMode(ProjectBuildControlMode mode)
     {
-        var previous = definition.BuildControlMode;
+        var previous = Local.BuildControlMode;
         if (previous == mode)
         {
             return new ControlPlaneModeStatus(
-                definition.Id,
+                projectSettings.Id,
                 mode,
                 ProjectBuildControlModeWire.ToWire(mode),
                 previous,
                 ProjectBuildControlModeWire.ToWire(previous));
         }
 
-        definition.BuildControlMode = mode;
+        Local.BuildControlMode = mode;
 
         if (mode == ProjectBuildControlMode.AiControlled)
         {
@@ -578,7 +578,7 @@ internal sealed partial class ProjectRuntime
 
         NotifyControlPlaneChanged(immediate: true);
         return new ControlPlaneModeStatus(
-            definition.Id,
+            projectSettings.Id,
             mode,
             ProjectBuildControlModeWire.ToWire(mode),
             previous,
@@ -592,7 +592,7 @@ internal sealed partial class ProjectRuntime
     /// </summary>
     private async Task MigrateRunHostForBuildControlModeAsync()
     {
-        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             return;
         }
@@ -644,11 +644,11 @@ internal sealed partial class ProjectRuntime
     }
 
     private void NoteAutoBuildBlockedByControlPlane() =>
-        metricsStore?.RecordAutoBuildBlocked(definition.Id);
+        metricsStore?.RecordAutoBuildBlocked(projectSettings.Id);
 
     private bool ShouldSkipAutoBuildTests() =>
         Volatile.Read(ref shipCheckInProgress) != 0
         || Volatile.Read(ref agentRebuildInProgress) != 0
         || Volatile.Read(ref agentTestsInProgress) != 0
-        || sessionStore?.ShouldSuppressAutoBuildTests(definition.Id) == true;
+        || sessionStore?.ShouldSuppressAutoBuildTests(projectSettings.Id) == true;
 }

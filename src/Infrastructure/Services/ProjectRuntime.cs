@@ -18,7 +18,10 @@ internal sealed partial class ProjectRuntime : IDisposable
     private Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser;
     private SupervisedProcess? runProcess;
     private DebouncedFileWatcher? fileWatcher;
-    private LocalProjectDefinition definition;
+    private MonitoredProjectSettings projectSettings;
+    private LocalProjectAttachment Local =>
+        projectSettings.Local
+        ?? throw new InvalidOperationException($"Project '{projectSettings.Id}' has no Local attachment.");
     private ProjectLifecycleState state = ProjectLifecycleState.Idle;
     private MonitorHealth health = MonitorHealth.Unknown;
     private int restartCount;
@@ -87,10 +90,10 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     public event Action<bool>? HealthCoalesceRequested;
 
-    public string ProjectId => definition.Id;
-    public string DisplayName => definition.DisplayName;
+    public string ProjectId => projectSettings.Id;
+    public string DisplayName => projectSettings.DisplayName;
     public bool IsRunProcessActive => runProcess?.IsRunning == true;
-    public bool RestartAppAfterRebuild => definition.RunOptions.RestartAppAfterRebuild;
+    public bool RestartAppAfterRebuild => Local.RunOptions.RestartAppAfterRebuild;
 
     public ProjectHealthSnapshot Snapshot => BuildSnapshot();
 
@@ -105,8 +108,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 runWarningCount,
                 lastBuildExitCode);
             return new ProjectHealthSnapshot(
-                definition.Id,
-                definition.DisplayName,
+                projectSettings.Id,
+                projectSettings.DisplayName,
                 health,
                 ProjectHealthEvaluator.ToLabel(health),
                 state,
@@ -117,11 +120,11 @@ internal sealed partial class ProjectRuntime : IDisposable
                 displayWarnings,
                 lastChangedUtc,
                 lastBuildFinishedAtUtc,
-                definition.IsActiveInSession,
+                projectSettings.IsActiveInSession,
                 progressSteps.Count == 0 ? progressSteps : progressSteps.ToArray(),
                 ResolveDisplayListenUrl(),
                 listenUrlReady,
-                definition.RunOptions.RunMode != ProjectRunMode.None,
+                Local.RunOptions.RunMode != ProjectRunMode.None,
                 HealthIssueCountsFormatter.FormatStatusLine(
                     state,
                     buildErrorCount,
@@ -171,7 +174,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     }
 
     public ProjectRuntime(
-        LocalProjectDefinition definition,
+        MonitoredProjectSettings projectSettings,
         BuildLogStore logStore,
         DotNetCliRunner cliRunner,
         BuildTriggerJournal triggerJournal,
@@ -179,7 +182,12 @@ internal sealed partial class ProjectRuntime : IDisposable
         BuildTrainingStore trainingStore,
         Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null)
     {
-        this.definition = definition;
+        if (projectSettings.Local is null)
+        {
+            throw new ArgumentException("ProjectRuntime requires a Local attachment.", nameof(projectSettings));
+        }
+
+        this.projectSettings = projectSettings;
         this.logStore = logStore;
         this.cliRunner = cliRunner;
         this.triggerJournal = triggerJournal;
@@ -189,9 +197,14 @@ internal sealed partial class ProjectRuntime : IDisposable
         RegisterProjectWorkers();
     }
 
-    public void UpdateDefinition(LocalProjectDefinition updated, GlobalMonitorSettings? monitor = null)
+    public void UpdateDefinition(MonitoredProjectSettings updated, GlobalMonitorSettings? monitor = null)
     {
-        definition = updated;
+        if (updated.Local is null)
+        {
+            throw new ArgumentException("ProjectRuntime requires a Local attachment.", nameof(updated));
+        }
+
+        projectSettings = updated;
         baseOutputPathWarningShown = false;
         if (monitor is null)
         {
@@ -213,8 +226,8 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     private HashSet<string> GetEffectiveWatchIgnoreSegments() =>
         WatchExcludeSegments.ResolveIgnoreSegmentSet(
-            definition.RunOptions.WatchExcludeSegments,
-            trainingStore.GetLearnedExcludeSegments(definition.Id));
+            Local.RunOptions.WatchExcludeSegments,
+            trainingStore.GetLearnedExcludeSegments(projectSettings.Id));
 
     public void RefreshWatchIgnoreSegments(IEnumerable<string> segments) =>
         fileWatcher?.AddIgnoreSegments(segments);
@@ -225,7 +238,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         AdaptiveFileChangeDebounce.ResolveEffectiveDebounce(
             debounceMode,
             manualFileChangeDebounceMs,
-            burstStatsStore.GetOrDefault(definition.Id));
+            burstStatsStore.GetOrDefault(projectSettings.Id));
 
     private int GetSessionAdjustedFileChangeDebounceMs()
     {
@@ -278,7 +291,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     public BuildIntelligenceSnapshot GetIntelligenceSnapshot(GlobalMonitorSettings monitor, int todayTriggerCount = 0)
     {
         PruneRecentFileChangeBuildStarts();
-        var stats = burstStatsStore.GetOrDefault(definition.Id);
+        var stats = burstStatsStore.GetOrDefault(projectSettings.Id);
         var liveDebounceMs = GetSessionAdjustedFileChangeDebounceMs();
         DateTimeOffset? rebuildQuietUntilUtc = pendingFileChangeRebuild
                                                && lastMeaningfulFileChangeUtc != DateTimeOffset.MinValue
@@ -288,7 +301,7 @@ internal sealed partial class ProjectRuntime : IDisposable
             : null;
 
         return BuildIntelligenceSnapshot.Create(
-            definition,
+            projectSettings,
             monitor,
             stats,
             manualFileChangeDebounceMs,
@@ -308,31 +321,31 @@ internal sealed partial class ProjectRuntime : IDisposable
     }
 
     private bool UsesCoalescedWatchRebuilds() =>
-        definition.RunOptions.RunMode == ProjectRunMode.Watch
+        Local.RunOptions.RunMode == ProjectRunMode.Watch
         && coalesceWatchRebuilds
-        && definition.BuildControlMode != ProjectBuildControlMode.AiControlled;
+        && Local.BuildControlMode != ProjectBuildControlMode.AiControlled;
 
     /// <summary>
     /// AI Controlled never hosts <c>dotnet watch</c> — file changes must not compile inside the watch process.
     /// Use <c>dotnet run --no-build</c> so the app stays up until an explicit rebuild.
     /// </summary>
     private bool UsesDotNetWatchProcess() =>
-        definition.BuildControlMode != ProjectBuildControlMode.AiControlled
-        && definition.RunOptions.RunMode == ProjectRunMode.Watch
+        Local.BuildControlMode != ProjectBuildControlMode.AiControlled
+        && Local.RunOptions.RunMode == ProjectRunMode.Watch
         && !UsesCoalescedWatchRebuilds();
 
     private bool ShouldStartFileWatcher()
     {
-        if (definition.RunOptions.FileChanges == FileChangeMode.Off)
+        if (Local.RunOptions.FileChanges == FileChangeMode.Off)
         {
             return false;
         }
 
         // Always observe in AI Controlled (counts/status) unless file watching is fully off.
-        if (definition.BuildControlMode == ProjectBuildControlMode.AiControlled)
+        if (Local.BuildControlMode == ProjectBuildControlMode.AiControlled)
         {
-            return definition.RunOptions.FileChanges != FileChangeMode.Off
-                || definition.RunOptions.RunMode != ProjectRunMode.None;
+            return Local.RunOptions.FileChanges != FileChangeMode.Off
+                || Local.RunOptions.RunMode != ProjectRunMode.None;
         }
 
         if (UsesCoalescedWatchRebuilds())
@@ -340,8 +353,8 @@ internal sealed partial class ProjectRuntime : IDisposable
             return true;
         }
 
-        return definition.RunOptions.FileChanges == FileChangeMode.TriggerRebuild
-            && definition.RunOptions.RunMode != ProjectRunMode.Watch;
+        return Local.RunOptions.FileChanges == FileChangeMode.TriggerRebuild
+            && Local.RunOptions.RunMode != ProjectRunMode.Watch;
     }
 
     public void SetUserNotifier(Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifier) =>
@@ -350,7 +363,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private (int Errors, int Warnings) CountLiveBuildIssues(string normalized) =>
         BuildIssueCountResolver.Resolve(
             normalized,
-            logStore.GetLogPath(definition.Id, BuildLogKind.Build));
+            logStore.GetLogPath(projectSettings.Id, BuildLogKind.Build));
 
     private static (int Errors, int Warnings) CountLiveIssues(BuildLogKind kind, string normalized) =>
         kind switch
@@ -450,7 +463,7 @@ internal sealed partial class ProjectRuntime : IDisposable
             await BuildAsync(cancellationToken);
         }
 
-        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             TryStartFileWatcher();
             return;
@@ -532,8 +545,8 @@ internal sealed partial class ProjectRuntime : IDisposable
 
         triggerJournal.Record(new BuildTriggerRecord(
             id,
-            definition.Id,
-            definition.DisplayName,
+            projectSettings.Id,
+            projectSettings.DisplayName,
             DateTimeOffset.UtcNow,
             kind,
             summary,
@@ -549,7 +562,7 @@ internal sealed partial class ProjectRuntime : IDisposable
             return [];
         }
 
-        var root = Path.GetFullPath(definition.RootFolder);
+        var root = Path.GetFullPath(Local.RootFolder);
         var results = new List<string>(fullPaths.Count);
         foreach (var path in fullPaths)
         {
@@ -577,7 +590,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         runProcess?.Dispose();
     }
 
-    private string ProjectWorkerId(string suffix) => $"project.{definition.Id}.{suffix}";
+    private string ProjectWorkerId(string suffix) => $"project.{projectSettings.Id}.{suffix}";
 
     private void RegisterProjectWorkers()
     {
@@ -585,7 +598,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         void Register(string suffix, string label, TimeSpan staleAfter)
         {
             var id = ProjectWorkerId(suffix);
-            registry.Register(id, $"{definition.DisplayName} — {label}", staleAfter, "Project");
+            registry.Register(id, $"{projectSettings.DisplayName} — {label}", staleAfter, "Project");
             registeredWorkerIds.Add(id);
         }
 

@@ -166,7 +166,7 @@ public sealed record BuildIntelligenceSnapshot(
     public string LearningText => BuildLearningText();
 
     public static BuildIntelligenceSnapshot FromStoredStats(
-        LocalProjectDefinition project,
+        MonitoredProjectSettings project,
         GlobalMonitorSettings monitor,
         FileChangeBurstStats stats)
     {
@@ -206,7 +206,7 @@ public sealed record BuildIntelligenceSnapshot(
     }
 
     internal static BuildIntelligenceSnapshot Create(
-        LocalProjectDefinition project,
+        MonitoredProjectSettings project,
         GlobalMonitorSettings monitor,
         FileChangeBurstStats stats,
         int manualDebounceMs,

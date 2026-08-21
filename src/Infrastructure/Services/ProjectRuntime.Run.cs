@@ -29,7 +29,7 @@ internal sealed partial class ProjectRuntime
         runProcessGeneration++;
         var generation = runProcessGeneration;
 
-        runProcess = new SupervisedProcess(definition.Id);
+        runProcess = new SupervisedProcess(projectSettings.Id);
         runProcess.OutputLineReceived += OnRunProcessOutputLine;
 
         runProcessExitedHandler = (_, exitCode) =>
@@ -48,12 +48,12 @@ internal sealed partial class ProjectRuntime
             : BuildRunArgs(skipEmbeddedBuild);
 
         candidateListenUrls = LaunchProfileEnvironmentApplier.ResolveListenUrls(
-            definition.RootFolder,
-            definition.ProjectFile,
-            definition.LaunchProfile);
+            Local.RootFolder,
+            Local.ProjectFile,
+            Local.LaunchProfile);
         pendingListenUrl = LocalPortProbe.SelectPreferredProfileUrl(
                 candidateListenUrls,
-                definition.PreferredSiteUrlScheme)
+                Local.PreferredSiteUrlScheme)
             ?? candidateListenUrls.FirstOrDefault();
         listenUrlReady = false;
         listenUrlNotified = false;
@@ -63,7 +63,7 @@ internal sealed partial class ProjectRuntime
         StartRunLogSaveTimer();
 
         runProcess.Start(
-            definition.RootFolder,
+            Local.RootFolder,
             args,
             psi =>
             {
@@ -72,16 +72,16 @@ internal sealed partial class ProjectRuntime
                 {
                     LaunchProfileEnvironmentApplier.ApplyTo(
                         psi,
-                        definition.RootFolder,
-                        definition.ProjectFile,
-                        definition.LaunchProfile);
+                        Local.RootFolder,
+                        Local.ProjectFile,
+                        Local.LaunchProfile);
                 }
 
                 // BuildMonitor shows site-ready in the tray panel; avoid launchSettings launchBrowser pop-ups.
                 psi.Environment["DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER"] = "1";
 
                 if (UsesDotNetWatchProcess()
-                    && !definition.RunOptions.AutoRestartOnWatchChanges)
+                    && !Local.RunOptions.AutoRestartOnWatchChanges)
                 {
                     psi.Environment["DOTNET_WATCH_RESTART_ON_RUDE_EDIT"] = "0";
                 }
@@ -89,7 +89,7 @@ internal sealed partial class ProjectRuntime
 
         NotifyProgressChanged(force: true);
 
-        SetState(definition.RunOptions.RunMode == ProjectRunMode.Watch
+        SetState(Local.RunOptions.RunMode == ProjectRunMode.Watch
             || UsesCoalescedWatchRebuilds()
             ? ProjectLifecycleState.Watching
             : ProjectLifecycleState.Running);
@@ -126,7 +126,7 @@ internal sealed partial class ProjectRuntime
             }
         }
 
-        if (exitCode != 0 && definition.RunOptions.RestartOnCrash && restartCount < definition.RunOptions.MaxRestartRetries)
+        if (exitCode != 0 && Local.RunOptions.RestartOnCrash && restartCount < Local.RunOptions.MaxRestartRetries)
         {
             restartCount++;
             SetState(ProjectLifecycleState.Crashed);
@@ -137,7 +137,7 @@ internal sealed partial class ProjectRuntime
         if (exitCode != 0)
         {
             _ = logStore.SaveAsync(
-                definition.Id,
+                projectSettings.Id,
                 BuildLogKind.Run,
                 exitedProcess.CommandLine,
                 exitCode,
@@ -220,7 +220,7 @@ internal sealed partial class ProjectRuntime
     private List<string> BuildWatchArgs(bool skipEmbeddedBuild = false)
     {
         var args = new List<string> { "watch" };
-        if (definition.RunOptions.AutoRestartOnWatchChanges)
+        if (Local.RunOptions.AutoRestartOnWatchChanges)
         {
             // Tray host has no stdin for restart prompts — auto-restart when enabled per project.
             args.Add("--non-interactive");
@@ -252,28 +252,28 @@ internal sealed partial class ProjectRuntime
 
     private string? ResolveEffectiveLaunchProfile() =>
         LaunchProfileEnvironmentApplier.ResolveEffectiveLaunchProfile(
-            definition.RootFolder,
-            definition.ProjectFile,
-            definition.LaunchProfile);
+            Local.RootFolder,
+            Local.ProjectFile,
+            Local.LaunchProfile);
 
     private void AppendExtraArgs(List<string> args)
     {
-        if (string.IsNullOrWhiteSpace(definition.ExtraDotNetArgs))
+        if (string.IsNullOrWhiteSpace(Local.ExtraDotNetArgs))
         {
             return;
         }
 
-        args.AddRange(definition.ExtraDotNetArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        args.AddRange(Local.ExtraDotNetArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private string? ResolveDisplayListenUrl()
     {
-        if (definition.RunOptions.RunMode == ProjectRunMode.None)
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
         {
             return null;
         }
 
-        var preference = definition.PreferredSiteUrlScheme;
+        var preference = Local.PreferredSiteUrlScheme;
 
         // While awaiting readiness, always surface the preferred profile URL (HTTPS), not a
         // transient HTTP listen line. When ready, still re-canonicalise with preference so an
@@ -305,7 +305,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        var preference = definition.PreferredSiteUrlScheme;
+        var preference = Local.PreferredSiteUrlScheme;
         var urlsToProbe = candidateListenUrls.Count > 0
             ? candidateListenUrls
             : string.IsNullOrWhiteSpace(pendingListenUrl) ? [] : new[] { pendingListenUrl };
@@ -389,7 +389,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        var preference = definition.PreferredSiteUrlScheme;
+        var preference = Local.PreferredSiteUrlScheme;
         var preferred = LocalPortProbe.SelectPreferredProfileUrl(candidateListenUrls, preference);
         if (preferred is null
             || (!string.IsNullOrWhiteSpace(pendingListenUrl)
@@ -401,7 +401,7 @@ internal sealed partial class ProjectRuntime
 
     private void MarkListenUrlReady(string url)
     {
-        var preference = definition.PreferredSiteUrlScheme;
+        var preference = Local.PreferredSiteUrlScheme;
         if (listenUrlReady
             && !LocalPortProbe.IsBetterCanonicalUrl(
                 url,
@@ -438,8 +438,8 @@ internal sealed partial class ProjectRuntime
         {
             listenUrlNotified = true;
             notifyUser?.Invoke(
-                definition.Id,
-                $"App running — {definition.DisplayName}",
+                projectSettings.Id,
+                $"App running — {projectSettings.DisplayName}",
                 $"Open {url}",
                 UserNotificationKind.Info,
                 UserNotificationCategory.Info);

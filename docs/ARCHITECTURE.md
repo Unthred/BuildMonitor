@@ -3,14 +3,20 @@
 ## Projects
 
 - `TrayApp` — WPF shell, tray icon, hover panel, settings, log viewer
-- `Core` — models, validation, local tray rollup rules
+- `Core` — models, validation, local tray rollup rules, settings schema (v21 attachments)
 - `Infrastructure` — dotnet CLI runner, process supervisor, build logs, project orchestrator
-- `Infrastructure/AzureDevOps` — optional parked module
+- `Infrastructure/AzureDevOps` — parked legacy polling module (not wired; superseded by schema attachments — see [ADR 0002](adr/0002-project-azure-attachments.md))
+
+## Logical project model (schema v21)
+
+A BuildMonitor **project** is a logical software product with optional **Local** and/or **Azure DevOps** attachments (at least one required). Azure DevOps **connections** (org URL) are top-level; PATs are not in `settings.json`. Azure association is repository-centric with 0..N pipelines.
+
+**Foundation only:** Azure schema/association exists; **runtime polling, discovery UI, and Azure status rows are not enabled yet.**
 
 ## Flow
 
 1. User configures projects and marks active session projects in settings.
-2. `ProjectOrchestrator` starts active projects (build, then run/watch).
+2. `ProjectOrchestrator` starts active projects that have a **Local** attachment (build, then run/watch). Azure-only projects are ignored by local orchestration until later slices.
 3. Optional loopback **control plane** (`http://127.0.0.1:{port}/`) lets agents signal busy/idle and run ship-check — see [ops/control-plane.md](ops/control-plane.md).
 4. `DotNetCliRunner` captures stdout/stderr; `BuildLogStore` persists last logs.
 5. `ProjectRuntime` updates health snapshots on state transitions.

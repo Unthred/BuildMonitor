@@ -61,7 +61,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
-    private (IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<LocalProjectDefinition> Inactive) GetCoalescerState()
+    private (IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive) GetCoalescerState()
     {
         lock (sync)
         {
@@ -104,7 +104,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
         lock (sync)
         {
             var project = settings.Projects.FirstOrDefault(p => p.Id == record.ProjectId);
-            var configured = project?.RunOptions.WatchExcludeSegments;
+            var configured = project?.Local?.RunOptions.WatchExcludeSegments;
             var learned = trainingStore.GetLearnedExcludeSegments(record.ProjectId);
             var learn = settings.Monitor.LearnFromDiagnosticsVerdicts;
 
@@ -206,7 +206,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
             idsToStop = runtimes.Keys.Where(id => !activeIds.Contains(id)).ToList();
 
-            foreach (var project in newSettings.Projects.Where(p => p.IsActiveInSession))
+            foreach (var project in newSettings.Projects.Where(p => p.IsActiveInSession && p.Local is not null))
             {
                 if (!runtimes.ContainsKey(project.Id))
                 {
@@ -271,7 +271,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private bool ShouldStartOnLaunch(string projectId)
     {
         var project = settings.Projects.FirstOrDefault(p => p.Id == projectId);
-        return project is { IsActiveInSession: true, StartOnLaunch: true };
+        return project is { IsActiveInSession: true, Local.StartOnLaunch: true };
     }
 
     public async Task StopAllAsync()

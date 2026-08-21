@@ -13,8 +13,11 @@ namespace BuildMonitor.TrayApp;
 
 public partial class SettingsWindow : Window
 {
-    private readonly ObservableCollection<LocalProjectDefinition> projectItems = [];
-    private LocalProjectDefinition? selectedProject;
+    private readonly ObservableCollection<MonitoredProjectSettings> projectItems = [];
+    private MonitoredProjectSettings? selectedProject;
+
+    private static LocalProjectAttachment EnsureLocal(MonitoredProjectSettings project) =>
+        project.Local ??= new LocalProjectAttachment();
     private bool isLoadingEditor;
     private readonly AppThemePreference themeAtOpen;
 
@@ -160,7 +163,7 @@ public partial class SettingsWindow : Window
     private void ProjectsListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         CommitEditorToSelected();
-        selectedProject = ProjectsList.SelectedItem as LocalProjectDefinition;
+        selectedProject = ProjectsList.SelectedItem as MonitoredProjectSettings;
         EditorPanel.IsEnabled = selectedProject is not null;
         if (selectedProject is null)
         {
@@ -174,32 +177,32 @@ public partial class SettingsWindow : Window
         LoadEditorFromProject(selectedProject);
     }
 
-    private void LoadEditorFromProject(LocalProjectDefinition project)
+    private void LoadEditorFromProject(MonitoredProjectSettings project)
     {
         isLoadingEditor = true;
         try
         {
             DisplayNameText.Text = project.DisplayName;
-            RootFolderText.Text = project.RootFolder;
-            ProjectFileText.Text = project.ProjectFile;
-            ExtraArgsText.Text = project.ExtraDotNetArgs;
-            RunModeCombo.SelectedItem = project.RunOptions.RunMode;
-            SelectBuildControlMode(project.BuildControlMode);
-            SelectPreferredSiteUrlScheme(project.PreferredSiteUrlScheme);
-            StartOnLaunchCheck.IsChecked = project.StartOnLaunch;
-            RestartOnCrashCheck.IsChecked = project.RunOptions.RestartOnCrash;
-            MaxRetriesText.Text = project.RunOptions.MaxRestartRetries.ToString();
-            AutoRestartOnWatchChangesCheck.IsChecked = project.RunOptions.AutoRestartOnWatchChanges;
-            AutoRestartOnHotReloadRequestCheck.IsChecked = project.RunOptions.AutoRestartOnHotReloadRequest;
-            RestartAppAfterRebuildCheck.IsChecked = project.RunOptions.RestartAppAfterRebuild;
-            RunTestsCombo.SelectedItem = project.RunOptions.RunTests;
-            AutoOpenLogCombo.SelectedItem = project.RunOptions.AutoOpenLog;
-            ShowStatusPanelWhileBuildingCheck.IsChecked = project.RunOptions.ShowStatusPanelWhileBuilding;
-            FileChangesCombo.SelectedItem = project.RunOptions.FileChanges;
-            WatchExcludeSegmentsText.Text = project.RunOptions.WatchExcludeSegments;
-            ReleaseOutputLocksCheck.IsChecked = project.RunOptions.ReleaseOutputLocksBeforeBuild;
-            ForceCompleteWarningCountsCheck.IsChecked = project.RunOptions.ForceCompleteWarningCounts;
-            AutoRepairCorruptedOutputCheck.IsChecked = project.RunOptions.AutoRepairCorruptedOutput;
+            RootFolderText.Text = EnsureLocal(project).RootFolder;
+            ProjectFileText.Text = EnsureLocal(project).ProjectFile;
+            ExtraArgsText.Text = EnsureLocal(project).ExtraDotNetArgs;
+            RunModeCombo.SelectedItem = EnsureLocal(project).RunOptions.RunMode;
+            SelectBuildControlMode(EnsureLocal(project).BuildControlMode);
+            SelectPreferredSiteUrlScheme(EnsureLocal(project).PreferredSiteUrlScheme);
+            StartOnLaunchCheck.IsChecked = EnsureLocal(project).StartOnLaunch;
+            RestartOnCrashCheck.IsChecked = EnsureLocal(project).RunOptions.RestartOnCrash;
+            MaxRetriesText.Text = EnsureLocal(project).RunOptions.MaxRestartRetries.ToString();
+            AutoRestartOnWatchChangesCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRestartOnWatchChanges;
+            AutoRestartOnHotReloadRequestCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRestartOnHotReloadRequest;
+            RestartAppAfterRebuildCheck.IsChecked = EnsureLocal(project).RunOptions.RestartAppAfterRebuild;
+            RunTestsCombo.SelectedItem = EnsureLocal(project).RunOptions.RunTests;
+            AutoOpenLogCombo.SelectedItem = EnsureLocal(project).RunOptions.AutoOpenLog;
+            ShowStatusPanelWhileBuildingCheck.IsChecked = EnsureLocal(project).RunOptions.ShowStatusPanelWhileBuilding;
+            FileChangesCombo.SelectedItem = EnsureLocal(project).RunOptions.FileChanges;
+            WatchExcludeSegmentsText.Text = EnsureLocal(project).RunOptions.WatchExcludeSegments;
+            ReleaseOutputLocksCheck.IsChecked = EnsureLocal(project).RunOptions.ReleaseOutputLocksBeforeBuild;
+            ForceCompleteWarningCountsCheck.IsChecked = EnsureLocal(project).RunOptions.ForceCompleteWarningCounts;
+            AutoRepairCorruptedOutputCheck.IsChecked = EnsureLocal(project).RunOptions.AutoRepairCorruptedOutput;
             ReloadLaunchProfiles(selectCurrent: true);
             ReloadTestProjectCandidates(selectCurrent: true);
             RefreshAgentSkillStatus();
@@ -281,7 +284,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
+        EnsureLocal(selectedProject).TestProjectFile = TestProjectCombo.Text.Trim();
     }
 
     private void LaunchProfileComboSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -291,7 +294,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        selectedProject.LaunchProfile = LaunchProfileCombo.SelectedItem.ToString() ?? string.Empty;
+        EnsureLocal(selectedProject).LaunchProfile = LaunchProfileCombo.SelectedItem.ToString() ?? string.Empty;
     }
 
     private void ReloadLaunchProfiles(bool selectCurrent)
@@ -301,8 +304,8 @@ public partial class SettingsWindow : Window
             ProjectFileText.Text.Trim());
 
         var current = selectCurrent
-            ? (LaunchProfileCombo.Text.Trim().Length > 0 ? LaunchProfileCombo.Text.Trim() : selectedProject?.LaunchProfile)
-            : selectedProject?.LaunchProfile;
+            ? (LaunchProfileCombo.Text.Trim().Length > 0 ? LaunchProfileCombo.Text.Trim() : selectedProject?.Local?.LaunchProfile)
+            : selectedProject?.Local?.LaunchProfile;
 
         LaunchProfileCombo.ItemsSource = profiles;
 
@@ -323,7 +326,7 @@ public partial class SettingsWindow : Window
             LaunchProfileCombo.SelectedItem = preferred;
             if (selectedProject is not null && preferred is not null)
             {
-                selectedProject.LaunchProfile = preferred;
+                EnsureLocal(selectedProject).LaunchProfile = preferred;
             }
         }
         else
@@ -342,8 +345,8 @@ public partial class SettingsWindow : Window
             .ToList();
 
         var current = selectCurrent
-            ? (TestProjectCombo.Text.Trim().Length > 0 ? TestProjectCombo.Text.Trim() : selectedProject?.TestProjectFile)
-            : selectedProject?.TestProjectFile;
+            ? (TestProjectCombo.Text.Trim().Length > 0 ? TestProjectCombo.Text.Trim() : selectedProject?.Local?.TestProjectFile)
+            : selectedProject?.Local?.TestProjectFile;
 
         TestProjectCombo.ItemsSource = candidates;
 
@@ -376,7 +379,7 @@ public partial class SettingsWindow : Window
 
                 if (selectedProject is not null && selectCurrent)
                 {
-                    selectedProject.TestProjectFile = string.Empty;
+                    EnsureLocal(selectedProject).TestProjectFile = string.Empty;
                 }
             }
             else
@@ -394,42 +397,42 @@ public partial class SettingsWindow : Window
         }
 
         selectedProject.DisplayName = DisplayNameText.Text.Trim();
-        selectedProject.RootFolder = RootFolderText.Text.Trim();
-        selectedProject.ProjectFile = ProjectFileText.Text.Trim();
-        selectedProject.LaunchProfile = LaunchProfileCombo.Text.Trim();
-        selectedProject.TestProjectFile = TestProjectCombo.Text.Trim();
-        selectedProject.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
-        selectedProject.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
-        selectedProject.BuildControlMode = ResolveBuildControlMode();
-        selectedProject.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
-        selectedProject.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
-        selectedProject.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RootFolder = RootFolderText.Text.Trim();
+        EnsureLocal(selectedProject).ProjectFile = ProjectFileText.Text.Trim();
+        EnsureLocal(selectedProject).LaunchProfile = LaunchProfileCombo.Text.Trim();
+        EnsureLocal(selectedProject).TestProjectFile = TestProjectCombo.Text.Trim();
+        EnsureLocal(selectedProject).ExtraDotNetArgs = ExtraArgsText.Text.Trim();
+        EnsureLocal(selectedProject).RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
+        EnsureLocal(selectedProject).BuildControlMode = ResolveBuildControlMode();
+        EnsureLocal(selectedProject).PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
+        EnsureLocal(selectedProject).StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
         if (int.TryParse(MaxRetriesText.Text, out var retries))
         {
-            selectedProject.RunOptions.MaxRestartRetries = retries;
+            EnsureLocal(selectedProject).RunOptions.MaxRestartRetries = retries;
         }
 
-        selectedProject.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
-        selectedProject.RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
-        selectedProject.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
 
-        selectedProject.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
-        selectedProject.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
-        selectedProject.RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
-        selectedProject.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
-        selectedProject.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
-        selectedProject.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
-        selectedProject.RunOptions.ForceCompleteWarningCounts = ForceCompleteWarningCountsCheck.IsChecked == true;
-        selectedProject.RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
+        EnsureLocal(selectedProject).RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
+        EnsureLocal(selectedProject).RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
+        EnsureLocal(selectedProject).RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
+        EnsureLocal(selectedProject).RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.ForceCompleteWarningCounts = ForceCompleteWarningCountsCheck.IsChecked == true;
+        EnsureLocal(selectedProject).RunOptions.AutoRepairCorruptedOutput = AutoRepairCorruptedOutputCheck.IsChecked == true;
     }
 
     private void AddProjectClicked(object sender, RoutedEventArgs e)
     {
         CommitEditorToSelected();
-        var project = new LocalProjectDefinition
+        var project = new MonitoredProjectSettings
         {
             DisplayName = "New project",
-            RootFolder = Environment.CurrentDirectory
+            Local = new LocalProjectAttachment { RootFolder = Environment.CurrentDirectory }
         };
         projectItems.Add(project);
         ProjectsList.SelectedItem = project;
@@ -455,7 +458,7 @@ public partial class SettingsWindow : Window
             RootFolderText.Text = dialog.FolderName;
             if (selectedProject is not null)
             {
-                selectedProject.RootFolder = dialog.FolderName;
+                EnsureLocal(selectedProject).RootFolder = dialog.FolderName;
             }
 
             ReloadLaunchProfiles(selectCurrent: true);
@@ -472,7 +475,7 @@ public partial class SettingsWindow : Window
         var root = RootFolderText.Text.Trim();
         if (string.IsNullOrWhiteSpace(root) && selectedProject is not null)
         {
-            root = selectedProject.RootFolder;
+            root = EnsureLocal(selectedProject).RootFolder;
         }
 
         var status = ControlPlaneAgentSkillInstaller.Inspect(root);
@@ -492,7 +495,7 @@ public partial class SettingsWindow : Window
         var root = RootFolderText.Text.Trim();
         if (string.IsNullOrWhiteSpace(root) && selectedProject is not null)
         {
-            root = selectedProject.RootFolder;
+            root = EnsureLocal(selectedProject).RootFolder;
         }
 
         var result = ControlPlaneAgentSkillInstaller.Install(root);
@@ -541,7 +544,7 @@ public partial class SettingsWindow : Window
 
         if (selectedProject is not null)
         {
-            selectedProject.ProjectFile = ProjectFileText.Text;
+            EnsureLocal(selectedProject).ProjectFile = ProjectFileText.Text;
             if (string.IsNullOrWhiteSpace(selectedProject.DisplayName) ||
                 selectedProject.DisplayName.Equals("New project", StringComparison.OrdinalIgnoreCase))
             {

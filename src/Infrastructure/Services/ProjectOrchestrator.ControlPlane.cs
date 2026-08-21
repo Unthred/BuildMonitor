@@ -16,8 +16,8 @@ public sealed partial class ProjectOrchestrator
                 .Select(p => new ControlPlaneProjectInfo(
                     p.Id,
                     p.DisplayName,
-                    p.RootFolder,
-                    p.ProjectFile,
+                    p.Local?.RootFolder ?? string.Empty,
+                    p.Local?.ProjectFile ?? string.Empty,
                     p.IsActiveInSession))
                 .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -192,7 +192,7 @@ public sealed partial class ProjectOrchestrator
                 throw new InvalidOperationException($"Unknown projectId '{projectId}'.");
             }
 
-            var mode = project.BuildControlMode;
+            var mode = project.Local?.BuildControlMode ?? ProjectBuildControlMode.FileWatching;
             if (runtimes.TryGetValue(project.Id, out var runtime))
             {
                 mode = runtime.GetBuildControlMode();
@@ -220,14 +220,20 @@ public sealed partial class ProjectOrchestrator
                 throw new InvalidOperationException($"Unknown projectId '{projectId}'.");
             }
 
+            if (project.Local is null)
+            {
+                throw new InvalidOperationException(
+                    $"Project '{projectId}' has no Local attachment; build-control mode does not apply.");
+            }
+
             if (runtimes.TryGetValue(project.Id, out var runtime))
             {
                 status = runtime.SetBuildControlMode(mode);
             }
             else
             {
-                var previous = project.BuildControlMode;
-                project.BuildControlMode = mode;
+                var previous = project.Local.BuildControlMode;
+                project.Local.BuildControlMode = mode;
                 status = new ControlPlaneModeStatus(
                     project.Id,
                     mode,
@@ -237,7 +243,7 @@ public sealed partial class ProjectOrchestrator
             }
 
             // Keep settings list in sync when runtime holds the same definition reference.
-            project.BuildControlMode = mode;
+            project.Local.BuildControlMode = mode;
             snapshot = settings;
         }
 

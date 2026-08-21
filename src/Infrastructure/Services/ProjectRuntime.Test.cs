@@ -14,8 +14,8 @@ internal sealed partial class ProjectRuntime
         if (Interlocked.CompareExchange(ref testInProgress, 1, 0) != 0)
         {
             notifyUser?.Invoke(
-                definition.Id,
-                $"Tests skipped — {definition.DisplayName}",
+                projectSettings.Id,
+                $"Tests skipped — {projectSettings.DisplayName}",
                 "Tests are already running for this project.",
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
@@ -26,8 +26,8 @@ internal sealed partial class ProjectRuntime
         {
             Interlocked.Exchange(ref testInProgress, 0);
             notifyUser?.Invoke(
-                definition.Id,
-                $"Tests skipped — {definition.DisplayName}",
+                projectSettings.Id,
+                $"Tests skipped — {projectSettings.DisplayName}",
                 "Wait for the current build to finish, then try again.",
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
@@ -37,7 +37,7 @@ internal sealed partial class ProjectRuntime
         var testReason = pendingTestReason;
         pendingTestReason = "tests";
         var wasRunProcessActive = runProcess?.IsRunning == true;
-        var releaseLocksSetting = definition.RunOptions.ReleaseOutputLocksBeforeBuild;
+        var releaseLocksSetting = Local.RunOptions.ReleaseOutputLocksBeforeBuild;
         var stoppedAppForTests = false;
         var preservedBuildErrors = buildErrorCount;
         var preservedBuildWarnings = buildWarningCount;
@@ -58,9 +58,9 @@ internal sealed partial class ProjectRuntime
             lastErrorPreview = null;
 
             var resolution = TestProjectDiscovery.Resolve(
-                definition.RootFolder,
-                definition.ProjectFile,
-                definition.TestProjectFile);
+                Local.RootFolder,
+                Local.ProjectFile,
+                Local.TestProjectFile);
 
             if (resolution.Targets.Count == 0)
             {
@@ -134,7 +134,7 @@ internal sealed partial class ProjectRuntime
             var parsed = BuildLogParser.ParseErrors(logText);
             var effectiveExitCode = testsExecuted ? exitCode : 1;
             await logStore.SaveAsync(
-                definition.Id,
+                projectSettings.Id,
                 BuildLogKind.Test,
                 string.Join(" && ", commandLines),
                 effectiveExitCode,
@@ -166,7 +166,7 @@ internal sealed partial class ProjectRuntime
 
             if (stoppedAppForTests
                 && wasRunProcessActive
-                && definition.RunOptions.RunMode != ProjectRunMode.None)
+                && Local.RunOptions.RunMode != ProjectRunMode.None)
             {
                 _ = RestartRunProcessAfterTestsAsync();
             }
@@ -300,7 +300,7 @@ internal sealed partial class ProjectRuntime
         List<string> args,
         CancellationToken cancellationToken) =>
         await cliRunner.RunAsync(
-            definition.RootFolder,
+            Local.RootFolder,
             args,
             cancellationToken,
             OnTestOutputLine);

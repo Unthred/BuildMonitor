@@ -23,3 +23,4 @@
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001-template](adr/0001-template.md) | Template | — |
+| [0002-project-azure-attachments](adr/0002-project-azure-attachments.md) | Project Local/Azure attachments | Accepted |

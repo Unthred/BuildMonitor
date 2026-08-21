@@ -3,7 +3,8 @@ using BuildMonitor.Core.Models;
 namespace BuildMonitor.Core.Settings;
 
 /// <summary>
-/// Optional Azure DevOps module settings (parked; not used by local-build MVP).
+/// Parked global ADO settings (unwired). Live schema uses
+/// <see cref="AzureDevOpsConnectionSettings"/> and <see cref="AzureDevOpsProjectAttachment"/> (v21).
 /// </summary>
 public sealed class AzureDevOpsSettings
 {
@@ -12,6 +13,7 @@ public sealed class AzureDevOpsSettings
     public List<MonitoredPipelineSettings> Pipelines { get; init; } = [];
 }
 
+/// <summary>Parked per-pipeline settings for the unwired ADO module.</summary>
 public sealed class MonitoredPipelineSettings
 {
     public int PipelineId { get; init; }

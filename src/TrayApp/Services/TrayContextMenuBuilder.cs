@@ -20,7 +20,7 @@ public sealed class TrayContextMenuBuilder
         public required Action ShowSettings { get; init; }
         public required Action RequestExit { get; init; }
         public required Action<string, string?> OpenLogViewerForProject { get; init; }
-        public required Action<IReadOnlyList<LocalProjectDefinition>> StartRunTestsForProjects { get; init; }
+        public required Action<IReadOnlyList<MonitoredProjectSettings>> StartRunTestsForProjects { get; init; }
         public required Action<string, string> InstallControlPlaneAgentSkill { get; init; }
     }
 
@@ -30,7 +30,7 @@ public sealed class TrayContextMenuBuilder
         ProjectOrchestrator orchestrator,
         Host host)
     {
-        var active = settings.Projects.Where(p => p.IsActiveInSession).ToList();
+        var active = settings.Projects.Where(p => p.IsActiveInSession && p.Local is not null).ToList();
 
         menu.Items.Clear();
 
@@ -77,7 +77,7 @@ public sealed class TrayContextMenuBuilder
 
     private static void AddByProjectItems(
         Forms.ToolStripItemCollection items,
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         ProjectOrchestrator orchestrator,
         Host host)
     {
@@ -90,7 +90,7 @@ public sealed class TrayContextMenuBuilder
         foreach (var project in active)
         {
             var id = project.Id;
-            var restartable = project.RunOptions.RunMode != ProjectRunMode.None;
+            var restartable = project.Local!.RunOptions.RunMode != ProjectRunMode.None;
             var submenu = new Forms.ToolStripMenuItem(project.DisplayName);
 
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Rebuild", null, (_, _) =>
@@ -114,7 +114,7 @@ public sealed class TrayContextMenuBuilder
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Clean build output", null, (_, _) =>
                 host.RunBackground(() => orchestrator.RepairBuildOutputAsync(id, CancellationToken.None))));
             submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
-            var root = project.RootFolder;
+            var root = project.Local!.RootFolder;
             var name = project.DisplayName;
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Install Cursor agent skill…", null, (_, _) =>
                 host.RunUi(() => host.InstallControlPlaneAgentSkill(root, name))));
@@ -124,7 +124,7 @@ public sealed class TrayContextMenuBuilder
     }
 
     private static Forms.ToolStripMenuItem BuildRebuildMenu(
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         ProjectOrchestrator orchestrator,
         Host host)
     {
@@ -153,12 +153,12 @@ public sealed class TrayContextMenuBuilder
     }
 
     private static Forms.ToolStripMenuItem BuildRestartMenu(
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         ProjectOrchestrator orchestrator,
         Host host)
     {
         var menu = new Forms.ToolStripMenuItem("Restart app");
-        var restartable = active.Where(p => p.RunOptions.RunMode != ProjectRunMode.None).ToList();
+        var restartable = active.Where(p => p.Local!.RunOptions.RunMode != ProjectRunMode.None).ToList();
         menu.Enabled = restartable.Count > 0;
 
         if (restartable.Count == 0)
@@ -198,7 +198,7 @@ public sealed class TrayContextMenuBuilder
         return menu;
     }
 
-    private static Forms.ToolStripMenuItem BuildRunTestsMenu(List<LocalProjectDefinition> active, Host host)
+    private static Forms.ToolStripMenuItem BuildRunTestsMenu(List<MonitoredProjectSettings> active, Host host)
     {
         var menu = new Forms.ToolStripMenuItem("Run tests") { Enabled = active.Count > 0 };
         if (active.Count == 0)
@@ -220,7 +220,7 @@ public sealed class TrayContextMenuBuilder
     }
 
     private static Forms.ToolStripMenuItem BuildStopMenu(
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         ProjectOrchestrator orchestrator,
         Host host)
     {
@@ -242,7 +242,7 @@ public sealed class TrayContextMenuBuilder
         return menu;
     }
 
-    private static Forms.ToolStripMenuItem BuildViewLogsMenu(List<LocalProjectDefinition> active, Host host)
+    private static Forms.ToolStripMenuItem BuildViewLogsMenu(List<MonitoredProjectSettings> active, Host host)
     {
         var menu = new Forms.ToolStripMenuItem("View Log") { Enabled = active.Count > 0 };
         foreach (var project in active)
@@ -257,7 +257,7 @@ public sealed class TrayContextMenuBuilder
     }
 
     private static Forms.ToolStripMenuItem BuildCleanOutputMenu(
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         ProjectOrchestrator orchestrator,
         Host host)
     {
@@ -288,13 +288,13 @@ public sealed class TrayContextMenuBuilder
     }
 
     private static Forms.ToolStripMenuItem BuildInstallAgentSkillMenu(
-        List<LocalProjectDefinition> active,
+        List<MonitoredProjectSettings> active,
         Host host)
     {
         var menu = new Forms.ToolStripMenuItem("Install Cursor agent skill") { Enabled = active.Count > 0 };
         foreach (var project in active)
         {
-            var root = project.RootFolder;
+            var root = project.Local!.RootFolder;
             var name = project.DisplayName;
             menu.DropDownItems.Add(new Forms.ToolStripMenuItem(name, null, (_, _) =>
                 host.RunUi(() => host.InstallControlPlaneAgentSkill(root, name))));
