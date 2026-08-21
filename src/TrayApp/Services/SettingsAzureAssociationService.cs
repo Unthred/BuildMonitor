@@ -3,6 +3,7 @@ using System.Windows;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.AzureDevOps;
 using BuildMonitor.Infrastructure.Git;
+using BuildMonitor.Infrastructure.LocalBuild;
 using BuildMonitor.Infrastructure.Security;
 using Microsoft.Win32;
 
@@ -74,6 +75,9 @@ public sealed class SettingsAzureAssociationService(
     public bool TryDetach(MonitoredProjectSettings project, out string? error) =>
         AzureAssociationCoordinator.TryDetachAzure(project, out error);
 
+    /// <summary>
+    /// Associates a validation-complete Local attachment. On cancel/failure, leaves Local null and Azure unchanged.
+    /// </summary>
     public bool TryAssociateLocalFolder(MonitoredProjectSettings project)
     {
         if (project.Local is not null)
@@ -81,20 +85,66 @@ public sealed class SettingsAzureAssociationService(
             return false;
         }
 
+        var azureBefore = project.Azure;
         var dialog = new OpenFolderDialog();
         if (dialog.ShowDialog() != true)
         {
             return false;
         }
 
-        project.Local = new LocalProjectAttachment { RootFolder = dialog.FolderName };
-        if (string.IsNullOrWhiteSpace(project.DisplayName)
-            || project.DisplayName.Equals("Azure project", StringComparison.OrdinalIgnoreCase))
+        var result = AssociateLocalAttachmentBuilder.TryBuild(
+            project,
+            dialog.FolderName,
+            pickWhenMultiple: candidates => PromptForProjectFile(dialog.FolderName, candidates));
+
+        if (result.Outcome == AssociateLocalOutcome.Cancelled)
         {
-            project.DisplayName = Path.GetFileName(dialog.FolderName.TrimEnd('\\', '/'));
+            return false;
+        }
+
+        if (result.Outcome != AssociateLocalOutcome.Created)
+        {
+            System.Windows.MessageBox.Show(
+                owner,
+                result.Error ?? "Could not associate a local project.",
+                "Associate local",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            // Invariant: still Azure-only
+            System.Diagnostics.Debug.Assert(project.Local is null);
+            System.Diagnostics.Debug.Assert(ReferenceEquals(project.Azure, azureBefore));
+            return false;
+        }
+
+        if (!AssociateLocalAttachmentBuilder.TryApply(project, result, out var applyError))
+        {
+            System.Windows.MessageBox.Show(
+                owner,
+                applyError ?? "Could not apply local association.",
+                "Associate local",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
         }
 
         return true;
+    }
+
+    private string? PromptForProjectFile(string rootFolder, IReadOnlyList<string> candidates)
+    {
+        var fileDialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Select project or solution",
+            Filter = ".NET projects|*.csproj;*.sln|All files|*.*",
+            InitialDirectory = rootFolder
+        };
+
+        if (fileDialog.ShowDialog(owner) != true)
+        {
+            return null;
+        }
+
+        return LocalProjectCandidateDiscovery.ToRelative(rootFolder, fileDialog.FileName);
     }
 
     private async Task<AzureDevOpsProjectAttachment?> RunWizardAsync(

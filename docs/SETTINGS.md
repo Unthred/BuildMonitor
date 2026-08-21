@@ -104,7 +104,7 @@ On the **Projects** tab:
 | **Attach Azure DevOps…** | For local projects without Azure; optional Git remote **suggestion** (confirm before finish) |
 | **Change…** | Replace Azure project/repo/pipelines |
 | **Detach** | Removes Azure attachment only; blocked for Azure-only projects |
-| **Associate local…** | For Azure-only projects: pick a folder to add `Local` |
+| **Associate local…** | For Azure-only projects: pick a folder, then a `.csproj`/`.sln` (auto if exactly one). Incomplete Local attachments are never applied. |
 
 Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is preselected; otherwise the user selects explicitly. Zero pipelines = **Connected / Not monitored**.
 
