@@ -4,8 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.AzureDevOps;
 using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.LocalBuild;
+using BuildMonitor.Infrastructure.Security;
 using BuildMonitor.TrayApp.Services;
 using Microsoft.Win32;
 
@@ -22,6 +24,8 @@ public partial class SettingsWindow : Window
     private readonly AppThemePreference themeAtOpen;
 
     private readonly AppWindowsLayoutStore windowsLayoutStore;
+    private readonly AzureDevOpsDiscoveryClient azureDiscoveryClient = new();
+    private readonly AzureConnectionSettingsEditor azureConnectionEditor;
 
     public AppSettings Settings { get; }
 
@@ -31,6 +35,10 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         Settings = settings;
         themeAtOpen = Settings.AppBehavior.Theme;
+        azureConnectionEditor = new AzureConnectionSettingsEditor(
+            Settings,
+            new AzureConnectionSecretStore(AzureConnectionSecretStore.DefaultSecretsDirectory, new DpapiSecretProtector()),
+            azureDiscoveryClient);
 
         RunModeCombo.ItemsSource = Enum.GetValues<ProjectRunMode>();
         BuildControlModeCombo.Items.Clear();
@@ -118,6 +126,7 @@ public partial class SettingsWindow : Window
     {
         WindowLayoutService.Capture(this, windowsLayoutStore.Layout.Settings);
         _ = windowsLayoutStore.SaveAsync();
+        azureDiscoveryClient.Dispose();
 
         if (DialogResult != true)
         {
@@ -127,7 +136,7 @@ public partial class SettingsWindow : Window
         base.OnClosing(e);
     }
 
-    private void WindowLoaded(object sender, RoutedEventArgs e)
+    private async void WindowLoaded(object sender, RoutedEventArgs e)
     {
         WindowLayoutService.Apply(this, windowsLayoutStore.Layout.Settings, 980, 820);
         if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
@@ -139,6 +148,35 @@ public partial class SettingsWindow : Window
 
         var theme = ThemeService.Resolve(Settings.AppBehavior.Theme);
         ThemeService.ApplyToWindow(this, theme);
+
+        await azureConnectionEditor.LoadAsync(CancellationToken.None);
+        AzureDisplayNameText.Text = azureConnectionEditor.DraftDisplayName;
+        AzureOrganizationUrlText.Text = azureConnectionEditor.DraftOrganizationUrl;
+        AzureCredentialStatusText.Text = azureConnectionEditor.CredentialStatusText;
+        AzurePatBox.Password = string.Empty;
+        AzureConnectionResultText.Text = string.Empty;
+    }
+
+    private async void AzureTestConnectionClicked(object sender, RoutedEventArgs e)
+    {
+        SyncAzureDraftFromUi();
+        AzureConnectionResultText.Text = "Testing connection…";
+        try
+        {
+            var result = await azureConnectionEditor.TestConnectionAsync(CancellationToken.None);
+            AzureConnectionResultText.Text = $"{result.Outcome}: {result.Message}";
+        }
+        catch (Exception ex)
+        {
+            AzureConnectionResultText.Text = $"Unexpected error: {ex.Message}";
+        }
+    }
+
+    private void SyncAzureDraftFromUi()
+    {
+        azureConnectionEditor.DraftDisplayName = AzureDisplayNameText.Text?.Trim() ?? string.Empty;
+        azureConnectionEditor.DraftOrganizationUrl = AzureOrganizationUrlText.Text?.Trim() ?? string.Empty;
+        azureConnectionEditor.SetPendingPat(AzurePatBox.Password);
     }
 
     private void UpdateProjectStartBlockedHint()
@@ -658,23 +696,27 @@ public partial class SettingsWindow : Window
             : string.Empty;
     }
 
-    private void SaveClicked(object sender, RoutedEventArgs e)
+    private async void SaveClicked(object sender, RoutedEventArgs e)
     {
         CommitEditorToSelected();
         CommitMonitorAndAppSettings();
         Settings.Projects = projectItems.ToList();
 
-        var errors = AppSettingsValidator.Validate(Settings);
-        if (errors.Count > 0)
+        SyncAzureDraftFromUi();
+        var azureCommit = await azureConnectionEditor.TryCommitAfterValidationAsync(
+            AppSettingsValidator.Validate,
+            CancellationToken.None);
+        if (!azureCommit.Succeeded)
         {
             ToastNotificationService.ShowIfEnabled(
                 "Settings not saved",
-                string.Join(Environment.NewLine, errors),
+                string.Join(Environment.NewLine, azureCommit.Errors),
                 ToastKind.Warning,
                 UserNotificationCategory.Warning);
             return;
         }
 
+        AzurePatBox.Password = string.Empty;
         DialogResult = true;
         Close();
     }

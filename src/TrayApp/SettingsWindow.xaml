@@ -499,6 +499,110 @@
 
 
 
+            <TabItem Header="Azure">
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="8">
+
+                    <Border Background="{DynamicResource ThemeCardBrush}"
+
+                            BorderBrush="{DynamicResource ThemeBorderBrush}"
+
+                            BorderThickness="1"
+
+                            CornerRadius="8"
+
+                            Padding="16"
+
+                            MaxWidth="640"
+
+                            HorizontalAlignment="Left">
+
+                        <StackPanel>
+
+                            <TextBlock Text="Azure DevOps connection"
+
+                                       FontSize="16"
+
+                                       FontWeight="SemiBold"
+
+                                       Margin="0,0,0,8" />
+
+                            <TextBlock TextWrapping="Wrap"
+
+                                       Opacity="0.85"
+
+                                       Margin="0,0,0,16"
+
+                                       Text="Configure an organisation connection and PAT for discovery. Continuous Azure build monitoring and Add-from-Azure are not enabled yet." />
+
+                            <TextBlock Text="Display name" Margin="0,0,0,4" />
+
+                            <TextBox x:Name="AzureDisplayNameText" Margin="0,0,0,12" />
+
+                            <TextBlock Text="Organisation URL" Margin="0,0,0,4" />
+
+                            <TextBox x:Name="AzureOrganizationUrlText"
+
+                                     Margin="0,0,0,4"
+
+                                     ToolTip="Example: https://dev.azure.com/contoso" />
+
+                            <TextBlock Text="https://dev.azure.com/{organization}"
+
+                                       Opacity="0.7"
+
+                                       FontSize="11"
+
+                                       Margin="0,0,0,12" />
+
+                            <TextBlock x:Name="AzureCredentialStatusText"
+
+                                       Margin="0,0,0,4"
+
+                                       FontWeight="SemiBold" />
+
+                            <TextBlock Text="Personal access token" Margin="0,0,0,4" />
+
+                            <PasswordBox x:Name="AzurePatBox" Margin="0,0,0,4" />
+
+                            <TextBlock TextWrapping="Wrap"
+
+                                       Opacity="0.75"
+
+                                       FontSize="11"
+
+                                       Margin="0,0,0,12"
+
+                                       Text="Leave blank to keep the stored credential. A new value is saved only when you click Save on this window (not on Test)." />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+
+                                <Button Width="120"
+
+                                        Margin="0,0,8,0"
+
+                                        Content="Test connection"
+
+                                        Click="AzureTestConnectionClicked" />
+
+                            </StackPanel>
+
+                            <TextBlock x:Name="AzureConnectionResultText"
+
+                                       TextWrapping="Wrap"
+
+                                       MinHeight="40" />
+
+                        </StackPanel>
+
+                    </Border>
+
+                </ScrollViewer>
+
+            </TabItem>
+
+
+
             <TabItem Header="Monitor">
 
                 <Grid Margin="8">
