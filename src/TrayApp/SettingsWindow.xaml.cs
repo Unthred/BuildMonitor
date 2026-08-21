@@ -29,6 +29,7 @@ public partial class SettingsWindow : Window
     private readonly AzureConnectionSettingsEditor azureConnectionEditor;
     private readonly AzureConnectionSecretStore azureSecretStore;
     private readonly LocalGitContextReader localGitContextReader = new();
+    private readonly SettingsAzureAssociationService azureAssociationService;
 
     public AppSettings Settings { get; }
 
@@ -45,6 +46,12 @@ public partial class SettingsWindow : Window
             Settings,
             azureSecretStore,
             azureDiscoveryClient);
+        azureAssociationService = new SettingsAzureAssociationService(
+            this,
+            Settings,
+            azureDiscoveryClient,
+            azureSecretStore,
+            localGitContextReader);
 
         RunModeCombo.ItemsSource = Enum.GetValues<ProjectRunMode>();
         BuildControlModeCombo.Items.Clear();
@@ -570,66 +577,42 @@ public partial class SettingsWindow : Window
     private async void AddFromAzureClicked(object sender, RoutedEventArgs e)
     {
         CommitEditorToSelected();
-        var attachment = await RunAzureAssociationWizardAsync(
-            AzureAssociationMode.AddFromAzure,
-            title: "Add from Azure DevOps",
-            subtitle: "Create an Azure-only BuildMonitor project. Continuous monitoring is not enabled yet.",
-            localRoot: null,
-            existing: null);
-        if (attachment is null)
+        var project = await azureAssociationService.TryAddFromAzureAsync();
+        if (project is null)
         {
             return;
         }
 
-        var project = AzureAssociationCoordinator.CreateAzureOnlyProject(attachment);
         projectItems.Add(project);
         ProjectsList.SelectedItem = project;
     }
 
     private async void AttachAzureClicked(object sender, RoutedEventArgs e)
     {
-        if (selectedProject?.Local is null || selectedProject.Azure is not null)
+        if (selectedProject is null)
         {
             return;
         }
 
         CommitEditorToSelected();
-        var attachment = await RunAzureAssociationWizardAsync(
-            AzureAssociationMode.AttachToExisting,
-            title: "Attach Azure DevOps",
-            subtitle: "Associate a repository with this local project. Local settings are preserved.",
-            localRoot: selectedProject.Local.RootFolder,
-            existing: null);
-        if (attachment is null)
+        if (await azureAssociationService.TryAttachAsync(selectedProject))
         {
-            return;
+            UpdateAzureAttachmentUi(selectedProject);
         }
-
-        AzureAssociationCoordinator.AttachAzure(selectedProject, attachment);
-        UpdateAzureAttachmentUi(selectedProject);
     }
 
     private async void ChangeAzureClicked(object sender, RoutedEventArgs e)
     {
-        if (selectedProject?.Azure is null)
+        if (selectedProject is null)
         {
             return;
         }
 
         CommitEditorToSelected();
-        var attachment = await RunAzureAssociationWizardAsync(
-            AzureAssociationMode.ChangeExisting,
-            title: "Change Azure association",
-            subtitle: "Replace the Azure repository/pipeline selection for this project.",
-            localRoot: selectedProject.Local?.RootFolder,
-            existing: selectedProject.Azure);
-        if (attachment is null)
+        if (await azureAssociationService.TryChangeAsync(selectedProject))
         {
-            return;
+            UpdateAzureAttachmentUi(selectedProject);
         }
-
-        AzureAssociationCoordinator.ChangeAzure(selectedProject, attachment);
-        UpdateAzureAttachmentUi(selectedProject);
     }
 
     private void DetachAzureClicked(object sender, RoutedEventArgs e)
@@ -639,7 +622,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        if (!AzureAssociationCoordinator.TryDetachAzure(selectedProject, out var error))
+        if (!azureAssociationService.TryDetach(selectedProject, out var error))
         {
             System.Windows.MessageBox.Show(this, error, "Cannot detach Azure", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
@@ -650,61 +633,18 @@ public partial class SettingsWindow : Window
 
     private void AssociateLocalClicked(object sender, RoutedEventArgs e)
     {
-        if (selectedProject is null || selectedProject.Local is not null)
+        if (selectedProject is null)
         {
             return;
         }
 
-        var dialog = new OpenFolderDialog();
-        if (dialog.ShowDialog() != true)
+        if (!azureAssociationService.TryAssociateLocalFolder(selectedProject))
         {
             return;
         }
 
-        selectedProject.Local = new LocalProjectAttachment { RootFolder = dialog.FolderName };
-        if (string.IsNullOrWhiteSpace(selectedProject.DisplayName)
-            || selectedProject.DisplayName.Equals("Azure project", StringComparison.OrdinalIgnoreCase))
-        {
-            selectedProject.DisplayName = Path.GetFileName(dialog.FolderName.TrimEnd('\\', '/'));
-            DisplayNameText.Text = selectedProject.DisplayName;
-        }
-
+        DisplayNameText.Text = selectedProject.DisplayName;
         LoadEditorFromProject(selectedProject);
-    }
-
-    private async Task<AzureDevOpsProjectAttachment?> RunAzureAssociationWizardAsync(
-        AzureAssociationMode mode,
-        string title,
-        string subtitle,
-        string? localRoot,
-        AzureDevOpsProjectAttachment? existing)
-    {
-        var connection = Settings.Connections.FirstOrDefault();
-        if (connection is null || string.IsNullOrWhiteSpace(connection.OrganizationUrl))
-        {
-            System.Windows.MessageBox.Show(
-                this,
-                "Configure an Azure DevOps connection on the Azure tab first.",
-                "Azure connection required",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return null;
-        }
-
-        var coordinator = new AzureAssociationCoordinator(
-            azureDiscoveryClient,
-            (id, ct) => azureSecretStore.LoadAsync(id, ct),
-            localGitContextReader);
-
-        var ok = await coordinator.InitializeAsync(mode, connection, CancellationToken.None, localRoot, existing);
-        if (!ok && !string.IsNullOrWhiteSpace(coordinator.StatusMessage))
-        {
-            System.Windows.MessageBox.Show(this, coordinator.StatusMessage, "Azure discovery", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return null;
-        }
-
-        var wizard = new AzureAssociationWizardWindow(coordinator, title, subtitle) { Owner = this };
-        return wizard.ShowDialog() == true ? wizard.ResultAttachment : null;
     }
 
     private void RemoveProjectClicked(object sender, RoutedEventArgs e)
