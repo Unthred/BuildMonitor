@@ -1429,6 +1429,11 @@ public partial class App : System.Windows.Application
         }
 
         var saved = window.ShowDialog() == true;
+        if (Volatile.Read(ref exitRequested) != 0)
+        {
+            return;
+        }
+
         if (!saved)
         {
             return;
@@ -1490,6 +1495,8 @@ public partial class App : System.Windows.Application
     {
         if (Interlocked.Exchange(ref exitRequested, 1) != 0)
         {
+            // Prior Exit/quit accepted but process stayed alive (e.g. hung child stop).
+            Environment.Exit(0);
             return;
         }
 
@@ -1506,8 +1513,24 @@ public partial class App : System.Windows.Application
             trayContextMenu.Hide();
         }
 
-        // Defer until after the context menu finishes handling the click.
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => _ = ExitAsync());
+        // Normal (not ApplicationIdle): Idle can be delayed while watch/UI work is busy.
+        // Defer one pump so WinForms tray menu can finish its click handler.
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, () => _ = ExitAsync());
+
+        // Hard deadline so /app/quit and tray Exit cannot leave a zombie holding binaries.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            Environment.Exit(0);
+        });
     }
 
     private async Task ExitAsync()
@@ -1548,6 +1571,19 @@ public partial class App : System.Windows.Application
             WorkerHealthRegistry.Shared.Unregister("ui.health-callback");
             hoverPanel?.Close();
             hoverPanel = null;
+
+            // Settings / wizards use ShowDialog — close them so Shutdown is not blocked.
+            foreach (Window window in Windows.Cast<Window>().ToList())
+            {
+                try
+                {
+                    window.Close();
+                }
+                catch
+                {
+                    // ignore during shutdown
+                }
+            }
 
             if (orchestrator is not null)
             {

@@ -8,6 +8,7 @@ public sealed record ProcessStopResult(bool Success, string? Error);
 public static class ProcessTerminationHelper
 {
     private static readonly TimeSpan DefaultGracePeriod = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultKillWait = TimeSpan.FromSeconds(5);
 
     public static async Task<ProcessStopResult> TryStopGracefullyAsync(
         Process process,
@@ -55,7 +56,19 @@ public static class ProcessTerminationHelper
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(cancellationToken);
+                // Never wait forever — CancellationToken.None used to hang tray Exit / deploy quit.
+                using var killWait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                killWait.CancelAfter(DefaultKillWait);
+                try
+                {
+                    await process.WaitForExitAsync(killWait.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return new ProcessStopResult(
+                        false,
+                        DescribeFailure(process, "Process did not exit after kill", null));
+                }
             }
 
             return process.HasExited

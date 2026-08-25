@@ -21,6 +21,8 @@ The script:
 
 If quit is unavailable (build without `/app/quit`, or tray already stopped), exit BuildMonitor from the tray menu once, then re-run deploy. The script does **not** kill the process.
 
+Builds that include the exit failsafe will still terminate within ~20s after a successful `/app/quit` (or a second Exit forces an immediate hard exit) so a hung child stop cannot leave binaries locked indefinitely.
+
 Override the folder:
 
 ```powershell

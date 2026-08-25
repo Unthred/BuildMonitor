@@ -32,7 +32,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/projects` | List configured projects (`id`, `displayName`, `rootFolder`, …) |
-| POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — use before Release deploy |
+| POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — use before Release deploy. Tray builds with the exit failsafe hard-exit within ~20s if graceful shutdown stalls; a second quit/Exit forces immediate hard exit. |
 | GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
 | POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — agent editing |
