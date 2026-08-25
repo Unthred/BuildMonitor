@@ -145,7 +145,7 @@ public partial class HoverStatusPanel : Window
 
         if (rebuildCards)
         {
-            RebuildProjectCards(presentation.Cards, palette);
+            RebuildProjectCards(presentation.Cards, presentation.SideRail, palette);
             lastRenderedPresentation = presentation;
             ScheduleFitPanelToContent(repositionAfter: true);
         }
@@ -163,7 +163,10 @@ public partial class HoverStatusPanel : Window
         SyncCountdownTimer(snapshots);
     }
 
-    private void RebuildProjectCards(IReadOnlyList<StatusPanelCardPresentation> cards, ThemePalette palette)
+    private void RebuildProjectCards(
+        IReadOnlyList<StatusPanelCardPresentation> cards,
+        StatusPanelSideRailPresentation sideRail,
+        ThemePalette palette)
     {
         ProjectCards.Items.Clear();
 
@@ -173,8 +176,8 @@ public partial class HoverStatusPanel : Window
             {
                 BorderBrush = new SolidColorBrush(palette.Border),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 0, 0, 3),
-                Padding = new Thickness(5, 4, 5, 4),
+                Margin = new Thickness(0, 0, 0, 2),
+                Padding = new Thickness(6, 4, 6, 4),
                 Background = new SolidColorBrush(palette.CardBackground)
             };
 
@@ -191,7 +194,7 @@ public partial class HoverStatusPanel : Window
             if (cardModel.StatusRows.Count > 0)
             {
                 panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("LOCAL", palette));
-                panel.Children.Add(StatusPanelVisuals.BuildStatusRows(cardModel.StatusRows, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildLocalDenseGrid(cardModel.StatusRows, palette));
             }
 
             if (cardModel.Azure is { ShowSection: true })
@@ -209,7 +212,7 @@ public partial class HoverStatusPanel : Window
                     FontSize = 11,
                     FontStyle = FontStyles.Italic,
                     TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 4, 0, 0)
+                    Margin = new Thickness(0, 3, 0, 0)
                 });
             }
 
@@ -242,10 +245,15 @@ public partial class HoverStatusPanel : Window
                 panel.Children.Add(StatusPanelVisuals.BuildActivityIndicator(cardModel.ActivityState, palette));
             }
 
+            var actionRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
             var actions = new StackPanel
             {
                 Orientation = WpfOrientation.Horizontal,
-                Margin = new Thickness(0, 4, 0, 2)
+                HorizontalAlignment = WpfHorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center
             };
 
             var viewLog = new WpfButton
@@ -321,7 +329,14 @@ public partial class HoverStatusPanel : Window
                 actions.Children.Add(runTests);
             }
 
-            panel.Children.Add(actions);
+            Grid.SetColumn(actions, 0);
+            actionRow.Children.Add(actions);
+
+            var overall = StatusPanelVisuals.BuildOverallFooterSummary(sideRail, palette);
+            Grid.SetColumn(overall, 1);
+            actionRow.Children.Add(overall);
+
+            panel.Children.Add(actionRow);
 
             card.Child = panel;
             ProjectCards.Items.Add(card);
@@ -419,29 +434,15 @@ public partial class HoverStatusPanel : Window
 
     private void ApplySideRail(StatusPanelSideRailPresentation sideRail, ThemePalette palette)
     {
-        AccentColumn.Width = new GridLength(StatusPanelLayout.AccentColumnWidth);
-
-        if (sideRail.Mode == StatusPanelSideRailMode.Accent)
-        {
-            ActiveAccentContent.Visibility = Visibility.Visible;
-            IdleStatusContent.Visibility = Visibility.Collapsed;
-
-            var accent = AccentColorForHealth(sideRail.AccentHealth);
-            ApplyAccentRailTheme(accent, palette);
-            AccentLabel.Text = sideRail.ActivityLabel;
-
-            if (!accentAnimTimer.IsEnabled)
-            {
-                accentAnimTimer.Start();
-            }
-
-            return;
-        }
-
+        // Overall health is shown in the action footer; keep the legacy rail collapsed.
+        _ = palette;
+        _ = sideRail;
+        AccentColumn.Width = new GridLength(0);
+        SideRail.Width = 0;
+        SideRail.Visibility = Visibility.Collapsed;
         ActiveAccentContent.Visibility = Visibility.Collapsed;
-        IdleStatusContent.Visibility = Visibility.Visible;
+        IdleStatusContent.Visibility = Visibility.Collapsed;
         accentAnimTimer.Stop();
-        ApplyIdleRailTheme(sideRail, palette);
     }
 
     private static WpfColor AccentColorForHealth(MonitorHealth health) =>
@@ -567,11 +568,12 @@ public partial class HoverStatusPanel : Window
     private bool FitPanelToContent()
     {
         Width = StatusPanelLayout.WindowWidth;
-        MinWidth = StatusPanelLayout.WindowWidth;
+        MinWidth = StatusPanelLayout.WindowMinWidth;
         MaxWidth = StatusPanelLayout.WindowMaxWidth;
         HeaderRow.Height = new GridLength(StatusPanelLayout.HeaderRowHeight);
-        AccentColumn.Width = new GridLength(StatusPanelLayout.AccentColumnWidth);
-        SideRail.Width = StatusPanelLayout.SideRailWidth;
+        AccentColumn.Width = new GridLength(0);
+        SideRail.Width = 0;
+        SideRail.Visibility = Visibility.Collapsed;
 
         ProjectCards.UpdateLayout();
         ProjectCards.Measure(new WpfSize(StatusPanelLayout.ContentMeasureWidth, double.PositiveInfinity));

@@ -419,8 +419,9 @@ public sealed class StatusPanelPresentationBuilderTests
     [Fact]
     public void Status_panel_window_width_is_wide_enough_for_azure_table()
     {
-        Assert.Equal(760, StatusPanelMetrics.WindowWidth);
-        Assert.Equal(800, StatusPanelMetrics.WindowMaxWidth);
+        Assert.Equal(620, StatusPanelMetrics.WindowWidth);
+        Assert.Equal(600, StatusPanelMetrics.WindowMinWidth);
+        Assert.Equal(640, StatusPanelMetrics.WindowMaxWidth);
         Assert.True(StatusPanelMetrics.ContentMeasureWidth > 500);
     }
 

@@ -19,6 +19,11 @@ public static class StatusPanelPresentationChangeDetector
             return true;
         }
 
+        if (previous.SideRail != current.SideRail)
+        {
+            return true;
+        }
+
         for (var i = 0; i < current.Cards.Count; i++)
         {
             if (previous.Cards[i] != current.Cards[i])

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -12,11 +13,16 @@ using WpfRectangle = System.Windows.Shapes.Rectangle;
 
 namespace BuildMonitor.TrayApp.Services;
 
-internal static class StatusPanelVisuals
+internal static partial class StatusPanelVisuals
 {
+    [GeneratedRegex(
+        @"^(?<errors>[\d,]+)\s+errors\s*·\s*(?<warnings>[\d,]+)\s+warnings$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex IssueCountsRegex();
+
     public static UIElement BuildStepProgressChart(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
     {
-        var container = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var container = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
 
         container.Children.Add(new TextBlock
         {
@@ -25,7 +31,7 @@ internal static class StatusPanelVisuals
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(palette.Foreground),
             Opacity = 0.9,
-            Margin = new Thickness(0, 0, 0, 4)
+            Margin = new Thickness(0, 0, 0, 3)
         });
 
         var bar = new Grid { Height = 8 };
@@ -49,7 +55,7 @@ internal static class StatusPanelVisuals
 
         container.Children.Add(bar);
 
-        var legend = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var legend = new WrapPanel { Margin = new Thickness(0, 3, 0, 0) };
         foreach (var step in steps)
         {
             legend.Children.Add(new TextBlock
@@ -65,79 +71,222 @@ internal static class StatusPanelVisuals
         return container;
     }
 
-    public static UIElement BuildStatusRows(
+    /// <summary>Dense LOCAL grid: label/value pairs use horizontal space (Mode/Build | Errors/Warnings).</summary>
+    public static UIElement BuildLocalDenseGrid(
         IReadOnlyList<StatusPanelStatusRow> rows,
         ThemePalette palette)
     {
-        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var byLabel = rows.ToDictionary(r => r.Label, StringComparer.OrdinalIgnoreCase);
+        byLabel.TryGetValue("MODE", out var mode);
+        byLabel.TryGetValue("BUILD", out var build);
+        byLabel.TryGetValue("CHANGES", out var changes);
+        byLabel.TryGetValue("AGENT", out var agent);
+        byLabel.TryGetValue("LAST BUILD", out var lastBuild);
 
-        for (var i = 0; i < rows.Count; i++)
+        var errors = "0";
+        var warnings = "0";
+        if (build?.Secondary is { } counts
+            && IssueCountsRegex().Match(counts) is { Success: true } match)
+        {
+            errors = match.Groups["errors"].Value;
+            warnings = match.Groups["warnings"].Value;
+        }
+
+        var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star), MinWidth = 100 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 48 });
+
+        var rowIndex = 0;
+        void AddRow()
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var row = rows[i];
-            var primaryBrush = EmphasisBrush(row.Emphasis, palette);
+        }
 
-            var label = new TextBlock
-            {
-                Text = row.Label,
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold,
-                Opacity = 0.55,
-                Foreground = new SolidColorBrush(palette.Foreground),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 1, 6, 1)
-            };
-            Grid.SetRow(label, i);
-            Grid.SetColumn(label, 0);
-            grid.Children.Add(label);
+        if (mode is not null)
+        {
+            AddRow();
+            AddDenseLabel(grid, rowIndex, 0, "Mode", palette);
+            AddDenseValue(grid, rowIndex, 1, mode.Primary, EmphasisBrush(mode.Emphasis, palette), mode.ToolTip);
+            AddDenseLabel(grid, rowIndex, 2, "Errors", palette);
+            AddDenseValue(grid, rowIndex, 3, errors, new SolidColorBrush(palette.Foreground), null);
+            rowIndex++;
+        }
 
-            var primary = new TextBlock
+        if (build is not null)
+        {
+            AddRow();
+            AddDenseLabel(grid, rowIndex, 0, "Build", palette);
+            AddDenseValue(grid, rowIndex, 1, build.Primary, EmphasisBrush(build.Emphasis, palette), build.ToolTip);
+            AddDenseLabel(grid, rowIndex, 2, "Warnings", palette);
+            AddDenseValue(grid, rowIndex, 3, warnings, new SolidColorBrush(palette.Foreground), null);
+            rowIndex++;
+        }
+
+        if (agent is not null)
+        {
+            AddRow();
+            AddDenseLabel(grid, rowIndex, 0, "Agent", palette);
+            AddDenseValue(grid, rowIndex, 1, agent.Primary, EmphasisBrush(agent.Emphasis, palette), agent.ToolTip);
+            if (!string.IsNullOrWhiteSpace(agent.Secondary))
             {
-                Text = row.Primary,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = primaryBrush,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 1, 8, 1)
-            };
-            if (!string.IsNullOrWhiteSpace(row.ToolTip))
-            {
-                primary.ToolTip = row.ToolTip;
+                AddDenseValue(grid, rowIndex, 3, agent.Secondary!, new SolidColorBrush(palette.Foreground) { Opacity = 0.75 }, null);
             }
 
-            Grid.SetRow(primary, i);
-            Grid.SetColumn(primary, 1);
-            grid.Children.Add(primary);
+            rowIndex++;
+        }
 
-            if (!string.IsNullOrWhiteSpace(row.Secondary))
+        if (changes is not null)
+        {
+            AddRow();
+            AddDenseLabel(grid, rowIndex, 0, "Changes", palette);
+            AddDenseValue(grid, rowIndex, 1, changes.Primary, EmphasisBrush(changes.Emphasis, palette), changes.ToolTip);
+            if (!string.IsNullOrWhiteSpace(changes.Secondary))
             {
-                var secondary = new TextBlock
-                {
-                    Text = row.Secondary,
-                    FontSize = 10,
-                    Foreground = new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = WpfHorizontalAlignment.Right,
-                    Margin = new Thickness(0, 1, 0, 1)
-                };
-                if (!string.IsNullOrWhiteSpace(row.ToolTip))
-                {
-                    secondary.ToolTip = row.ToolTip;
-                }
+                AddDenseValue(
+                    grid,
+                    rowIndex,
+                    3,
+                    changes.Secondary!,
+                    new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
+                    null);
+            }
 
-                Grid.SetRow(secondary, i);
-                Grid.SetColumn(secondary, 2);
-                grid.Children.Add(secondary);
+            rowIndex++;
+        }
+
+        if (lastBuild is not null)
+        {
+            AddRow();
+            AddDenseLabel(grid, rowIndex, 0, "Last build", palette);
+            AddDenseValue(grid, rowIndex, 1, lastBuild.Primary, EmphasisBrush(lastBuild.Emphasis, palette), lastBuild.ToolTip);
+            if (!string.IsNullOrWhiteSpace(lastBuild.Secondary))
+            {
+                AddDenseValue(
+                    grid,
+                    rowIndex,
+                    3,
+                    lastBuild.Secondary!,
+                    new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
+                    null);
             }
         }
 
         return grid;
     }
+
+    private static void AddDenseLabel(Grid grid, int row, int column, string text, ThemePalette palette)
+    {
+        var label = new TextBlock
+        {
+            Text = text,
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Opacity = 0.55,
+            Foreground = new SolidColorBrush(palette.Foreground),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 1, 6, 1)
+        };
+        Grid.SetRow(label, row);
+        Grid.SetColumn(label, column);
+        grid.Children.Add(label);
+    }
+
+    private static void AddDenseValue(
+        Grid grid,
+        int row,
+        int column,
+        string text,
+        SolidColorBrush brush,
+        string? toolTip)
+    {
+        var value = new TextBlock
+        {
+            Text = text,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = brush,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 1, 8, 1)
+        };
+        if (!string.IsNullOrWhiteSpace(toolTip))
+        {
+            value.ToolTip = toolTip;
+        }
+
+        Grid.SetRow(value, row);
+        Grid.SetColumn(value, column);
+        grid.Children.Add(value);
+    }
+
+    public static UIElement BuildOverallFooterSummary(
+        StatusPanelSideRailPresentation sideRail,
+        ThemePalette palette)
+    {
+        var health = sideRail.Mode == StatusPanelSideRailMode.Accent
+            ? sideRail.AccentHealth
+            : sideRail.IdleHealth;
+        var label = sideRail.Mode == StatusPanelSideRailMode.Accent
+            ? sideRail.ActivityLabel
+            : sideRail.IdleLabel;
+        var glyph = health switch
+        {
+            MonitorHealth.Red => "●",
+            MonitorHealth.Amber => "●",
+            MonitorHealth.Green => "●",
+            _ => "○"
+        };
+        var color = health switch
+        {
+            MonitorHealth.Red => WpfColor.FromRgb(220, 53, 69),
+            MonitorHealth.Amber => WpfColor.FromRgb(255, 193, 7),
+            MonitorHealth.Green => WpfColor.FromRgb(40, 167, 69),
+            _ => WpfColor.FromRgb(108, 117, 125)
+        };
+
+        var panel = new StackPanel
+        {
+            Orientation = WpfOrientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = WpfHorizontalAlignment.Right
+        };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Overall",
+            FontSize = 9,
+            FontWeight = FontWeights.SemiBold,
+            Opacity = 0.65,
+            Foreground = new SolidColorBrush(palette.Foreground),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = glyph,
+            FontSize = 11,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(color),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(color),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        return panel;
+    }
+
+    public static UIElement BuildStatusRows(
+        IReadOnlyList<StatusPanelStatusRow> rows,
+        ThemePalette palette) =>
+        BuildLocalDenseGrid(rows, palette);
 
     private static SolidColorBrush EmphasisBrush(StatusPanelRowEmphasis emphasis, ThemePalette palette) =>
         emphasis switch
@@ -310,16 +459,19 @@ internal static class StatusPanelVisuals
     {
         var canonicalUrl = listenUrl;
         var readyGreen = WpfColor.FromRgb(40, 167, 69);
-        var panel = new StackPanel();
-        panel.Children.Add(new TextBlock
+        var row = new DockPanel { LastChildFill = true };
+        row.Children.Add(new TextBlock
         {
             Text = "Site ready",
-            FontSize = 11,
+            FontSize = 10,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(readyGreen)
+            Foreground = new SolidColorBrush(readyGreen),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0)
         });
+        DockPanel.SetDock(row.Children[0], Dock.Left);
 
-        var linkRow = new TextBlock { Margin = new Thickness(0, 3, 0, 0) };
+        var linkBlock = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         if (Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri))
         {
             var link = new Hyperlink
@@ -344,28 +496,29 @@ internal static class StatusPanelVisuals
 
                 e.Handled = true;
             };
-            linkRow.Inlines.Add(link);
+            linkBlock.Inlines.Add(link);
         }
         else
         {
-            linkRow.Inlines.Add(new Run(canonicalUrl)
+            linkBlock.Inlines.Add(new Run(canonicalUrl)
             {
                 Foreground = new SolidColorBrush(palette.Foreground),
                 FontWeight = FontWeights.SemiBold
             });
         }
 
-        panel.Children.Add(linkRow);
+        row.Children.Add(linkBlock);
 
         return new Border
         {
             Margin = new Thickness(0, 4, 0, 0),
-            Padding = new Thickness(8, 5, 8, 5),
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1.5),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(readyGreen),
-            Background = new SolidColorBrush(Blend(readyGreen, palette.CardBackground, 0.86f)),
-            Child = panel
+            Background = new SolidColorBrush(Blend(readyGreen, palette.CardBackground, 0.88f)),
+            HorizontalAlignment = WpfHorizontalAlignment.Stretch,
+            Child = row
         };
     }
 
@@ -377,7 +530,7 @@ internal static class StatusPanelVisuals
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(palette.Foreground),
             Opacity = 0.75,
-            Margin = new Thickness(0, 6, 0, 2)
+            Margin = new Thickness(0, 4, 0, 1)
         };
 
     public static UIElement BuildAzureSection(AzureStatusPresentation azure, ThemePalette palette)
@@ -443,13 +596,13 @@ internal static class StatusPanelVisuals
     private static UIElement BuildAzureTable(IReadOnlyList<AzureStatusTableRow> rows, ThemePalette palette)
     {
         var grid = new Grid();
-        // Star for pipeline/branch (ellipsis OK); Auto for Run / Build No. / PR so normal ids stay fully visible.
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star), MinWidth = 110 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star), MinWidth = 96 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star), MinWidth = 90 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 44 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 96 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 36 });
+        // Pipeline/Branch flexible; Status/Run/Build No./PR hug content so the row stays dense.
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.6, GridUnitType.Star), MinWidth = 88 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 72 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star), MinWidth = 56, MaxWidth = 140 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 40 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 88 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 32 });
 
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         AddAzureHeaderCell(grid, 0, 0, "Pipeline", palette);

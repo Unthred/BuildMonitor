@@ -6,6 +6,7 @@ namespace BuildMonitor.TrayApp;
 internal static class StatusPanelLayout
 {
     public const double WindowWidth = StatusPanelMetrics.WindowWidth;
+    public const double WindowMinWidth = StatusPanelMetrics.WindowMinWidth;
     public const double WindowMaxWidth = StatusPanelMetrics.WindowMaxWidth;
     public const double AccentColumnWidth = StatusPanelMetrics.AccentColumnWidth;
     public const double SideRailWidth = StatusPanelMetrics.SideRailWidth;
