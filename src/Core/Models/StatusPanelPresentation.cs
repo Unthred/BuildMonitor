@@ -46,7 +46,8 @@ public sealed record StatusPanelCardPresentation(
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
     string? StillEditingToolTip,
-    bool ShowControlPlaneSection = false);
+    bool ShowControlPlaneSection = false,
+    AzureStatusPresentation? Azure = null);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

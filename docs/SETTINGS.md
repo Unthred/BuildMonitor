@@ -7,7 +7,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 A **project** is a logical software product with optional attachments:
 
 - `local` — folder + .csproj/.sln + run/watch/test options (existing behaviour)
-- `azure` — Azure DevOps repository association (**configurable** via Add from Azure / Attach; continuous polling/status **not** enabled yet)
+- `azure` — Azure DevOps repository association (**configurable**; continuous polling + status panel when Active in session and ≥1 pipeline selected)
 
 At least one attachment is required. Top-level `connections` hold Azure DevOps organisation URLs (credentials are **not** stored in this file).
 
@@ -106,11 +106,11 @@ On the **Projects** tab:
 | **Detach** | Removes Azure attachment only; blocked for Azure-only projects |
 | **Associate local…** | For Azure-only projects: pick a folder, then a `.csproj`/`.sln` (auto if exactly one). Incomplete Local attachments are never applied. |
 
-Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is preselected; otherwise the user selects explicitly. Zero pipelines = **Connected / Not monitored**.
+Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is preselected; otherwise the user selects explicitly. Zero pipelines = **Connected / Not monitored** (no polling).
 
-Local Git (`git` on PATH): current branch / detached / unavailable plus remotes are used for attach suggestions only — **not** for health or polling yet.
+Local Git (`git` on PATH): current branch / detached / unavailable plus remotes are used for attach suggestions and **status-panel focus** (not health eligibility).
 
-**Azure association is configurable; continuous Azure build monitoring/status is still not enabled (Slice 3B).**
+**Continuous Azure monitoring (Slice 3B)** runs for **Active in session** projects with ≥1 pipeline and a configured connection. Auth/network loss is Amber (not CI Red). Cancelled builds are Neutral. Hover panel shows an AZURE section; tray colour merges Local + Azure. **Notifications and stage/job timeline remain deferred.**
 
 ## Azure association (project attachment)
 

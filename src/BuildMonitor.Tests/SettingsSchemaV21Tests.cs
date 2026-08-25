@@ -303,6 +303,7 @@ public sealed class AppSettingsValidatorAttachmentTests
     [InlineData(AzureCiMonitoringState.Healthy, AzureMonitoringAvailability.Available, MonitorHealth.Green)]
     [InlineData(AzureCiMonitoringState.Failed, AzureMonitoringAvailability.Available, MonitorHealth.Red)]
     [InlineData(AzureCiMonitoringState.Healthy, AzureMonitoringAvailability.AuthRequired, MonitorHealth.Amber)]
+    [InlineData(AzureCiMonitoringState.NotMonitored, AzureMonitoringAvailability.AuthRequired, MonitorHealth.Amber)]
     [InlineData(AzureCiMonitoringState.Activity, AzureMonitoringAvailability.Unavailable, MonitorHealth.Amber)]
     public void Azure_health_contribution_contract(
         AzureCiMonitoringState ci,

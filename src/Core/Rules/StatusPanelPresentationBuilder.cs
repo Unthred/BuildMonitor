@@ -66,6 +66,13 @@ public static class StatusPanelPresentationBuilder
 
         var statusRows = BuildStatusRows(snapshot, controlPlane, utcNow);
         var currentAction = ResolveCurrentAction(snapshot, controlPlane, statusRows);
+        var azurePresentation = snapshot.Azure is null
+            ? null
+            : AzureStatusPresentationBuilder.Build(
+                snapshot.Azure,
+                azureAttached: true,
+                hasSelectedPipelines: snapshot.Azure.HasSelectedPipelines,
+                utcNow);
 
         return new StatusPanelCardPresentation(
             ProjectId: snapshot.ProjectId,
@@ -89,7 +96,8 @@ public static class StatusPanelPresentationBuilder
             ShowRunTestsButton: true,
             ShowStillEditingButton: false,
             StillEditingToolTip: null,
-            ShowControlPlaneSection: controlPlane.ShowControlPlaneSection);
+            ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
+            Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null);
     }
 
     private static IReadOnlyList<StatusPanelStatusRow> BuildStatusRows(

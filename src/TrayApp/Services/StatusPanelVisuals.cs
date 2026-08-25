@@ -368,4 +368,82 @@ internal static class StatusPanelVisuals
             Child = panel
         };
     }
+
+    public static UIElement BuildAzureSection(AzureStatusPresentation azure, ThemePalette palette)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = azure.HeaderLabel,
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(palette.Foreground),
+            Opacity = 0.75,
+            Margin = new Thickness(0, 0, 0, 2)
+        });
+
+        var primary = new TextBlock
+        {
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = EmphasisBrush(azure.Emphasis, palette),
+            TextWrapping = TextWrapping.Wrap
+        };
+        primary.Inlines.Add(new Run(azure.Glyph + " ") { FontWeight = FontWeights.Bold });
+        if (!string.IsNullOrWhiteSpace(azure.RunUrl))
+        {
+            var link = new Hyperlink(new Run(azure.PrimaryLine))
+            {
+                NavigateUri = new Uri(azure.RunUrl),
+                ToolTip = "Open in Azure DevOps"
+            };
+            link.RequestNavigate += (_, e) =>
+            {
+                e.Handled = true;
+                try
+                {
+                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+                }
+                catch
+                {
+                    // ignore launch failures
+                }
+            };
+            primary.Inlines.Add(link);
+        }
+        else
+        {
+            primary.Inlines.Add(new Run(azure.PrimaryLine));
+        }
+
+        panel.Children.Add(primary);
+
+        if (!string.IsNullOrWhiteSpace(azure.SecondaryLine))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = azure.SecondaryLine,
+                FontSize = 10,
+                Foreground = new SolidColorBrush(palette.Foreground),
+                Opacity = 0.85,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(14, 1, 0, 0)
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(azure.AttentionLine))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = azure.AttentionLine,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(200, 80, 60)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(14, 2, 0, 0)
+            });
+        }
+
+        return panel;
+    }
 }

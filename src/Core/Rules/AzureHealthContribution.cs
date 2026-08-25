@@ -4,7 +4,7 @@ namespace BuildMonitor.Core.Rules;
 
 /// <summary>
 /// Maps Azure CI + availability into tray <see cref="MonitorHealth"/> contributions.
-/// Contract only for Slice 1; not wired into the coalescer yet.
+/// Auth/network loss is Amber when monitoring is configured; NotMonitored (zero pipelines) contributes nothing.
 /// </summary>
 public static class AzureHealthContribution
 {
@@ -12,15 +12,16 @@ public static class AzureHealthContribution
         AzureCiMonitoringState ci,
         AzureMonitoringAvailability availability)
     {
-        if (ci == AzureCiMonitoringState.NotMonitored)
-        {
-            return null;
-        }
-
+        // Availability first: AuthRequired/Unavailable must Amber even when CiState is a placeholder NotMonitored.
         if (availability is AzureMonitoringAvailability.AuthRequired
             or AzureMonitoringAvailability.Unavailable)
         {
             return MonitorHealth.Amber;
+        }
+
+        if (ci == AzureCiMonitoringState.NotMonitored)
+        {
+            return null;
         }
 
         return ci switch

@@ -2,9 +2,12 @@ using System.Text;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
+using BuildMonitor.Infrastructure.AzureDevOps;
 using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.Diagnostics;
+using BuildMonitor.Infrastructure.Git;
 using BuildMonitor.Infrastructure.LocalBuild;
+using BuildMonitor.Infrastructure.Security;
 
 namespace BuildMonitor.Infrastructure.Services;
 
@@ -21,6 +24,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
+    private readonly AzureMonitoringService azureMonitoring;
     private AppSettings settings = new();
     private Action<AppSettings>? settingsPersistRequested;
 
@@ -48,7 +52,20 @@ public sealed partial class ProjectOrchestrator : IDisposable
             "HealthUpdated event (background → UI)",
             TimeSpan.FromMilliseconds(750),
             "Background");
-        healthCoalescer = new HealthCoalescer(GetCoalescerState, PublishHealthFromCoalescer);
+        Action? notifyFacetUpdated = null;
+        azureMonitoring = new AzureMonitoringService(
+            new AzureBuildPollClient(),
+            new AzureConnectionSecretStore(
+                Path.Combine(dataRoot, "secrets"),
+                new DpapiSecretProtector()),
+            new LocalGitContextReader(),
+            () => notifyFacetUpdated?.Invoke());
+        healthCoalescer = new HealthCoalescer(
+            GetCoalescerState,
+            azureMonitoring.TryGetFacet,
+            PublishHealthFromCoalescer);
+        notifyFacetUpdated = () => healthCoalescer.Request(immediate: true);
+        azureMonitoring.Start();
     }
 
     public ControlPlaneSessionStore SessionStore => sessionStore;
@@ -61,14 +78,11 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
-    private (IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive) GetCoalescerState()
+    private (IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Projects) GetCoalescerState()
     {
         lock (sync)
         {
-            var inactive = settings.Projects
-                .Where(p => !p.IsActiveInSession)
-                .ToList();
-            return (runtimes.Values.ToList(), inactive);
+            return (runtimes.Values.ToList(), settings.Projects.ToList());
         }
     }
 
@@ -236,6 +250,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
             StopProject(id);
         }
 
+        azureMonitoring.ApplySettings(newSettings);
         healthCoalescer.Request(immediate: true);
     }
 
@@ -483,6 +498,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
     public void Dispose()
     {
+        azureMonitoring.Dispose();
         healthCoalescer.Dispose();
         lock (sync)
         {

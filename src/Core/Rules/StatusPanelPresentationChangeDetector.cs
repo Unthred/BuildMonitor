@@ -69,7 +69,8 @@ public static class StatusPanelPresentationChangeDetector
                 || prev.ShowControlPlaneSection != card.ShowControlPlaneSection
                 || prev.ShowActivityIndicator != card.ShowActivityIndicator
                 || prev.ShowProgressChart != card.ShowProgressChart
-                || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps))
+                || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps)
+                || prev.Azure != card.Azure)
             {
                 return true;
             }

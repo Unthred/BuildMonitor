@@ -1,19 +1,12 @@
-using BuildMonitor.Core.Models;
-using BuildMonitor.Core.Settings;
-
 namespace BuildMonitor.Infrastructure.AzureDevOps;
 
-public sealed class AzureDevOpsDeepLinkBuilder(AzureDevOpsSettings settings)
+/// <summary>Builds Azure DevOps build-results URLs (run page only — no stage/job fabrication).</summary>
+public static class AzureDevOpsDeepLinkBuilder
 {
-    public string BuildRunUrl(PipelineSnapshot pipeline) =>
-        $"{settings.OrganizationUrl.TrimEnd('/')}/{settings.Project}/_build/results?buildId={pipeline.RunId}&view=results";
-
-    public string StageUrl(PipelineSnapshot pipeline, StageSnapshot stage)
+    public static string BuildRunResultsUrl(string organizationUrl, string adoProjectIdOrName, long buildId)
     {
-        var stageFilter = Uri.EscapeDataString(stage.StageName);
-        return $"{settings.OrganizationUrl.TrimEnd('/')}/{settings.Project}/_build/results?buildId={pipeline.RunId}&view=results&j={stageFilter}&t={stageFilter}";
+        var org = organizationUrl.TrimEnd('/');
+        var project = Uri.EscapeDataString(adoProjectIdOrName.Trim());
+        return $"{org}/{project}/_build/results?buildId={buildId}&view=results";
     }
-
-    public string Resolve(PipelineSnapshot pipeline, StageSnapshot? stage) =>
-        stage is null ? BuildRunUrl(pipeline) : StageUrl(pipeline, stage);
 }

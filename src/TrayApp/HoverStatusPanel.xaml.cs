@@ -192,6 +192,11 @@ public partial class HoverStatusPanel : Window
                 panel.Children.Add(StatusPanelVisuals.BuildStatusRows(cardModel.StatusRows, palette));
             }
 
+            if (cardModel.Azure is { ShowSection: true })
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, palette));
+            }
+
             if (!string.IsNullOrWhiteSpace(cardModel.CurrentActionText))
             {
                 panel.Children.Add(new TextBlock

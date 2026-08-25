@@ -9,28 +9,32 @@ namespace BuildMonitor.Infrastructure.Services;
 /// <summary>
 /// Background coalescer for project health snapshots. Parses build output and publishes
 /// tray health at a bounded rate so the UI thread is not flooded during large builds.
+/// Merges optional Azure facets into the same snapshot stream (no parallel tray publisher).
 /// </summary>
 internal sealed class HealthCoalescer : IDisposable
 {
     private const int CoalesceIntervalMs = 250;
 
-    private readonly Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive)> getState;
+    private readonly Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Projects)> getState;
+    private readonly Func<string, ProjectAzureHealthFacet?> getAzureFacet;
     private readonly Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish;
     private readonly Channel<bool> wakeChannel = Channel.CreateUnbounded<bool>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly CancellationTokenSource disposeCts = new();
     private readonly Task loopTask;
     private readonly object cacheSync = new();
-    private readonly Dictionary<string, ProjectHealthSnapshot> snapshotCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProjectHealthSnapshot> localSnapshotCache = new(StringComparer.OrdinalIgnoreCase);
 
     private int trayMenuOpen;
     private int pendingPublish;
 
     public HealthCoalescer(
-        Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Inactive)> getState,
+        Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Projects)> getState,
+        Func<string, ProjectAzureHealthFacet?> getAzureFacet,
         Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish)
     {
         this.getState = getState;
+        this.getAzureFacet = getAzureFacet;
         this.publish = publish;
         WorkerHealthRegistry.Shared.Register(
             "health.coalescer",
@@ -46,10 +50,7 @@ internal sealed class HealthCoalescer : IDisposable
         loopTask = Task.Run(RunLoopAsync);
     }
 
-    public void Request(bool immediate = false)
-    {
-        wakeChannel.Writer.TryWrite(immediate);
-    }
+    public void Request(bool immediate = false) => wakeChannel.Writer.TryWrite(immediate);
 
     public void SetTrayMenuOpen(bool open)
     {
@@ -62,11 +63,11 @@ internal sealed class HealthCoalescer : IDisposable
 
     public IReadOnlyList<ProjectHealthSnapshot> GetSnapshots()
     {
-        var (runtimes, inactive) = getState();
+        var (runtimes, projects) = getState();
         lock (cacheSync)
         {
-            EnsureInactiveInCache(inactive);
-            return BuildSnapshotList(runtimes, inactive);
+            RefreshLocalCache(runtimes, projects, forceRuntime: false);
+            return BuildMergedList(runtimes, projects);
         }
     }
 
@@ -109,7 +110,7 @@ internal sealed class HealthCoalescer : IDisposable
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                // periodic wake without an explicit signal
+                // periodic wake
             }
             catch (OperationCanceledException)
             {
@@ -125,30 +126,34 @@ internal sealed class HealthCoalescer : IDisposable
 
     private void CoalesceAndMaybePublish(bool immediate)
     {
-        var (runtimes, inactive) = getState();
+        var (runtimes, projects) = getState();
         var anyCoalesced = false;
 
         foreach (var runtime in runtimes)
         {
             var coalesced = immediate
-                ? CoalesceImmediate(runtime)
+                ? ForceCoalesce(runtime)
                 : runtime.TryCoalesceHealth();
 
-            if (!coalesced)
+            if (!coalesced && !immediate)
             {
                 continue;
             }
 
-            anyCoalesced = true;
+            if (coalesced)
+            {
+                anyCoalesced = true;
+            }
+
             lock (cacheSync)
             {
-                snapshotCache[runtime.ProjectId] = runtime.BuildSnapshot();
+                localSnapshotCache[runtime.ProjectId] = runtime.BuildSnapshot();
             }
         }
 
         lock (cacheSync)
         {
-            EnsureInactiveInCache(inactive);
+            RefreshLocalCache(runtimes, projects, forceRuntime: immediate);
         }
 
         if (!anyCoalesced && !immediate)
@@ -172,16 +177,11 @@ internal sealed class HealthCoalescer : IDisposable
         IReadOnlyList<ProjectHealthSnapshot> snapshots;
         lock (cacheSync)
         {
-            snapshots = BuildSnapshotList(runtimes, inactive);
+            snapshots = BuildMergedList(runtimes, projects);
         }
 
         var activeOnly = snapshots.Where(s => s.IsActive).ToList();
         var rollup = LocalTrayIconRollupEvaluator.Rollup(activeOnly);
-        if (anyCoalesced)
-        {
-            WorkerHealthRegistry.Shared.SetCurrentAction("health.coalescer", "Coalescing project health");
-        }
-
         WorkerHealthRegistry.Shared.SetCurrentAction(
             "health.coalescer",
             $"Publishing tray health ({activeOnly.Count} active)");
@@ -193,63 +193,94 @@ internal sealed class HealthCoalescer : IDisposable
         WorkerHealthRegistry.Shared.SetCurrentAction("health.coalescer", "Idle");
     }
 
-    private static bool CoalesceImmediate(ProjectRuntime runtime)
+    private static bool ForceCoalesce(ProjectRuntime runtime)
     {
         runtime.ForceCoalesceHealth();
         return true;
     }
 
-    private void EnsureInactiveInCache(IReadOnlyList<MonitoredProjectSettings> inactive)
+    private void RefreshLocalCache(
+        IReadOnlyList<ProjectRuntime> runtimes,
+        IReadOnlyList<MonitoredProjectSettings> projects,
+        bool forceRuntime)
     {
-        foreach (var project in inactive)
+        var runtimeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var runtime in runtimes)
         {
-            snapshotCache[project.Id] = new ProjectHealthSnapshot(
-                project.Id,
-                project.DisplayName,
-                MonitorHealth.Unknown,
-                ProjectHealthEvaluator.ToLabel(MonitorHealth.Unknown),
-                ProjectLifecycleState.Idle,
-                null,
-                null,
-                null,
-                0,
-                0,
-                DateTimeOffset.MinValue,
-                null,
-                false,
-                [],
-                null,
-                false,
-                project.Local?.RunOptions.RunMode is not null
-                    && project.Local.RunOptions.RunMode != ProjectRunMode.None);
+            runtimeIds.Add(runtime.ProjectId);
+            if (forceRuntime || !localSnapshotCache.ContainsKey(runtime.ProjectId))
+            {
+                localSnapshotCache[runtime.ProjectId] = runtime.BuildSnapshot();
+            }
+        }
+
+        foreach (var project in projects)
+        {
+            if (runtimeIds.Contains(project.Id))
+            {
+                continue;
+            }
+
+            localSnapshotCache[project.Id] = BuildNonRuntimeSnapshot(project);
         }
     }
 
-    private List<ProjectHealthSnapshot> BuildSnapshotList(
+    private List<ProjectHealthSnapshot> BuildMergedList(
         IReadOnlyList<ProjectRuntime> runtimes,
-        IReadOnlyList<MonitoredProjectSettings> inactive)
+        IReadOnlyList<MonitoredProjectSettings> projects)
     {
-        var list = new List<ProjectHealthSnapshot>(runtimes.Count + inactive.Count);
+        var list = new List<ProjectHealthSnapshot>(projects.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var runtime in runtimes)
         {
-            if (snapshotCache.TryGetValue(runtime.ProjectId, out var snapshot))
+            if (!localSnapshotCache.TryGetValue(runtime.ProjectId, out var local))
             {
-                list.Add(snapshot);
+                local = runtime.BuildSnapshot();
             }
-            else
-            {
-                list.Add(runtime.BuildSnapshot());
-            }
+
+            list.Add(ProjectHealthComposer.WithAzure(local with { Azure = null }, getAzureFacet(runtime.ProjectId)));
+            seen.Add(runtime.ProjectId);
         }
 
-        foreach (var project in inactive)
+        foreach (var project in projects)
         {
-            if (snapshotCache.TryGetValue(project.Id, out var snapshot))
+            if (!seen.Add(project.Id))
             {
-                list.Add(snapshot);
+                continue;
             }
+
+            if (!localSnapshotCache.TryGetValue(project.Id, out var local))
+            {
+                local = BuildNonRuntimeSnapshot(project);
+            }
+
+            list.Add(ProjectHealthComposer.WithAzure(local with { Azure = null }, getAzureFacet(project.Id)));
         }
 
         return list;
+    }
+
+    private static ProjectHealthSnapshot BuildNonRuntimeSnapshot(MonitoredProjectSettings project)
+    {
+        var isAzureOnlyActive = project is { IsActiveInSession: true, Local: null, Azure: not null };
+        return new ProjectHealthSnapshot(
+            project.Id,
+            project.DisplayName,
+            MonitorHealth.Unknown,
+            ProjectHealthEvaluator.ToLabel(MonitorHealth.Unknown),
+            ProjectLifecycleState.Idle,
+            null,
+            null,
+            null,
+            0,
+            0,
+            isAzureOnlyActive ? DateTimeOffset.UtcNow : DateTimeOffset.MinValue,
+            null,
+            isAzureOnlyActive,
+            [],
+            null,
+            false,
+            false);
     }
 }
