@@ -7,7 +7,7 @@ File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 A **project** is a logical software product with optional attachments:
 
 - `local` — folder + .csproj/.sln + run/watch/test options (existing behaviour)
-- `azure` — Azure DevOps repository association (**schema + connection/discovery**; continuous polling and status-panel Azure rows **not** enabled yet)
+- `azure` — Azure DevOps repository association (**configurable** via Add from Azure / Attach; continuous polling/status **not** enabled yet)
 
 At least one attachment is required. Top-level `connections` hold Azure DevOps organisation URLs (credentials are **not** stored in this file).
 
@@ -86,14 +86,31 @@ Do **not** grant write, manage, or execute scopes for BuildMonitor connection/di
 
 `IAzureDevOpsDiscoveryClient` (Infrastructure) can:
 
-1. Test connection (`/_apis/connectionData`, API **7.1**)
+1. Test connection (`/_apis/projects?$top=1`, API **7.1**)
 2. List projects (`/_apis/projects`)
 3. List repositories for a project (`/_apis/git/repositories`)
 4. List candidate pipelines for a repository (`/_apis/build/definitions?repositoryId=&repositoryType=TfsGit&includeAllProperties=true`)
 
-Pipeline association uses Azure’s **repositoryId** filter on build definitions. Definitions that are not linked as `TfsGit` with that repository id may be omitted — the future Add/Attach wizard will surface what discovery returns (no auto-selection policy in this slice).
+Pipeline association uses Azure’s **repositoryId** filter on build definitions. Definitions that are not linked as `TfsGit` with that repository id may be omitted.
 
-**Continuous Azure build polling, tray/status Azure rows, notifications, and Add/Attach wizards are not enabled yet.** Local-only monitoring is unchanged.
+### Project association (Slice 3A)
+
+On the **Projects** tab:
+
+| Action | Result |
+|--------|--------|
+| **Add → Add local project** | Existing local workflow (`Local` only) |
+| **Add → Add from Azure DevOps…** | Wizard: ADO project → repository → pipelines → Azure-only BM project (`Local = null`) |
+| **Attach Azure DevOps…** | For local projects without Azure; optional Git remote **suggestion** (confirm before finish) |
+| **Change…** | Replace Azure project/repo/pipelines |
+| **Detach** | Removes Azure attachment only; blocked for Azure-only projects |
+| **Associate local…** | For Azure-only projects: pick a folder, then a `.csproj`/`.sln` (auto if exactly one). Incomplete Local attachments are never applied. |
+
+Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is preselected; otherwise the user selects explicitly. Zero pipelines = **Connected / Not monitored**.
+
+Local Git (`git` on PATH): current branch / detached / unavailable plus remotes are used for attach suggestions only — **not** for health or polling yet.
+
+**Azure association is configurable; continuous Azure build monitoring/status is still not enabled (Slice 3B).**
 
 ## Azure association (project attachment)
 
@@ -101,8 +118,8 @@ Pipeline association uses Azure’s **repositoryId** filter on build definitions
 
 ## Settings UI tabs
 
-- **Projects** — per-project folder, csproj/sln, launch profile, **preferred site URL** (Auto/HTTPS/HTTP), **build control** (File Watching vs AI Controlled), run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved.
-- **Azure** — organisation connection (URL, display name), PAT entry (masked; stored under `secrets/`), Test connection. Does not add Azure projects/repos to the project list yet.
+- **Projects** — per-project folder, csproj/sln, launch profile, **preferred site URL** (Auto/HTTPS/HTTP), **build control** (File Watching vs AI Controlled), run/watch options, **start build when app launches**, and **active in session** checkbox (left of each project name). Unchecked projects remain in the list but are not built or run until checked and settings are saved. **Add** offers local or **Add from Azure DevOps**; projects can **Attach / Change / Detach** Azure.
+- **Azure** — organisation connection (URL, display name), PAT entry (masked; stored under `secrets/`), Test connection.
 - **Monitor** — concurrency, debounce, **batch watch-mode rebuilds**, health refresh, **auto-open Build Monitor Health on startup**, max log bytes.
 - **App** — theme (`System`, `Light`, `Dark`) and startup behavior. **Run when Windows starts** adds/removes an entry under `HKCU\...\Run` named `LocalBuildMonitor`.
 
