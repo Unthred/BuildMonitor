@@ -11,11 +11,42 @@ public static class AzureRunSelector
             or PipelineRunState.Canceling;
 
     /// <summary>
-    /// From recent builds for one pipeline, pick the run that represents that pipeline:
-    /// active preferred over completed; among completed, latest finish among relevant branches
-    /// (or any branch if none match).
+    /// Presentation representative for one pipeline: any active run wins (all branches),
+    /// otherwise the newest completed run overall so a just-finished non-health-scope run
+    /// is not replaced by an older default-branch success.
     /// </summary>
-    public static AzurePipelineRunInfo? SelectPipelineRepresentative(
+    public static AzurePipelineRunInfo? SelectDisplayRepresentative(
+        IReadOnlyList<AzurePipelineRunInfo> recentRuns)
+    {
+        if (recentRuns.Count == 0)
+        {
+            return null;
+        }
+
+        var active = recentRuns
+            .Where(r => IsActive(r.State))
+            .OrderByDescending(r => r.StartedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
+            .FirstOrDefault();
+        if (active is not null)
+        {
+            return active;
+        }
+
+        return recentRuns
+            .Where(r => r.State == PipelineRunState.Completed)
+            .OrderByDescending(r => r.FinishedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
+            .FirstOrDefault()
+            ?? recentRuns.OrderByDescending(r => r.QueuedAtUtc).ThenByDescending(r => r.RunId).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Health-scope representative: active runs still count as Activity for the tray,
+    /// but completed health only considers relevant branches (default / focus / watched)
+    /// so PR/feature failures do not permanently paint the project Red.
+    /// </summary>
+    public static AzurePipelineRunInfo? SelectHealthRepresentative(
         IReadOnlyList<AzurePipelineRunInfo> recentRuns,
         IReadOnlyList<string> relevantBranches)
     {
@@ -24,25 +55,62 @@ public static class AzureRunSelector
             return null;
         }
 
-        var relevant = recentRuns
-            .Where(r => IsRelevant(r.Branch, relevantBranches))
-            .ToList();
-        var pool = relevant.Count > 0 ? relevant : recentRuns.ToList();
-
-        var active = pool
+        var active = recentRuns
             .Where(r => IsActive(r.State))
             .OrderByDescending(r => r.StartedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
             .FirstOrDefault();
         if (active is not null)
         {
             return active;
         }
 
+        var relevant = recentRuns
+            .Where(r => IsRelevant(r.Branch, relevantBranches))
+            .ToList();
+        var pool = relevant.Count > 0 ? relevant : recentRuns.ToList();
+
         return pool
             .Where(r => r.State == PipelineRunState.Completed)
             .OrderByDescending(r => r.FinishedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
             .FirstOrDefault()
-            ?? pool.OrderByDescending(r => r.QueuedAtUtc).FirstOrDefault();
+            ?? pool.OrderByDescending(r => r.QueuedAtUtc).ThenByDescending(r => r.RunId).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Legacy alias for display selection (branch list ignored for presentation).
+    /// Prefer <see cref="SelectDisplayRepresentative"/> / <see cref="SelectHealthRepresentative"/>.
+    /// </summary>
+    public static AzurePipelineRunInfo? SelectPipelineRepresentative(
+        IReadOnlyList<AzurePipelineRunInfo> recentRuns,
+        IReadOnlyList<string> relevantBranches)
+    {
+        _ = relevantBranches;
+        return SelectDisplayRepresentative(recentRuns);
+    }
+
+    /// <summary>
+    /// When the display run is active, surface the most recent failed/partial completed run
+    /// from the same pipeline (same branch preferred) for compact attention — not history.
+    /// </summary>
+    public static AzurePipelineRunInfo? SelectPreviousFailureAttention(
+        IReadOnlyList<AzurePipelineRunInfo> recentRuns,
+        AzurePipelineRunInfo? displayRun)
+    {
+        if (displayRun is null || !IsActive(displayRun.State))
+        {
+            return null;
+        }
+
+        return recentRuns
+            .Where(r => r.RunId != displayRun.RunId)
+            .Where(r => r.State == PipelineRunState.Completed)
+            .Where(r => r.Result is PipelineRunResult.Failed or PipelineRunResult.PartiallySucceeded)
+            .OrderByDescending(r => string.Equals(r.Branch, displayRun.Branch, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(r => r.FinishedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
+            .FirstOrDefault();
     }
 
     public static (AzurePipelineRunInfo? Primary, IReadOnlyList<AzurePipelineRunInfo> Attention) SelectPrimaryAndAttention(
@@ -54,21 +122,27 @@ public static class AzureRunSelector
             return (null, []);
         }
 
-        AzurePipelineRunInfo? primary = null;
-        if (!string.IsNullOrWhiteSpace(focusBranch))
+        // Presentation: any active pipeline run beats completed severity ranks.
+        AzurePipelineRunInfo? primary = representatives
+            .Where(r => IsActive(r.State))
+            .OrderByDescending(r => r.StartedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
+            .FirstOrDefault();
+
+        if (primary is null && !string.IsNullOrWhiteSpace(focusBranch))
         {
             primary = representatives
                 .Where(r => string.Equals(r.Branch, focusBranch, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(SeverityRank)
-                .ThenByDescending(r => IsActive(r.State))
                 .ThenByDescending(r => r.StartedAtUtc ?? r.FinishedAtUtc ?? r.QueuedAtUtc)
+                .ThenByDescending(r => r.RunId)
                 .FirstOrDefault();
         }
 
         primary ??= representatives
             .OrderByDescending(SeverityRank)
-            .ThenByDescending(r => IsActive(r.State))
             .ThenByDescending(r => r.StartedAtUtc ?? r.FinishedAtUtc ?? r.QueuedAtUtc)
+            .ThenByDescending(r => r.RunId)
             .First();
 
         var attention = representatives

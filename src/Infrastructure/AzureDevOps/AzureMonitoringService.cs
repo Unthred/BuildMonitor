@@ -14,10 +14,13 @@ namespace BuildMonitor.Infrastructure.AzureDevOps;
 /// </summary>
 public sealed class AzureMonitoringService : IDisposable
 {
-    public static readonly TimeSpan SettledInterval = TimeSpan.FromSeconds(45);
+    // Settled: pick up newly queued runs without multi-minute lag.
+    // Active: while Azure reports in-progress / not-started / canceling.
+    // Failure backoff: auth/network only — keep capped so a flaky PAT cannot stall CI visibility.
+    public static readonly TimeSpan SettledInterval = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan ActiveInterval = TimeSpan.FromSeconds(8);
-    public static readonly TimeSpan FailureBackoffInitial = TimeSpan.FromSeconds(30);
-    public static readonly TimeSpan FailureBackoffMax = TimeSpan.FromSeconds(120);
+    public static readonly TimeSpan FailureBackoffInitial = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan FailureBackoffMax = TimeSpan.FromSeconds(45);
 
     private readonly IAzureBuildPollClient pollClient;
     private readonly IAzureConnectionSecretStore secretStore;
@@ -45,7 +48,7 @@ public sealed class AzureMonitoringService : IDisposable
         WorkerHealthRegistry.Shared.Register(
             "azure.polling",
             "Azure DevOps polling",
-            TimeSpan.FromSeconds(90),
+            TimeSpan.FromSeconds(60),
             "Background");
     }
 
@@ -295,7 +298,9 @@ public sealed class AzureMonitoringService : IDisposable
         var adoProject = !string.IsNullOrWhiteSpace(azure.AdoProjectId)
             ? azure.AdoProjectId
             : azure.AdoProjectName;
-        var representatives = new List<AzurePipelineRunInfo>();
+        var displayRepresentatives = new List<AzurePipelineRunInfo>();
+        var healthRepresentatives = new List<AzurePipelineRunInfo>();
+        var extraAttention = new List<AzurePipelineRunInfo>();
 
         foreach (var pipeline in azure.Pipelines)
         {
@@ -328,14 +333,31 @@ public sealed class AzureMonitoringService : IDisposable
                     result.Message ?? "Azure DevOps unavailable");
             }
 
-            var representative = AzureRunSelector.SelectPipelineRepresentative(result.Runs, relevant);
-            if (representative is not null)
+            var display = AzureRunSelector.SelectDisplayRepresentative(result.Runs);
+            if (display is not null)
             {
-                representatives.Add(representative);
+                displayRepresentatives.Add(display);
+                var previousFailure = AzureRunSelector.SelectPreviousFailureAttention(result.Runs, display);
+                if (previousFailure is not null)
+                {
+                    extraAttention.Add(previousFailure);
+                }
+            }
+
+            var health = AzureRunSelector.SelectHealthRepresentative(result.Runs, relevant);
+            if (health is not null)
+            {
+                healthRepresentatives.Add(health);
             }
         }
 
-        return AzureFacetComposer.FromPipelineRuns(azure, representatives, focusBranch, DateTimeOffset.UtcNow);
+        return AzureFacetComposer.FromPipelineRuns(
+            azure,
+            displayRepresentatives,
+            focusBranch,
+            DateTimeOffset.UtcNow,
+            healthRepresentatives,
+            extraAttention);
     }
 
     public static IReadOnlyList<MonitoredProjectSettings> GetEligibleProjects(AppSettings settings) =>

@@ -40,12 +40,38 @@ public static class AzureFacetComposer
 
     public static ProjectAzureHealthFacet FromPipelineRuns(
         AzureDevOpsProjectAttachment azure,
-        IReadOnlyList<AzurePipelineRunInfo> representatives,
+        IReadOnlyList<AzurePipelineRunInfo> displayRepresentatives,
         string? focusBranch,
-        DateTimeOffset polledAtUtc)
+        DateTimeOffset polledAtUtc,
+        IReadOnlyList<AzurePipelineRunInfo>? healthRepresentatives = null,
+        IReadOnlyList<AzurePipelineRunInfo>? extraAttention = null)
     {
-        var (primary, attention) = AzureRunSelector.SelectPrimaryAndAttention(representatives, focusBranch);
-        var ci = AzureCiStateAggregator.Aggregate(representatives);
+        _ = azure;
+        var (primary, attentionFromReps) = AzureRunSelector.SelectPrimaryAndAttention(
+            displayRepresentatives,
+            focusBranch);
+
+        var attention = new List<AzurePipelineRunInfo>(attentionFromReps);
+        if (extraAttention is { Count: > 0 })
+        {
+            foreach (var run in extraAttention)
+            {
+                if (primary is not null && run.RunId == primary.RunId)
+                {
+                    continue;
+                }
+
+                if (attention.Any(a => a.RunId == run.RunId))
+                {
+                    continue;
+                }
+
+                attention.Add(run);
+            }
+        }
+
+        var healthPool = healthRepresentatives ?? displayRepresentatives;
+        var ci = AzureCiStateAggregator.Aggregate(healthPool);
         return new ProjectAzureHealthFacet(
             AzureMonitoringAvailability.Available,
             ci,

@@ -114,6 +114,34 @@ public sealed class AzureStatusPresentationBuilderTests
     }
 
     [Fact]
+    public void Previous_failure_attention_appears_as_second_row_while_building()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var primary = new AzurePipelineRunInfo(
+            8, "WitherbyConnect", 454, "20260825.15", PipelineRunState.InProgress, PipelineRunResult.Unknown,
+            "feature/foo", now, now, null, "https://example/?buildId=454", 168);
+        var previous = new AzurePipelineRunInfo(
+            8, "WitherbyConnect", 453, "20260825.14", PipelineRunState.Completed, PipelineRunResult.Failed,
+            "feature/foo", now.AddMinutes(-20), now.AddMinutes(-20), now.AddMinutes(-15),
+            "https://example/?buildId=453", 168);
+        var facet = new ProjectAzureHealthFacet(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Activity,
+            "feature/foo",
+            primary,
+            [previous],
+            now);
+
+        var view = AzureStatusPresentationBuilder.Build(facet, true, true, now);
+        Assert.Equal(2, view.Rows.Count);
+        Assert.Equal("#454", view.Rows[0].RunDisplay);
+        Assert.Equal("20260825.15", view.Rows[0].BuildNumberDisplay);
+        Assert.Contains("buildId=454", view.Rows[0].RunUrl!, StringComparison.Ordinal);
+        Assert.Equal("#453", view.Rows[1].RunDisplay);
+        Assert.Equal("✕", view.Rows[1].StatusGlyph);
+    }
+
+    [Fact]
     public void Failed_attention_appears_as_second_table_row()
     {
         var now = DateTimeOffset.UtcNow;

@@ -440,12 +440,13 @@ internal static class StatusPanelVisuals
     private static UIElement BuildAzureTable(IReadOnlyList<AzureStatusTableRow> rows, ThemePalette palette)
     {
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star), MinWidth = 70 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star), MinWidth = 72 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.0, GridUnitType.Star), MinWidth = 48 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 34 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star), MinWidth = 62 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 28 });
+        // Star for pipeline/branch (ellipsis OK); Auto for Run / Build No. / PR so normal ids stay fully visible.
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star), MinWidth = 110 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star), MinWidth = 96 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star), MinWidth = 90 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 44 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 96 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 36 });
 
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         AddAzureHeaderCell(grid, 0, 0, "Pipeline", palette);
@@ -461,12 +462,12 @@ internal static class StatusPanelVisuals
             var rowIndex = i + 1;
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl);
+            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl, allowEllipsis: true);
             AddAzureStatusCell(grid, rowIndex, 1, row, palette);
-            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl);
-            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl);
-            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl);
-            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl);
+            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: true);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
         }
 
         return grid;
@@ -496,15 +497,16 @@ internal static class StatusPanelVisuals
         string text,
         WpfColor color,
         bool bold,
-        string? runUrl)
+        string? runUrl,
+        bool allowEllipsis = true)
     {
         var block = new TextBlock
         {
             FontSize = 10,
             FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
             Foreground = new SolidColorBrush(color),
-            Margin = new Thickness(0, 0, 6, 1),
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 8, 1),
+            TextTrimming = allowEllipsis ? TextTrimming.CharacterEllipsis : TextTrimming.None,
             TextWrapping = TextWrapping.NoWrap
         };
 
