@@ -189,6 +189,7 @@ public partial class HoverStatusPanel : Window
 
             if (cardModel.StatusRows.Count > 0)
             {
+                panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("LOCAL", palette));
                 panel.Children.Add(StatusPanelVisuals.BuildStatusRows(cardModel.StatusRows, palette));
             }
 
@@ -509,6 +510,7 @@ public partial class HoverStatusPanel : Window
             WpfColor.FromRgb(55, 110, 75),
             health is MonitorHealth.Green or MonitorHealth.Unknown);
 
+        IdleOverallCaption.Foreground = new SolidColorBrush(health == MonitorHealth.Unknown ? palette.Foreground : accent);
         IdleStatusLabel.Text = sideRail.IdleLabel;
         IdleStatusLabel.Foreground = new SolidColorBrush(health == MonitorHealth.Unknown ? palette.Foreground : accent);
 
@@ -565,6 +567,7 @@ public partial class HoverStatusPanel : Window
     {
         Width = StatusPanelLayout.WindowWidth;
         MinWidth = StatusPanelLayout.WindowWidth;
+        MaxWidth = StatusPanelLayout.WindowMaxWidth;
         HeaderRow.Height = new GridLength(StatusPanelLayout.HeaderRowHeight);
         AccentColumn.Width = new GridLength(StatusPanelLayout.AccentColumnWidth);
         SideRail.Width = StatusPanelLayout.SideRailWidth;
@@ -587,6 +590,23 @@ public partial class HoverStatusPanel : Window
         Height = windowHeight;
         MinHeight = windowHeight;
         MaxHeight = windowHeight;
+
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "BuildMonitor",
+                "hover-panel-size.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(
+                path,
+                $"Width={Width};ActualWidth={ActualWidth};MinWidth={MinWidth};MaxWidth={MaxWidth};Utc={DateTimeOffset.UtcNow:O}");
+        }
+        catch
+        {
+            // diagnostic only
+        }
+
         return true;
     }
 

@@ -143,9 +143,10 @@ public static class StatusPanelPresentationBuilder
         ProjectHealthSnapshot snapshot,
         ControlPlaneStatusFormatter.Presentation controlPlane)
     {
-        var primary = ResolveBuildPrimary(snapshot, controlPlane);
+        var localHealth = ResolveLocalBuildHealth(snapshot);
+        var primary = ResolveBuildPrimary(snapshot, controlPlane, localHealth);
         var secondary = FormatIssueCounts(snapshot.ErrorCount, snapshot.WarningCount);
-        var emphasis = snapshot.Health switch
+        var emphasis = localHealth switch
         {
             MonitorHealth.Red => StatusPanelRowEmphasis.Error,
             MonitorHealth.Amber => StatusPanelRowEmphasis.Warning,
@@ -157,9 +158,27 @@ public static class StatusPanelPresentationBuilder
         return new StatusPanelStatusRow("BUILD", primary, secondary, Emphasis: emphasis);
     }
 
+    /// <summary>
+    /// Local build health from lifecycle / exit / diagnostics only — never composite Azure+Local.
+    /// </summary>
+    public static MonitorHealth ResolveLocalBuildHealth(ProjectHealthSnapshot snapshot)
+    {
+        var inProgress = snapshot.IsRestarting
+            || snapshot.State is ProjectLifecycleState.Building
+                or ProjectLifecycleState.Testing
+                or ProjectLifecycleState.WaitingForEdits;
+        return ProjectHealthEvaluator.Evaluate(
+            snapshot.State,
+            snapshot.LastBuildExitCode,
+            snapshot.ErrorCount,
+            snapshot.WarningCount,
+            inProgress);
+    }
+
     private static string ResolveBuildPrimary(
         ProjectHealthSnapshot snapshot,
-        ControlPlaneStatusFormatter.Presentation controlPlane)
+        ControlPlaneStatusFormatter.Presentation controlPlane,
+        MonitorHealth localHealth)
     {
         if (!string.IsNullOrWhiteSpace(controlPlane.BuildActivityOverride))
         {
@@ -184,14 +203,18 @@ public static class StatusPanelPresentationBuilder
             ProjectLifecycleState.BuildFailed => "Build failed",
             ProjectLifecycleState.TestFailed => "Tests failed",
             ProjectLifecycleState.Crashed => "Crashed",
-            ProjectLifecycleState.Watching => snapshot.HealthLabel,
-            ProjectLifecycleState.Running => snapshot.HealthLabel,
-            ProjectLifecycleState.Idle => snapshot.HealthLabel,
-            ProjectLifecycleState.TestOk => snapshot.HealthLabel,
-            ProjectLifecycleState.BuildOk => snapshot.HealthLabel,
-            _ => snapshot.HealthLabel
+            _ => FormatSettledLocalBuildPrimary(localHealth)
         };
     }
+
+    public static string FormatSettledLocalBuildPrimary(MonitorHealth localHealth) =>
+        localHealth switch
+        {
+            MonitorHealth.Green => "✓ Succeeded",
+            MonitorHealth.Amber => "Warnings",
+            MonitorHealth.Red => "Failed",
+            _ => "Unknown"
+        };
 
     private static int? TryResolveBuildPercent(IReadOnlyList<BuildProgressStep> steps)
     {

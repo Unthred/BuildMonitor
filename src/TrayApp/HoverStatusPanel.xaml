@@ -228,16 +228,23 @@
                                          Visibility="Collapsed" />
                             </Canvas>
                         </Viewbox>
-                        <TextBlock x:Name="IdleStatusLabel"
-                                   Grid.Row="1"
-                                   Text="Healthy"
-                                   HorizontalAlignment="Center"
-                                   TextAlignment="Center"
-                                   TextWrapping="Wrap"
-                                   MaxWidth="56"
-                                   Margin="2,0,2,5"
-                                   FontSize="9"
-                                   FontWeight="Bold" />
+                        <StackPanel Grid.Row="1" Margin="2,0,2,5">
+                            <TextBlock x:Name="IdleOverallCaption"
+                                       Text="Overall"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       FontSize="8"
+                                       FontWeight="SemiBold"
+                                       Opacity="0.7" />
+                            <TextBlock x:Name="IdleStatusLabel"
+                                       Text="Healthy"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="56"
+                                       FontSize="9"
+                                       FontWeight="Bold" />
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>

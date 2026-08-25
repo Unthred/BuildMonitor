@@ -369,18 +369,21 @@ internal static class StatusPanelVisuals
         };
     }
 
-    public static UIElement BuildAzureSection(AzureStatusPresentation azure, ThemePalette palette)
-    {
-        var panel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-        panel.Children.Add(new TextBlock
+    public static UIElement BuildSectionHeader(string text, ThemePalette palette) =>
+        new TextBlock
         {
-            Text = azure.HeaderLabel,
+            Text = text,
             FontSize = 10,
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(palette.Foreground),
             Opacity = 0.75,
-            Margin = new Thickness(0, 0, 0, 2)
-        });
+            Margin = new Thickness(0, 6, 0, 2)
+        };
+
+    public static UIElement BuildAzureSection(AzureStatusPresentation azure, ThemePalette palette)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+        panel.Children.Add(BuildSectionHeader(azure.HeaderLabel, palette));
 
         if (!azure.ShowTable)
         {

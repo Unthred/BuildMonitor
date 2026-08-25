@@ -83,7 +83,7 @@ public static class AzureStatusPresentationBuilder
 
         return new AzureStatusPresentation(
             ShowSection: true,
-            HeaderLabel: "AZURE",
+            HeaderLabel: "AZURE DEVOPS",
             ShowTable: true,
             MessageGlyph: null,
             MessagePrimary: null,
@@ -253,7 +253,7 @@ public static class AzureStatusPresentationBuilder
         string? attention = null) =>
         new(
             ShowSection: true,
-            HeaderLabel: "AZURE",
+            HeaderLabel: "AZURE DEVOPS",
             ShowTable: false,
             MessageGlyph: glyph,
             MessagePrimary: primary,
@@ -264,5 +264,5 @@ public static class AzureStatusPresentationBuilder
             Emphasis: emphasis);
 
     private static AzureStatusPresentation Hidden() =>
-        new(false, "AZURE", false, null, null, null, [], null, null, StatusPanelRowEmphasis.Normal);
+        new(false, "AZURE DEVOPS", false, null, null, null, [], null, null, StatusPanelRowEmphasis.Normal);
 }

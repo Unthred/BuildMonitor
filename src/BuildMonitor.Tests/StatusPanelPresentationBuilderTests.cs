@@ -112,7 +112,7 @@ public sealed class StatusPanelPresentationBuilderTests
 
         Assert.Equal(["MODE", "BUILD", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
         Assert.Equal("File Watching", Row(card, "MODE").Primary);
-        Assert.Equal("Healthy", Row(card, "BUILD").Primary);
+        Assert.Equal("✓ Succeeded", Row(card, "BUILD").Primary);
         Assert.Equal("0 errors · 0 warnings", Row(card, "BUILD").Secondary);
         Assert.Null(card.CurrentActionText);
         Assert.DoesNotContain(card.StatusRows, r => r.Label == "AGENT");
@@ -352,6 +352,76 @@ public sealed class StatusPanelPresentationBuilderTests
         Assert.Equal("AI Controlled", Row(card, "MODE").Primary);
         Assert.Equal("7 detected", Row(card, "CHANGES").Primary);
         Assert.Equal("Awaiting explicit build", Row(card, "CHANGES").Secondary);
+    }
+
+    [Fact]
+    public void Local_succeeded_azure_failed_keeps_local_build_succeeded_and_overall_red()
+    {
+        var now = Now;
+        var azureRun = new AzurePipelineRunInfo(
+            8,
+            "WitherbyConnect",
+            454,
+            "20260825.15",
+            PipelineRunState.Completed,
+            PipelineRunResult.Failed,
+            "PR #168",
+            now.AddMinutes(-10),
+            now.AddMinutes(-10),
+            now.AddMinutes(-5),
+            "https://example/?buildId=454",
+            168);
+        var azure = new ProjectAzureHealthFacet(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Failed,
+            "master",
+            azureRun,
+            [],
+            now,
+            HasSelectedPipelines: true);
+
+        var local = Snapshot(
+            ProjectLifecycleState.Watching,
+            health: MonitorHealth.Green,
+            healthLabel: "Success");
+
+        // Composite Red must not rewrite LOCAL Build — simulate HealthCoalescer merge.
+        var merged = ProjectHealthComposer.WithAzure(
+            local with { LastBuildExitCode = 0 },
+            azure);
+
+        Assert.Equal(MonitorHealth.Red, merged.Health);
+        Assert.Equal("Failed", merged.HealthLabel);
+
+        var presentation = StatusPanelPresentationBuilder.Build([merged], null, now);
+        var card = Assert.Single(presentation.Cards);
+
+        Assert.Equal("✓ Succeeded", Row(card, "BUILD").Primary);
+        Assert.Equal(StatusPanelRowEmphasis.Normal, Row(card, "BUILD").Emphasis);
+        Assert.Equal(MonitorHealth.Green, StatusPanelPresentationBuilder.ResolveLocalBuildHealth(merged));
+
+        Assert.NotNull(card.Azure);
+        Assert.Equal("AZURE DEVOPS", card.Azure.HeaderLabel);
+        Assert.True(card.Azure.ShowTable);
+        Assert.Equal("✕", card.Azure.Rows[0].StatusGlyph);
+        Assert.Equal("Failed", card.Azure.Rows[0].StatusText);
+        Assert.Equal("#454", card.Azure.Rows[0].RunDisplay);
+        Assert.Equal("20260825.15", card.Azure.Rows[0].BuildNumberDisplay);
+
+        Assert.Equal(MonitorHealth.Red, presentation.SideRail.IdleHealth);
+        Assert.Equal("Needs fix", presentation.SideRail.IdleLabel);
+        Assert.Equal(MonitorHealth.Red, card.Health);
+        Assert.Equal(
+            MonitorHealth.Red,
+            LocalTrayIconRollupEvaluator.Rollup([merged]));
+    }
+
+    [Fact]
+    public void Status_panel_window_width_is_wide_enough_for_azure_table()
+    {
+        Assert.Equal(760, StatusPanelMetrics.WindowWidth);
+        Assert.Equal(800, StatusPanelMetrics.WindowMaxWidth);
+        Assert.True(StatusPanelMetrics.ContentMeasureWidth > 500);
     }
 
     private static StatusPanelStatusRow Row(StatusPanelCardPresentation card, string label) =>
