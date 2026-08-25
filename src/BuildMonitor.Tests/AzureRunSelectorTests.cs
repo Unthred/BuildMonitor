@@ -63,23 +63,140 @@ public sealed class AzureRunSelectorTests
     }
 
     [Fact]
-    public void SelectHealthRepresentative_uses_relevant_completed_not_pr_failure()
+    public void Live_pr_failure_is_red_even_when_older_master_succeeded()
     {
         var now = DateTimeOffset.UtcNow;
         var runs = new[]
         {
             Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "PR #168",
                 finished: now, queued: now.AddMinutes(-3), runId: 454, buildNumber: "20260825.15", pr: 168),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "PR #168",
+                finished: now.AddMinutes(-20), queued: now.AddMinutes(-25), runId: 453, buildNumber: "20260825.14", pr: 168),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
+                finished: now.AddMinutes(-40), queued: now.AddMinutes(-50), runId: 452, buildNumber: "20260825.13")
+        };
+
+        var display = AzureRunSelector.SelectDisplayRepresentative(runs);
+        var health = AzureRunSelector.SelectHealthRepresentative(runs, ["master"]);
+        Assert.Equal(454, display!.RunId);
+        Assert.Equal(454, health!.RunId);
+        Assert.Equal(AzureCiMonitoringState.Failed, AzureCiStateAggregator.Aggregate([health]));
+
+        var facet = AzureFacetComposer.FromPipelineRuns(
+            new AzureDevOpsProjectAttachment { ConnectionId = "c1", AdoProjectId = "p", AdoProjectName = "p" },
+            [display],
+            "master",
+            now,
+            healthRepresentatives: [health]);
+
+        Assert.Equal(454, facet.PrimaryRun!.RunId);
+        Assert.Equal(AzureCiMonitoringState.Failed, facet.CiState);
+        Assert.Equal(MonitorHealth.Red, ProjectHealthComposer.Merge(MonitorHealth.Green, facet));
+        Assert.Equal(
+            MonitorHealth.Red,
+            LocalTrayIconRollupEvaluator.Rollup(
+            [
+                new ProjectHealthSnapshot(
+                    "p1", "Proj", MonitorHealth.Red, "Failed", ProjectLifecycleState.Running,
+                    0, null, null, 0, 0, now, null, true, [], Azure: facet)
+            ]));
+    }
+
+    [Fact]
+    public void Active_pr_recovery_is_amber_with_previous_failure_attention()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var runs = new[]
+        {
+            Run(8, "WitherbyConnect", PipelineRunState.InProgress, PipelineRunResult.Unknown, "PR #168",
+                started: now, queued: now.AddMinutes(-1), runId: 455, buildNumber: "20260825.16", pr: 168),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "PR #168",
+                finished: now.AddMinutes(-10), queued: now.AddMinutes(-15), runId: 454, buildNumber: "20260825.15", pr: 168),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
+                finished: now.AddMinutes(-40), queued: now.AddMinutes(-50), runId: 452, buildNumber: "20260825.13")
+        };
+
+        var display = AzureRunSelector.SelectDisplayRepresentative(runs);
+        var health = AzureRunSelector.SelectHealthRepresentative(runs, ["master"]);
+        var previous = AzureRunSelector.SelectPreviousFailureAttention(runs, display);
+        Assert.Equal(455, display!.RunId);
+        Assert.Equal(455, health!.RunId);
+        Assert.Equal(454, previous!.RunId);
+        Assert.Equal(AzureCiMonitoringState.Activity, AzureCiStateAggregator.Aggregate([health]));
+
+        var facet = AzureFacetComposer.FromPipelineRuns(
+            new AzureDevOpsProjectAttachment { ConnectionId = "c1", AdoProjectId = "p", AdoProjectName = "p" },
+            [display],
+            "master",
+            now,
+            healthRepresentatives: [health],
+            extraAttention: [previous]);
+
+        Assert.Equal(MonitorHealth.Amber, ProjectHealthComposer.Merge(MonitorHealth.Green, facet));
+        Assert.Contains(facet.AttentionRuns, r => r.RunId == 454);
+    }
+
+    [Fact]
+    public void Successful_pr_recovery_is_green_despite_older_pr_failure()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var runs = new[]
+        {
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "PR #168",
+                finished: now, queued: now.AddMinutes(-3), runId: 455, buildNumber: "20260825.16", pr: 168),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "PR #168",
+                finished: now.AddMinutes(-10), queued: now.AddMinutes(-15), runId: 454, buildNumber: "20260825.15", pr: 168),
             Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
                 finished: now.AddMinutes(-40), queued: now.AddMinutes(-50), runId: 452, buildNumber: "20260825.13")
         };
 
         var health = AzureRunSelector.SelectHealthRepresentative(runs, ["master"]);
-        Assert.Equal(452, health!.RunId);
-        Assert.Equal(PipelineRunResult.Succeeded, health.Result);
+        Assert.Equal(455, health!.RunId);
+        Assert.Equal(AzureCiMonitoringState.Healthy, AzureCiStateAggregator.Aggregate([health]));
         Assert.Equal(
-            AzureCiMonitoringState.Healthy,
-            AzureCiStateAggregator.Aggregate([health]));
+            MonitorHealth.Green,
+            ProjectHealthComposer.Merge(
+                MonitorHealth.Green,
+                AzureFacetComposer.FromPipelineRuns(
+                    new AzureDevOpsProjectAttachment { ConnectionId = "c1", AdoProjectId = "p", AdoProjectName = "p" },
+                    [health],
+                    "master",
+                    now,
+                    healthRepresentatives: [health])));
+    }
+
+    [Fact]
+    public void Ancient_feature_failure_does_not_poison_newer_master_success()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var runs = new[]
+        {
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
+                finished: now, queued: now.AddMinutes(-5), runId: 500, buildNumber: "20260825.20"),
+            Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "feature/ancient",
+                finished: now.AddDays(-14), queued: now.AddDays(-14), runId: 100, buildNumber: "20260101.1")
+        };
+
+        var health = AzureRunSelector.SelectHealthRepresentative(runs, ["master"]);
+        Assert.Equal(500, health!.RunId);
+        Assert.Equal(AzureCiMonitoringState.Healthy, AzureCiStateAggregator.Aggregate([health]));
+    }
+
+    [Fact]
+    public void Multiple_pipelines_worst_current_contribution_wins()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var ci = Run(1, "CI", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
+            finished: now, runId: 10);
+        var security = Run(2, "Security", PipelineRunState.Completed, PipelineRunResult.Failed, "master",
+            finished: now, runId: 20);
+        Assert.Equal(AzureCiMonitoringState.Failed, AzureCiStateAggregator.Aggregate([ci, security]));
+
+        var building = Run(1, "CI", PipelineRunState.InProgress, PipelineRunResult.Unknown, "feature/x",
+            started: now, runId: 11);
+        var ok = Run(2, "Security", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
+            finished: now, runId: 21);
+        Assert.Equal(AzureCiMonitoringState.Activity, AzureCiStateAggregator.Aggregate([building, ok]));
     }
 
     [Fact]
@@ -117,31 +234,6 @@ public sealed class AzureRunSelectorTests
         var previous = AzureRunSelector.SelectPreviousFailureAttention(runs, display);
         Assert.Equal(453, previous!.RunId);
         Assert.Null(AzureRunSelector.SelectPreviousFailureAttention(runs, runs[2]));
-    }
-
-    [Fact]
-    public void Composer_keeps_display_failed_while_health_stays_healthy_on_master()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var display = Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Failed, "PR #168",
-            finished: now, runId: 454, buildNumber: "20260825.15", pr: 168);
-        var health = Run(8, "WitherbyConnect", PipelineRunState.Completed, PipelineRunResult.Succeeded, "master",
-            finished: now.AddMinutes(-40), runId: 452, buildNumber: "20260825.13");
-
-        var facet = AzureFacetComposer.FromPipelineRuns(
-            new AzureDevOpsProjectAttachment
-            {
-                ConnectionId = "c1",
-                AdoProjectId = "p",
-                AdoProjectName = "p"
-            },
-            [display],
-            focusBranch: "master",
-            now,
-            healthRepresentatives: [health]);
-
-        Assert.Equal(454, facet.PrimaryRun!.RunId);
-        Assert.Equal(AzureCiMonitoringState.Healthy, facet.CiState);
     }
 
     [Fact]

@@ -2,7 +2,11 @@ using BuildMonitor.Core.Settings;
 
 namespace BuildMonitor.Core.Rules;
 
-/// <summary>Branches that participate in Azure health (not presentation-only).</summary>
+/// <summary>
+/// Branches used for presentation focus and explicit watched-branch attention.
+/// Pipeline current health uses newest active/completed run for the selected pipeline
+/// (not this set), so a newer PR failure is not hidden behind an older default-branch success.
+/// </summary>
 public static class AzureRelevantBranchSet
 {
     public static IReadOnlyList<string> Build(

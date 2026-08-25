@@ -42,40 +42,18 @@ public static class AzureRunSelector
     }
 
     /// <summary>
-    /// Health-scope representative: active runs still count as Activity for the tray,
-    /// but completed health only considers relevant branches (default / focus / watched)
-    /// so PR/feature failures do not permanently paint the project Red.
+    /// Pipeline current-state representative for tray health: same selection as display
+    /// (any active run, else newest completed overall). PR / non-default branches are real
+    /// health signals. Branch relevance is not used to suppress a newer failure in favour of
+    /// an older default-branch success; historical poisoning is avoided by always taking the
+    /// newest meaningful run for the selected pipeline.
     /// </summary>
     public static AzurePipelineRunInfo? SelectHealthRepresentative(
         IReadOnlyList<AzurePipelineRunInfo> recentRuns,
         IReadOnlyList<string> relevantBranches)
     {
-        if (recentRuns.Count == 0)
-        {
-            return null;
-        }
-
-        var active = recentRuns
-            .Where(r => IsActive(r.State))
-            .OrderByDescending(r => r.StartedAtUtc ?? r.QueuedAtUtc)
-            .ThenByDescending(r => r.RunId)
-            .FirstOrDefault();
-        if (active is not null)
-        {
-            return active;
-        }
-
-        var relevant = recentRuns
-            .Where(r => IsRelevant(r.Branch, relevantBranches))
-            .ToList();
-        var pool = relevant.Count > 0 ? relevant : recentRuns.ToList();
-
-        return pool
-            .Where(r => r.State == PipelineRunState.Completed)
-            .OrderByDescending(r => r.FinishedAtUtc ?? r.QueuedAtUtc)
-            .ThenByDescending(r => r.RunId)
-            .FirstOrDefault()
-            ?? pool.OrderByDescending(r => r.QueuedAtUtc).ThenByDescending(r => r.RunId).FirstOrDefault();
+        _ = relevantBranches;
+        return SelectDisplayRepresentative(recentRuns);
     }
 
     /// <summary>
@@ -192,16 +170,5 @@ public static class AzureRunSelector
         }
 
         return 0;
-    }
-
-    private static bool IsRelevant(string branch, IReadOnlyList<string> relevantBranches)
-    {
-        if (relevantBranches.Count == 0)
-        {
-            return true;
-        }
-
-        var shortName = AzureGitBranchNormalizer.ToShortName(branch) ?? branch;
-        return relevantBranches.Any(b => string.Equals(b, shortName, StringComparison.OrdinalIgnoreCase));
     }
 }
