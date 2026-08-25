@@ -1,5 +1,7 @@
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
+using BuildMonitor.Core.Settings;
+using System.Text.Json;
 
 namespace BuildMonitor.Tests;
 
@@ -35,6 +37,7 @@ public sealed class BuildSourcePresentationBuilderTests
         {
             LastBuildExitCode = 0,
             Azure = facet,
+            LocalGit = new LocalGitContext(LocalGitHeadStatus.Branch, "master", []),
             Health = MonitorHealth.Red,
             HealthLabel = "Failed"
         };
@@ -68,14 +71,141 @@ public sealed class BuildSourcePresentationBuilderTests
     }
 
     [Fact]
-    public void Local_without_focus_branch_shows_em_dash()
+    public void Local_branch_comes_from_local_git_not_azure_focus_branch()
     {
-        var snapshot = BaseSnapshot();
+        var azureRun = new AzurePipelineRunInfo(
+            8,
+            "Pipe",
+            99,
+            "1",
+            PipelineRunState.Completed,
+            PipelineRunResult.Succeeded,
+            "PR #168",
+            Now.AddMinutes(-5),
+            Now.AddMinutes(-5),
+            Now.AddMinutes(-1),
+            "https://example/?buildId=99",
+            168);
+        var snapshot = BaseSnapshot() with
+        {
+            LocalGit = new LocalGitContext(LocalGitHeadStatus.Branch, "feature/foo", []),
+            Azure = new ProjectAzureHealthFacet(
+                AzureMonitoringAvailability.Available,
+                AzureCiMonitoringState.Healthy,
+                FocusBranch: "master",
+                azureRun,
+                [],
+                Now,
+                HasSelectedPipelines: true)
+        };
+        var controlPlane = ControlPlaneStatusFormatter.Format(snapshot, Now);
+
+        var rows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, Now);
+
+        Assert.Equal("feature/foo", rows[0].BranchDisplay);
+        Assert.Equal("PR #168", rows[1].BranchDisplay);
+        Assert.NotEqual(rows[0].BranchDisplay, rows[1].BranchDisplay);
+    }
+
+    [Fact]
+    public void Local_normal_git_branch_shown_on_local_row()
+    {
+        var snapshot = BaseSnapshot() with
+        {
+            LocalGit = new LocalGitContext(LocalGitHeadStatus.Branch, "feature/foo", [])
+        };
+        var controlPlane = ControlPlaneStatusFormatter.Format(snapshot, Now);
+        var local = BuildSourcePresentationBuilder.TryBuildLocal(snapshot, controlPlane, Now);
+
+        Assert.NotNull(local);
+        Assert.Equal("feature/foo", local!.BranchDisplay);
+    }
+
+    [Fact]
+    public void Local_detached_git_shows_concise_detached()
+    {
+        Assert.Equal(
+            "detached",
+            BuildSourcePresentationBuilder.FormatLocalBranchDisplay(
+                new LocalGitContext(LocalGitHeadStatus.Detached, null, [], "Detached HEAD")));
+    }
+
+    [Fact]
+    public void Local_unavailable_git_shows_em_dash()
+    {
+        Assert.Equal(
+            "—",
+            BuildSourcePresentationBuilder.FormatLocalBranchDisplay(
+                new LocalGitContext(LocalGitHeadStatus.Unavailable, null, [], "missing")));
+        Assert.Equal("—", BuildSourcePresentationBuilder.FormatLocalBranchDisplay(null));
+    }
+
+    [Fact]
+    public void Local_without_local_git_shows_em_dash_even_when_azure_focus_present()
+    {
+        var snapshot = BaseSnapshot() with
+        {
+            LocalGit = null,
+            Azure = new ProjectAzureHealthFacet(
+                AzureMonitoringAvailability.Available,
+                AzureCiMonitoringState.Healthy,
+                FocusBranch: "master",
+                PrimaryRun: null,
+                AttentionRuns: [],
+                PolledAtUtc: Now,
+                HasSelectedPipelines: true)
+        };
         var controlPlane = ControlPlaneStatusFormatter.Format(snapshot, Now);
         var local = BuildSourcePresentationBuilder.TryBuildLocal(snapshot, controlPlane, Now);
 
         Assert.NotNull(local);
         Assert.Equal("—", local!.BranchDisplay);
+    }
+
+    [Fact]
+    public void Azure_only_row_unaffected_when_local_git_absent()
+    {
+        var azureRun = new AzurePipelineRunInfo(
+            8,
+            "Pipe",
+            454,
+            "20260825.15",
+            PipelineRunState.Completed,
+            PipelineRunResult.Failed,
+            "PR #168",
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-5),
+            "https://example/?buildId=454",
+            168);
+        var facet = new ProjectAzureHealthFacet(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Failed,
+            FocusBranch: null,
+            azureRun,
+            [],
+            Now,
+            HasSelectedPipelines: true);
+
+        var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
+        Assert.Equal("PR #168", azure.BranchDisplay);
+        Assert.Equal("#454", azure.RunDisplay);
+    }
+
+    [Fact]
+    public void Settings_project_model_does_not_persist_live_local_git_branch()
+    {
+        var json = JsonSerializer.Serialize(new MonitoredProjectSettings
+        {
+            Id = "p1",
+            DisplayName = "Demo",
+            Local = new LocalProjectAttachment { RootFolder = @"C:\repo" }
+        });
+
+        Assert.DoesNotContain("CurrentBranch", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("feature/foo", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("LocalGit", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("FocusBranch", json, StringComparison.Ordinal);
     }
 
     [Fact]

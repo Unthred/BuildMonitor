@@ -109,7 +109,8 @@ public sealed record ProjectHealthSnapshot(
     DateTimeOffset? RebuildQuietUntilUtc = null,
     int LastBuildExitCode = -1,
     ProjectControlPlaneSnapshot? ControlPlane = null,
-    ProjectAzureHealthFacet? Azure = null);
+    ProjectAzureHealthFacet? Azure = null,
+    LocalGitContext? LocalGit = null);
 
 public enum BuildTriggerKind
 {

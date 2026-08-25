@@ -397,7 +397,11 @@ public sealed class StatusPanelPresentationBuilderTests
 
         // Composite Red must not rewrite LOCAL Build — simulate HealthCoalescer merge.
         var merged = ProjectHealthComposer.WithAzure(
-            local with { LastBuildExitCode = 0 },
+            local with
+            {
+                LastBuildExitCode = 0,
+                LocalGit = new LocalGitContext(LocalGitHeadStatus.Branch, "master", [])
+            },
             azure);
 
         Assert.Equal(MonitorHealth.Red, merged.Health);

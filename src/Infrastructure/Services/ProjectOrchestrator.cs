@@ -53,17 +53,19 @@ public sealed partial class ProjectOrchestrator : IDisposable
             TimeSpan.FromMilliseconds(750),
             "Background");
         Action? notifyFacetUpdated = null;
+        var localGitReader = new CachedLocalGitContextReader(new LocalGitContextReader());
         azureMonitoring = new AzureMonitoringService(
             new AzureBuildPollClient(),
             new AzureConnectionSecretStore(
                 Path.Combine(dataRoot, "secrets"),
                 new DpapiSecretProtector()),
-            new LocalGitContextReader(),
+            localGitReader,
             () => notifyFacetUpdated?.Invoke());
         healthCoalescer = new HealthCoalescer(
             GetCoalescerState,
             azureMonitoring.TryGetFacet,
-            PublishHealthFromCoalescer);
+            PublishHealthFromCoalescer,
+            localGitReader);
         notifyFacetUpdated = () => healthCoalescer.Request(immediate: true);
         azureMonitoring.Start();
     }

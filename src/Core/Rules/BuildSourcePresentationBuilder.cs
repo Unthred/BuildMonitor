@@ -35,15 +35,12 @@ public static class BuildSourcePresentationBuilder
         var localHealth = StatusPanelPresentationBuilder.ResolveLocalBuildHealth(snapshot);
         var statusText = ResolveLocalStatusText(snapshot, controlPlane, localHealth);
         var (glyph, emphasis) = ResolveLocalGlyph(snapshot, localHealth, statusText);
-        var branch = string.IsNullOrWhiteSpace(snapshot.Azure?.FocusBranch)
-            ? "—"
-            : snapshot.Azure!.FocusBranch!;
 
         return new BuildSourcePresentationRow(
             Source: "Local",
             StatusGlyph: glyph,
             StatusText: statusText,
-            BranchDisplay: branch,
+            BranchDisplay: FormatLocalBranchDisplay(snapshot.LocalGit),
             RunDisplay: "—",
             BuildNumberDisplay: "—",
             PullRequestDisplay: "—",
@@ -52,6 +49,15 @@ public static class BuildSourcePresentationBuilder
             DeepLinkUrl: null,
             Emphasis: emphasis);
     }
+
+    /// <summary>Local row Branch from local Git context only — never Azure FocusBranch.</summary>
+    public static string FormatLocalBranchDisplay(LocalGitContext? localGit) =>
+        localGit switch
+        {
+            { HeadStatus: LocalGitHeadStatus.Branch, CurrentBranch: { Length: > 0 } branch } => branch,
+            { HeadStatus: LocalGitHeadStatus.Detached } => "detached",
+            _ => "—"
+        };
 
     public static IReadOnlyList<BuildSourcePresentationRow> BuildAzureRows(
         ProjectAzureHealthFacet? facet,

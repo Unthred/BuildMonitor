@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
@@ -18,6 +19,7 @@ internal sealed class HealthCoalescer : IDisposable
     private readonly Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Projects)> getState;
     private readonly Func<string, ProjectAzureHealthFacet?> getAzureFacet;
     private readonly Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish;
+    private readonly ILocalGitContextReader? localGitReader;
     private readonly Channel<bool> wakeChannel = Channel.CreateUnbounded<bool>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly CancellationTokenSource disposeCts = new();
@@ -31,11 +33,13 @@ internal sealed class HealthCoalescer : IDisposable
     public HealthCoalescer(
         Func<(IReadOnlyList<ProjectRuntime> Runtimes, IReadOnlyList<MonitoredProjectSettings> Projects)> getState,
         Func<string, ProjectAzureHealthFacet?> getAzureFacet,
-        Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish)
+        Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth> publish,
+        ILocalGitContextReader? localGitReader = null)
     {
         this.getState = getState;
         this.getAzureFacet = getAzureFacet;
         this.publish = publish;
+        this.localGitReader = localGitReader;
         WorkerHealthRegistry.Shared.Register(
             "health.coalescer",
             "Health coalescer loop",
@@ -231,6 +235,10 @@ internal sealed class HealthCoalescer : IDisposable
     {
         var list = new List<ProjectHealthSnapshot>(projects.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var rootsById = projects.ToDictionary(
+            p => p.Id,
+            p => p.Local?.RootFolder,
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (var runtime in runtimes)
         {
@@ -239,7 +247,8 @@ internal sealed class HealthCoalescer : IDisposable
                 local = runtime.BuildSnapshot();
             }
 
-            list.Add(ProjectHealthComposer.WithAzure(local with { Azure = null }, getAzureFacet(runtime.ProjectId)));
+            rootsById.TryGetValue(runtime.ProjectId, out var root);
+            list.Add(Compose(local, runtime.ProjectId, root));
             seen.Add(runtime.ProjectId);
         }
 
@@ -255,10 +264,44 @@ internal sealed class HealthCoalescer : IDisposable
                 local = BuildNonRuntimeSnapshot(project);
             }
 
-            list.Add(ProjectHealthComposer.WithAzure(local with { Azure = null }, getAzureFacet(project.Id)));
+            list.Add(Compose(local, project.Id, project.Local?.RootFolder));
         }
 
         return list;
+    }
+
+    private ProjectHealthSnapshot Compose(
+        ProjectHealthSnapshot local,
+        string projectId,
+        string? localRootFolder)
+    {
+        var withGit = local with
+        {
+            Azure = null,
+            LocalGit = ResolveLocalGit(localRootFolder)
+        };
+        return ProjectHealthComposer.WithAzure(withGit, getAzureFacet(projectId));
+    }
+
+    private LocalGitContext? ResolveLocalGit(string? localRootFolder)
+    {
+        if (localGitReader is null || string.IsNullOrWhiteSpace(localRootFolder))
+        {
+            return null;
+        }
+
+        try
+        {
+            return localGitReader
+                .ReadAsync(localRootFolder, CancellationToken.None)
+                .ConfigureAwait(false)
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch
+        {
+            return new LocalGitContext(LocalGitHeadStatus.Unavailable, null, [], "Could not read local Git.");
+        }
     }
 
     private static ProjectHealthSnapshot BuildNonRuntimeSnapshot(MonitoredProjectSettings project)
