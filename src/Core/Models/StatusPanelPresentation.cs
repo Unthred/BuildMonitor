@@ -6,7 +6,7 @@ public enum StatusPanelSideRailMode
     Accent = 1
 }
 
-/// <summary>One labelled row in the compact status grid (BUILD / AGENT / CHANGES / LAST BUILD).</summary>
+/// <summary>One labelled row in DETAIL (MODE / AGENT / CHANGES).</summary>
 public sealed record StatusPanelStatusRow(
     string Label,
     string Primary,
@@ -22,6 +22,24 @@ public enum StatusPanelRowEmphasis
     Error = 3,
     Active = 4
 }
+
+/// <summary>
+/// Shared presentation row for Local and Azure build sources (visual parity).
+/// Azure-only fields stay blank for Local rather than fabricated.
+/// </summary>
+public sealed record BuildSourcePresentationRow(
+    string Source,
+    string StatusGlyph,
+    string StatusText,
+    string BranchDisplay,
+    string RunDisplay,
+    string BuildNumberDisplay,
+    string PullRequestDisplay,
+    string AgeDisplay,
+    string IssuesDisplay,
+    string? DeepLinkUrl,
+    StatusPanelRowEmphasis Emphasis,
+    string? AttentionNote = null);
 
 /// <summary>Derived view of one project card in the hover status panel.</summary>
 public sealed record StatusPanelCardPresentation(
@@ -46,7 +64,9 @@ public sealed record StatusPanelCardPresentation(
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
     string? StillEditingToolTip,
-    bool ShowControlPlaneSection = false);
+    bool ShowControlPlaneSection = false,
+    AzureStatusPresentation? Azure = null,
+    IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

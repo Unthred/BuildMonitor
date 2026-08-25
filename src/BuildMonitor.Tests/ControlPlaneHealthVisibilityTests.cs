@@ -115,8 +115,8 @@ public sealed class ControlPlaneHealthVisibilityTests
         Assert.Equal(ControlPlaneShipCheckPhase.Testing, snapshot.ControlPlane.ShipCheckPhase);
 
         var card = StatusPanelPresentationBuilder.Build([snapshot], null, DateTimeOffset.UtcNow).Cards[0];
-        var build = Assert.Single(card.StatusRows, r => r.Label == "BUILD");
-        Assert.Equal("Ship check · Testing", build.Primary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Ship check · Testing", local.StatusText);
     }
 
     [Fact]
