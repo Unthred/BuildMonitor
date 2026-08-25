@@ -24,7 +24,7 @@ A BuildMonitor **project** is a logical software product with optional **Local**
 3. Optional loopback **control plane** (`http://127.0.0.1:{port}/`) lets agents signal busy/idle and run ship-check — see [ops/control-plane.md](ops/control-plane.md).
 4. `DotNetCliRunner` captures stdout/stderr; `BuildLogStore` persists last logs.
 5. `ProjectRuntime` updates health snapshots on state transitions; Azure facets refresh on the poll loop.
-6. Tray icon and hover panel subscribe to `HealthUpdated` (Local + Azure sections on cards).
+6. Tray icon and hover panel subscribe to `HealthUpdated` (shared BUILDS table for Local + Azure sources, plus DETAIL for runtime).
 7. User opens `BuildLogViewerWindow` for full log + error navigation. Azure run rows open the Azure DevOps build results page when a run URL exists.
 
 ## Status panel (tray)

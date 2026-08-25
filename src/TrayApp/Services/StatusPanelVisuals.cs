@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -13,13 +12,8 @@ using WpfRectangle = System.Windows.Shapes.Rectangle;
 
 namespace BuildMonitor.TrayApp.Services;
 
-internal static partial class StatusPanelVisuals
+internal static class StatusPanelVisuals
 {
-    [GeneratedRegex(
-        @"^(?<errors>[\d,]+)\s+errors\s*·\s*(?<warnings>[\d,]+)\s+warnings$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex IssueCountsRegex();
-
     public static UIElement BuildStepProgressChart(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
     {
         var container = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
@@ -74,106 +68,155 @@ internal static partial class StatusPanelVisuals
     /// <summary>Dense LOCAL grid: label/value pairs use horizontal space (Mode/Build | Errors/Warnings).</summary>
     public static UIElement BuildLocalDenseGrid(
         IReadOnlyList<StatusPanelStatusRow> rows,
+        ThemePalette palette) =>
+        BuildDetailRows(rows, palette);
+
+    public static UIElement BuildDetailRows(
+        IReadOnlyList<StatusPanelStatusRow> rows,
         ThemePalette palette)
     {
-        var byLabel = rows.ToDictionary(r => r.Label, StringComparer.OrdinalIgnoreCase);
-        byLabel.TryGetValue("MODE", out var mode);
-        byLabel.TryGetValue("BUILD", out var build);
-        byLabel.TryGetValue("CHANGES", out var changes);
-        byLabel.TryGetValue("AGENT", out var agent);
-        byLabel.TryGetValue("LAST BUILD", out var lastBuild);
-
-        var errors = "0";
-        var warnings = "0";
-        if (build?.Secondary is { } counts
-            && IssueCountsRegex().Match(counts) is { Success: true } match)
-        {
-            errors = match.Groups["errors"].Value;
-            warnings = match.Groups["warnings"].Value;
-        }
-
         var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star), MinWidth = 100 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 48 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var rowIndex = 0;
-        void AddRow()
+        for (var i = 0; i < rows.Count; i++)
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        }
-
-        if (mode is not null)
-        {
-            AddRow();
-            AddDenseLabel(grid, rowIndex, 0, "Mode", palette);
-            AddDenseValue(grid, rowIndex, 1, mode.Primary, EmphasisBrush(mode.Emphasis, palette), mode.ToolTip);
-            AddDenseLabel(grid, rowIndex, 2, "Errors", palette);
-            AddDenseValue(grid, rowIndex, 3, errors, new SolidColorBrush(palette.Foreground), null);
-            rowIndex++;
-        }
-
-        if (build is not null)
-        {
-            AddRow();
-            AddDenseLabel(grid, rowIndex, 0, "Build", palette);
-            AddDenseValue(grid, rowIndex, 1, build.Primary, EmphasisBrush(build.Emphasis, palette), build.ToolTip);
-            AddDenseLabel(grid, rowIndex, 2, "Warnings", palette);
-            AddDenseValue(grid, rowIndex, 3, warnings, new SolidColorBrush(palette.Foreground), null);
-            rowIndex++;
-        }
-
-        if (agent is not null)
-        {
-            AddRow();
-            AddDenseLabel(grid, rowIndex, 0, "Agent", palette);
-            AddDenseValue(grid, rowIndex, 1, agent.Primary, EmphasisBrush(agent.Emphasis, palette), agent.ToolTip);
-            if (!string.IsNullOrWhiteSpace(agent.Secondary))
-            {
-                AddDenseValue(grid, rowIndex, 3, agent.Secondary!, new SolidColorBrush(palette.Foreground) { Opacity = 0.75 }, null);
-            }
-
-            rowIndex++;
-        }
-
-        if (changes is not null)
-        {
-            AddRow();
-            AddDenseLabel(grid, rowIndex, 0, "Changes", palette);
-            AddDenseValue(grid, rowIndex, 1, changes.Primary, EmphasisBrush(changes.Emphasis, palette), changes.ToolTip);
-            if (!string.IsNullOrWhiteSpace(changes.Secondary))
+            var row = rows[i];
+            AddDenseLabel(grid, i, 0, ToTitleCaseLabel(row.Label), palette);
+            AddDenseValue(grid, i, 1, row.Primary, EmphasisBrush(row.Emphasis, palette), row.ToolTip);
+            if (!string.IsNullOrWhiteSpace(row.Secondary))
             {
                 AddDenseValue(
                     grid,
-                    rowIndex,
-                    3,
-                    changes.Secondary!,
-                    new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
-                    null);
-            }
-
-            rowIndex++;
-        }
-
-        if (lastBuild is not null)
-        {
-            AddRow();
-            AddDenseLabel(grid, rowIndex, 0, "Last build", palette);
-            AddDenseValue(grid, rowIndex, 1, lastBuild.Primary, EmphasisBrush(lastBuild.Emphasis, palette), lastBuild.ToolTip);
-            if (!string.IsNullOrWhiteSpace(lastBuild.Secondary))
-            {
-                AddDenseValue(
-                    grid,
-                    rowIndex,
-                    3,
-                    lastBuild.Secondary!,
+                    i,
+                    2,
+                    row.Secondary!,
                     new SolidColorBrush(palette.Foreground) { Opacity = 0.75 },
                     null);
             }
         }
 
         return grid;
+    }
+
+    private static string ToTitleCaseLabel(string label) =>
+        label.ToUpperInvariant() switch
+        {
+            "MODE" => "Mode",
+            "AGENT" => "Agent",
+            "CHANGES" => "Changes",
+            "BUILD" => "Build",
+            "LAST BUILD" => "Last build",
+            _ => label
+        };
+
+    public static UIElement BuildBuildsTable(
+        IReadOnlyList<BuildSourcePresentationRow> rows,
+        ThemePalette palette)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 44 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star), MinWidth = 72 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 48, MaxWidth = 110 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 36 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 84 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 28 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 52 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 44 });
+
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        AddAzureHeaderCell(grid, 0, 0, "Source", palette);
+        AddAzureHeaderCell(grid, 0, 1, "Status", palette);
+        AddAzureHeaderCell(grid, 0, 2, "Branch", palette);
+        AddAzureHeaderCell(grid, 0, 3, "Run", palette);
+        AddAzureHeaderCell(grid, 0, 4, "Build No.", palette);
+        AddAzureHeaderCell(grid, 0, 5, "PR", palette);
+        AddAzureHeaderCell(grid, 0, 6, "Age", palette);
+        AddAzureHeaderCell(grid, 0, 7, "Issues", palette);
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowIndex = i + 1;
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, row.DeepLinkUrl, allowEllipsis: false);
+            AddBuildStatusCell(grid, rowIndex, 1, row, palette);
+            AddAzureCell(grid, rowIndex, 2, row.BranchDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: true);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, allowEllipsis: true);
+            AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, allowEllipsis: false);
+
+            if (!string.IsNullOrWhiteSpace(row.AttentionNote))
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var noteRow = grid.RowDefinitions.Count - 1;
+                var note = new TextBlock
+                {
+                    Text = row.AttentionNote,
+                    FontSize = 9,
+                    FontStyle = FontStyles.Italic,
+                    Foreground = new SolidColorBrush(WpfColor.FromRgb(200, 80, 60)),
+                    Margin = new Thickness(0, 0, 0, 2),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetRow(note, noteRow);
+                Grid.SetColumn(note, 1);
+                Grid.SetColumnSpan(note, 7);
+                grid.Children.Add(note);
+            }
+        }
+
+        return grid;
+    }
+
+    private static void AddBuildStatusCell(
+        Grid grid,
+        int row,
+        int column,
+        BuildSourcePresentationRow data,
+        ThemePalette palette)
+    {
+        var block = new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = EmphasisBrush(data.Emphasis, palette),
+            Margin = new Thickness(0, 0, 6, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
+            Text = $"{data.StatusGlyph} {data.StatusText}"
+        };
+        if (!string.IsNullOrWhiteSpace(data.DeepLinkUrl) && Uri.TryCreate(data.DeepLinkUrl, UriKind.Absolute, out var uri))
+        {
+            block.Text = null;
+            var link = new Hyperlink(new Run($"{data.StatusGlyph} {data.StatusText}"))
+            {
+                NavigateUri = uri,
+                ToolTip = "Open in Azure DevOps",
+                TextDecorations = null
+            };
+            link.RequestNavigate += (_, e) =>
+            {
+                e.Handled = true;
+                try
+                {
+                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+                }
+                catch
+                {
+                    // ignore
+                }
+            };
+            block.Inlines.Add(link);
+        }
+
+        Grid.SetRow(block, row);
+        Grid.SetColumn(block, column);
+        grid.Children.Add(block);
     }
 
     private static void AddDenseLabel(Grid grid, int row, int column, string text, ThemePalette palette)
@@ -286,7 +329,7 @@ internal static partial class StatusPanelVisuals
     public static UIElement BuildStatusRows(
         IReadOnlyList<StatusPanelStatusRow> rows,
         ThemePalette palette) =>
-        BuildLocalDenseGrid(rows, palette);
+        BuildDetailRows(rows, palette);
 
     private static SolidColorBrush EmphasisBrush(StatusPanelRowEmphasis emphasis, ThemePalette palette) =>
         emphasis switch

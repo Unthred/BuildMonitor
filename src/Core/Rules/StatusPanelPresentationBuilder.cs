@@ -1,4 +1,3 @@
-using System.Globalization;
 using BuildMonitor.Core.Models;
 
 namespace BuildMonitor.Core.Rules;
@@ -64,7 +63,7 @@ public static class StatusPanelPresentationBuilder
             && !buildOverrideActive
             && snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing;
 
-        var statusRows = BuildStatusRows(snapshot, controlPlane, utcNow);
+        var statusRows = BuildDetailRows(snapshot, controlPlane, utcNow);
         var currentAction = ResolveCurrentAction(snapshot, controlPlane, statusRows);
         var azurePresentation = snapshot.Azure is null
             ? null
@@ -73,6 +72,7 @@ public static class StatusPanelPresentationBuilder
                 azureAttached: true,
                 hasSelectedPipelines: snapshot.Azure.HasSelectedPipelines,
                 utcNow);
+        var buildSourceRows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, utcNow);
 
         return new StatusPanelCardPresentation(
             ProjectId: snapshot.ProjectId,
@@ -97,22 +97,21 @@ public static class StatusPanelPresentationBuilder
             ShowStillEditingButton: false,
             StillEditingToolTip: null,
             ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
-            Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null);
+            Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
+            BuildSourceRows: buildSourceRows);
     }
 
-    private static IReadOnlyList<StatusPanelStatusRow> BuildStatusRows(
+    private static IReadOnlyList<StatusPanelStatusRow> BuildDetailRows(
         ProjectHealthSnapshot snapshot,
         ControlPlaneStatusFormatter.Presentation controlPlane,
         DateTimeOffset utcNow)
     {
-        var rows = new List<StatusPanelStatusRow>(5);
+        var rows = new List<StatusPanelStatusRow>(4);
 
         var modePrimary = controlPlane.ModePrimary
             ?? ProjectBuildControlModeWire.ToDisplayLabel(
                 (snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused).BuildControlMode);
         rows.Add(new StatusPanelStatusRow("MODE", modePrimary));
-
-        rows.Add(BuildBuildRow(snapshot, controlPlane));
 
         if (controlPlane.ShowControlPlaneSection
             && !string.IsNullOrWhiteSpace(controlPlane.AgentPrimary))
@@ -130,32 +129,7 @@ public static class StatusPanelPresentationBuilder
             rows.Add(changes);
         }
 
-        var lastBuild = BuildLastBuildRow(snapshot, utcNow);
-        if (lastBuild is not null)
-        {
-            rows.Add(lastBuild);
-        }
-
         return rows;
-    }
-
-    private static StatusPanelStatusRow BuildBuildRow(
-        ProjectHealthSnapshot snapshot,
-        ControlPlaneStatusFormatter.Presentation controlPlane)
-    {
-        var localHealth = ResolveLocalBuildHealth(snapshot);
-        var primary = ResolveBuildPrimary(snapshot, controlPlane, localHealth);
-        var secondary = FormatIssueCounts(snapshot.ErrorCount, snapshot.WarningCount);
-        var emphasis = localHealth switch
-        {
-            MonitorHealth.Red => StatusPanelRowEmphasis.Error,
-            MonitorHealth.Amber => StatusPanelRowEmphasis.Warning,
-            _ when snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing
-                => StatusPanelRowEmphasis.Active,
-            _ => StatusPanelRowEmphasis.Normal
-        };
-
-        return new StatusPanelStatusRow("BUILD", primary, secondary, Emphasis: emphasis);
     }
 
     /// <summary>
@@ -175,38 +149,6 @@ public static class StatusPanelPresentationBuilder
             inProgress);
     }
 
-    private static string ResolveBuildPrimary(
-        ProjectHealthSnapshot snapshot,
-        ControlPlaneStatusFormatter.Presentation controlPlane,
-        MonitorHealth localHealth)
-    {
-        if (!string.IsNullOrWhiteSpace(controlPlane.BuildActivityOverride))
-        {
-            return controlPlane.BuildActivityOverride!;
-        }
-
-        if (snapshot.IsRestarting)
-        {
-            return "Restarting";
-        }
-
-        if (snapshot.State == ProjectLifecycleState.Building)
-        {
-            var percent = TryResolveBuildPercent(snapshot.ProgressSteps);
-            return percent is null ? "Building" : $"Building · {percent}%";
-        }
-
-        return snapshot.State switch
-        {
-            ProjectLifecycleState.Testing => "Testing",
-            ProjectLifecycleState.WaitingForEdits => "Waiting",
-            ProjectLifecycleState.BuildFailed => "Build failed",
-            ProjectLifecycleState.TestFailed => "Tests failed",
-            ProjectLifecycleState.Crashed => "Crashed",
-            _ => FormatSettledLocalBuildPrimary(localHealth)
-        };
-    }
-
     public static string FormatSettledLocalBuildPrimary(MonitorHealth localHealth) =>
         localHealth switch
         {
@@ -215,23 +157,6 @@ public static class StatusPanelPresentationBuilder
             MonitorHealth.Red => "Failed",
             _ => "Unknown"
         };
-
-    private static int? TryResolveBuildPercent(IReadOnlyList<BuildProgressStep> steps)
-    {
-        if (steps.Count == 0)
-        {
-            return null;
-        }
-
-        var complete = steps.Count(s => s.Status == BuildStepStatus.Complete);
-        var failed = steps.Any(s => s.Status == BuildStepStatus.Failed);
-        if (failed)
-        {
-            return null;
-        }
-
-        return (int)Math.Round(100.0 * complete / steps.Count);
-    }
 
     private static StatusPanelStatusRow? BuildChangesRow(
         ProjectHealthSnapshot snapshot,
@@ -327,53 +252,6 @@ public static class StatusPanelPresentationBuilder
 
         return null;
     }
-
-    private static StatusPanelStatusRow? BuildLastBuildRow(
-        ProjectHealthSnapshot snapshot,
-        DateTimeOffset utcNow)
-    {
-        if (snapshot.LastBuildFinishedAtUtc is not { } finished)
-        {
-            if (snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing)
-            {
-                return new StatusPanelStatusRow("LAST BUILD", "In progress…");
-            }
-
-            return null;
-        }
-
-        var absolute = finished.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-        var relative = FormatRelativeTime(utcNow - finished);
-        return new StatusPanelStatusRow(
-            "LAST BUILD",
-            absolute,
-            relative,
-            ToolTip: finished.ToLocalTime().ToString("F", CultureInfo.CurrentCulture));
-    }
-
-    private static string FormatRelativeTime(TimeSpan elapsed)
-    {
-        if (elapsed < TimeSpan.FromSeconds(45))
-        {
-            return "Just now";
-        }
-
-        if (elapsed < TimeSpan.FromMinutes(90))
-        {
-            var minutes = Math.Max(1, (int)elapsed.TotalMinutes);
-            return $"{minutes}m ago";
-        }
-
-        if (elapsed < TimeSpan.FromHours(36))
-        {
-            return $"{(int)elapsed.TotalHours}h ago";
-        }
-
-        return $"{(int)elapsed.TotalDays}d ago";
-    }
-
-    private static string FormatIssueCounts(int errors, int warnings) =>
-        $"{errors:N0} errors · {warnings:N0} warnings";
 
     private static string? ResolveCurrentAction(
         ProjectHealthSnapshot snapshot,

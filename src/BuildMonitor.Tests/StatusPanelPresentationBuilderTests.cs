@@ -103,32 +103,36 @@ public sealed class StatusPanelPresentationBuilderTests
     }
 
     [Fact]
-    public void Healthy_card_has_build_and_last_build_only()
+    public void Healthy_card_has_local_build_row_and_mode_detail()
     {
         var card = StatusPanelPresentationBuilder.Build(
             [Snapshot(ProjectLifecycleState.Watching, health: MonitorHealth.Green, healthLabel: "Healthy")],
             null,
             Now).Cards[0];
 
-        Assert.Equal(["MODE", "BUILD", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE"], card.StatusRows.Select(r => r.Label).ToArray());
         Assert.Equal("File Watching", Row(card, "MODE").Primary);
-        Assert.Equal("✓ Succeeded", Row(card, "BUILD").Primary);
-        Assert.Equal("0 errors · 0 warnings", Row(card, "BUILD").Secondary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("✓", local.StatusGlyph);
+        Assert.Equal("Succeeded", local.StatusText);
+        Assert.Equal("—", local.RunDisplay);
+        Assert.Equal("0E · 0W", local.IssuesDisplay);
         Assert.Null(card.CurrentActionText);
         Assert.DoesNotContain(card.StatusRows, r => r.Label == "AGENT");
     }
 
     [Fact]
-    public void Warnings_use_thousands_separators_once_on_build_row()
+    public void Waiting_local_build_row_keeps_issue_counts()
     {
         var card = StatusPanelPresentationBuilder.Build(
             [Snapshot(ProjectLifecycleState.WaitingForEdits, health: MonitorHealth.Amber, healthLabel: "Warnings", warningCount: 1013)],
             null,
             Now).Cards[0];
 
-        Assert.Equal("Waiting", Row(card, "BUILD").Primary);
-        Assert.Equal("0 errors · 1,013 warnings", Row(card, "BUILD").Secondary);
-        Assert.Equal(StatusPanelRowEmphasis.Warning, Row(card, "BUILD").Emphasis);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Waiting", local.StatusText);
+        Assert.Equal("0E · 1013W", local.IssuesDisplay);
+        Assert.Equal(StatusPanelRowEmphasis.Warning, local.Emphasis);
     }
 
     [Fact]
@@ -145,9 +149,10 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal("Build failed", Row(card, "BUILD").Primary);
-        Assert.Equal("2 errors · 12 warnings", Row(card, "BUILD").Secondary);
-        Assert.Equal(StatusPanelRowEmphasis.Error, Row(card, "BUILD").Emphasis);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Build failed", local.StatusText);
+        Assert.Equal("2E · 12W", local.IssuesDisplay);
+        Assert.Equal(StatusPanelRowEmphasis.Error, local.Emphasis);
         Assert.True(card.ShowErrorPreview);
         Assert.Equal("AccountInfoSection.razor · CS8780", card.ErrorPreview);
     }
@@ -166,7 +171,8 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal("Building · 33%", Row(card, "BUILD").Primary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Building · 33%", local.StatusText);
         Assert.True(card.ShowProgressChart);
     }
 
@@ -197,7 +203,7 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal(["MODE", "BUILD", "AGENT", "CHANGES", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE", "AGENT", "CHANGES"], card.StatusRows.Select(r => r.Label).ToArray());
         Assert.Equal("File Watching", Row(card, "MODE").Primary);
         Assert.Equal("Busy", Row(card, "AGENT").Primary);
         Assert.Equal("Builds paused · 3m", Row(card, "AGENT").Secondary);
@@ -229,7 +235,7 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal(["MODE", "BUILD", "AGENT", "LAST BUILD"], card.StatusRows.Select(r => r.Label).ToArray());
+        Assert.Equal(["MODE", "AGENT"], card.StatusRows.Select(r => r.Label).ToArray());
         Assert.Equal("File Watching", Row(card, "MODE").Primary);
         Assert.Equal("Idle", Row(card, "AGENT").Primary);
         Assert.Equal("Build allowed", Row(card, "AGENT").Secondary);
@@ -271,7 +277,8 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal("Ship check · Testing", Row(card, "BUILD").Primary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Ship check · Testing", local.StatusText);
         Assert.Equal("Running tests…", card.CurrentActionText);
     }
 
@@ -297,21 +304,24 @@ public sealed class StatusPanelPresentationBuilderTests
             null,
             Now).Cards[0];
 
-        Assert.Equal("Agent rebuild · Building", Row(card, "BUILD").Primary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("Agent rebuild · Building", local.StatusText);
         Assert.Equal("Rebuilding…", card.CurrentActionText);
     }
 
     [Fact]
-    public void Last_build_includes_relative_time()
+    public void Local_build_row_includes_relative_age()
     {
         var card = StatusPanelPresentationBuilder.Build(
             [Snapshot(
                 ProjectLifecycleState.Watching,
-                lastBuildFinishedAtUtc: Now.AddMinutes(-4))],
+                lastBuildFinishedAtUtc: Now.AddMinutes(-4),
+                lastDuration: TimeSpan.FromSeconds(4.3))],
             null,
             Now).Cards[0];
 
-        Assert.Equal("4m ago", Row(card, "LAST BUILD").Secondary);
+        var local = Assert.Single(card.BuildSourceRows!, r => r.Source == "Local");
+        Assert.Equal("4m · 4.3s", local.AgeDisplay);
     }
 
     [Fact]
@@ -396,17 +406,32 @@ public sealed class StatusPanelPresentationBuilderTests
         var presentation = StatusPanelPresentationBuilder.Build([merged], null, now);
         var card = Assert.Single(presentation.Cards);
 
-        Assert.Equal("✓ Succeeded", Row(card, "BUILD").Primary);
-        Assert.Equal(StatusPanelRowEmphasis.Normal, Row(card, "BUILD").Emphasis);
-        Assert.Equal(MonitorHealth.Green, StatusPanelPresentationBuilder.ResolveLocalBuildHealth(merged));
+        Assert.Equal(2, card.BuildSourceRows!.Count);
+        Assert.Equal("Local", card.BuildSourceRows[0].Source);
+        Assert.Equal("Azure", card.BuildSourceRows[1].Source);
 
+        var localRow = card.BuildSourceRows[0];
+        Assert.Equal("✓", localRow.StatusGlyph);
+        Assert.Equal("Succeeded", localRow.StatusText);
+        Assert.Equal("master", localRow.BranchDisplay);
+        Assert.Equal("—", localRow.RunDisplay);
+        Assert.Equal("—", localRow.BuildNumberDisplay);
+        Assert.Equal("—", localRow.PullRequestDisplay);
+        Assert.Null(localRow.DeepLinkUrl);
+        Assert.Equal(StatusPanelRowEmphasis.Normal, localRow.Emphasis);
+
+        var azureRow = card.BuildSourceRows[1];
+        Assert.Equal("✕", azureRow.StatusGlyph);
+        Assert.Equal("Failed", azureRow.StatusText);
+        Assert.Equal("#454", azureRow.RunDisplay);
+        Assert.Equal("20260825.15", azureRow.BuildNumberDisplay);
+        Assert.Equal("#168", azureRow.PullRequestDisplay);
+        Assert.Equal("https://example/?buildId=454", azureRow.DeepLinkUrl);
+        Assert.Equal("—", azureRow.IssuesDisplay);
+
+        Assert.Equal(MonitorHealth.Green, StatusPanelPresentationBuilder.ResolveLocalBuildHealth(merged));
         Assert.NotNull(card.Azure);
-        Assert.Equal("AZURE DEVOPS", card.Azure.HeaderLabel);
         Assert.True(card.Azure.ShowTable);
-        Assert.Equal("✕", card.Azure.Rows[0].StatusGlyph);
-        Assert.Equal("Failed", card.Azure.Rows[0].StatusText);
-        Assert.Equal("#454", card.Azure.Rows[0].RunDisplay);
-        Assert.Equal("20260825.15", card.Azure.Rows[0].BuildNumberDisplay);
 
         Assert.Equal(MonitorHealth.Red, presentation.SideRail.IdleHealth);
         Assert.Equal("Needs fix", presentation.SideRail.IdleLabel);
@@ -417,12 +442,13 @@ public sealed class StatusPanelPresentationBuilderTests
     }
 
     [Fact]
-    public void Status_panel_window_width_is_wide_enough_for_azure_table()
+    public void Status_panel_window_width_fits_shared_builds_table()
     {
-        Assert.Equal(620, StatusPanelMetrics.WindowWidth);
-        Assert.Equal(600, StatusPanelMetrics.WindowMinWidth);
-        Assert.Equal(640, StatusPanelMetrics.WindowMaxWidth);
+        Assert.Equal(540, StatusPanelMetrics.WindowWidth);
+        Assert.Equal(520, StatusPanelMetrics.WindowMinWidth);
+        Assert.Equal(560, StatusPanelMetrics.WindowMaxWidth);
         Assert.True(StatusPanelMetrics.ContentMeasureWidth > 500);
+        Assert.True(StatusPanelMetrics.ContentMeasureWidth < 560);
     }
 
     private static StatusPanelStatusRow Row(StatusPanelCardPresentation card, string label) =>
@@ -444,7 +470,8 @@ public sealed class StatusPanelPresentationBuilderTests
         ProjectControlPlaneSnapshot? controlPlane = null,
         string? editGatingDetail = null,
         bool isEditGatingActive = false,
-        DateTimeOffset? lastBuildFinishedAtUtc = null) =>
+        DateTimeOffset? lastBuildFinishedAtUtc = null,
+        TimeSpan? lastDuration = null) =>
         new(
             ProjectId: "p1",
             DisplayName: "Demo",
@@ -452,7 +479,7 @@ public sealed class StatusPanelPresentationBuilderTests
             HealthLabel: healthLabel,
             State: state,
             LastExitCode: 0,
-            LastDuration: TimeSpan.FromSeconds(1),
+            LastDuration: lastDuration ?? TimeSpan.FromSeconds(1),
             LastErrorPreview: errorPreview,
             ErrorCount: errorCount,
             WarningCount: warningCount,

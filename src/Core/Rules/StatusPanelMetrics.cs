@@ -3,11 +3,11 @@ namespace BuildMonitor.Core.Rules;
 /// <summary>Hover status panel sizing — single source of truth for XAML and layout fit.</summary>
 public static class StatusPanelMetrics
 {
-    /// <summary>Compact width that still fits Azure Run / Build No. / PR without clipping.</summary>
-    public const double WindowWidth = 620;
+    /// <summary>Compact width for shared Local/Azure BUILDS table.</summary>
+    public const double WindowWidth = 540;
 
-    public const double WindowMinWidth = 600;
-    public const double WindowMaxWidth = 640;
+    public const double WindowMinWidth = 520;
+    public const double WindowMaxWidth = 560;
 
     /// <summary>Side rail collapsed — overall health lives in the action footer.</summary>
     public const double AccentColumnWidth = 0;

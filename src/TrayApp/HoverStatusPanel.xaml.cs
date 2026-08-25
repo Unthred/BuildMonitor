@@ -191,13 +191,20 @@ public partial class HoverStatusPanel : Window
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
 
-            if (cardModel.StatusRows.Count > 0)
+            if (cardModel.BuildSourceRows is { Count: > 0 })
             {
-                panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("LOCAL", palette));
-                panel.Children.Add(StatusPanelVisuals.BuildLocalDenseGrid(cardModel.StatusRows, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("BUILDS", palette));
+                panel.Children.Add(StatusPanelVisuals.BuildBuildsTable(cardModel.BuildSourceRows, palette));
             }
 
-            if (cardModel.Azure is { ShowSection: true })
+            if (cardModel.StatusRows.Count > 0)
+            {
+                panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("DETAIL", palette));
+                panel.Children.Add(StatusPanelVisuals.BuildDetailRows(cardModel.StatusRows, palette));
+            }
+
+            if (cardModel.BuildSourceRows is not { Count: > 0 }
+                && cardModel.Azure is { ShowSection: true })
             {
                 panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, palette));
             }

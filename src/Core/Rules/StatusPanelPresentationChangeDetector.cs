@@ -75,13 +75,44 @@ public static class StatusPanelPresentationChangeDetector
                 || prev.ShowActivityIndicator != card.ShowActivityIndicator
                 || prev.ShowProgressChart != card.ShowProgressChart
                 || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps)
-                || prev.Azure != card.Azure)
+                || prev.Azure != card.Azure
+                || !BuildSourceRowsEqual(prev.BuildSourceRows, card.BuildSourceRows))
             {
                 return true;
             }
         }
 
         return previous.Cards.Count != current.Cards.Count;
+    }
+
+    private static bool BuildSourceRowsEqual(
+        IReadOnlyList<BuildSourcePresentationRow>? left,
+        IReadOnlyList<BuildSourcePresentationRow>? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            if (left[i] != right[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool StatusRowsEqual(
