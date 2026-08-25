@@ -127,13 +127,25 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 continue;
             }
 
-            var buildNumber = run.TryGetProperty("buildNumber", out var bn) ? bn.GetString() ?? runId.ToString() : runId.ToString();
+            var buildNumber = run.TryGetProperty("buildNumber", out var bn) && bn.ValueKind == JsonValueKind.String
+                ? bn.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(buildNumber))
+            {
+                buildNumber = null;
+            }
+
             var state = ParseState(run.TryGetProperty("status", out var st) ? st.GetString() : null);
             var result = ParseResult(run.TryGetProperty("result", out var rs) && rs.ValueKind != JsonValueKind.Null
                 ? rs.GetString()
                 : null);
             var branchRaw = run.TryGetProperty("sourceBranch", out var br) ? br.GetString() : null;
-            var branch = AzureGitBranchNormalizer.ToShortName(branchRaw) ?? "unknown";
+            var reason = run.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : null;
+            JsonElement? triggerInfo = run.TryGetProperty("triggerInfo", out var ti) && ti.ValueKind == JsonValueKind.Object
+                ? ti
+                : null;
+            var pullRequestNumber = AzurePullRequestMetadata.TryResolveNumber(reason, branchRaw, triggerInfo);
+            var branch = AzurePullRequestMetadata.ResolveDisplayBranch(branchRaw, pullRequestNumber, triggerInfo);
             var queuedAt = ParseDate(run, "queueTime") ?? DateTimeOffset.UtcNow;
             var startedAt = ParseDate(run, "startTime");
             var finishedAt = ParseDate(run, "finishTime");
@@ -159,7 +171,8 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 queuedAt,
                 startedAt,
                 finishedAt,
-                runUrl));
+                runUrl,
+                pullRequestNumber));
         }
 
         return new AzureBuildPollResult(AzureBuildPollOutcome.Ok, runs);

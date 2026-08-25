@@ -382,20 +382,139 @@ internal static class StatusPanelVisuals
             Margin = new Thickness(0, 0, 0, 2)
         });
 
-        var primary = new TextBlock
+        if (!azure.ShowTable)
         {
-            FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = EmphasisBrush(azure.Emphasis, palette),
-            TextWrapping = TextWrapping.Wrap
-        };
-        primary.Inlines.Add(new Run(azure.Glyph + " ") { FontWeight = FontWeights.Bold });
-        if (!string.IsNullOrWhiteSpace(azure.RunUrl))
-        {
-            var link = new Hyperlink(new Run(azure.PrimaryLine))
+            var message = new TextBlock
             {
-                NavigateUri = new Uri(azure.RunUrl),
-                ToolTip = "Open in Azure DevOps"
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = EmphasisBrush(azure.Emphasis, palette),
+                TextWrapping = TextWrapping.Wrap
+            };
+            if (!string.IsNullOrWhiteSpace(azure.MessageGlyph))
+            {
+                message.Inlines.Add(new Run(azure.MessageGlyph + " ") { FontWeight = FontWeights.Bold });
+            }
+
+            if (!string.IsNullOrWhiteSpace(azure.MessagePrimary))
+            {
+                message.Inlines.Add(new Run(azure.MessagePrimary));
+            }
+
+            panel.Children.Add(message);
+
+            if (!string.IsNullOrWhiteSpace(azure.MessageSecondary))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = azure.MessageSecondary,
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(palette.Foreground),
+                    Opacity = 0.85,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(14, 1, 0, 0)
+                });
+            }
+        }
+        else
+        {
+            panel.Children.Add(BuildAzureTable(azure.Rows, palette));
+        }
+
+        if (!string.IsNullOrWhiteSpace(azure.AttentionLine))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = azure.AttentionLine,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(200, 80, 60)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+        }
+
+        return panel;
+    }
+
+    private static UIElement BuildAzureTable(IReadOnlyList<AzureStatusTableRow> rows, ThemePalette palette)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star), MinWidth = 70 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star), MinWidth = 72 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.0, GridUnitType.Star), MinWidth = 48 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 34 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star), MinWidth = 62 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 28 });
+
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        AddAzureHeaderCell(grid, 0, 0, "Pipeline", palette);
+        AddAzureHeaderCell(grid, 0, 1, "Status", palette);
+        AddAzureHeaderCell(grid, 0, 2, "Branch", palette);
+        AddAzureHeaderCell(grid, 0, 3, "Run", palette);
+        AddAzureHeaderCell(grid, 0, 4, "Build No.", palette);
+        AddAzureHeaderCell(grid, 0, 5, "PR", palette);
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowIndex = i + 1;
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl);
+            AddAzureStatusCell(grid, rowIndex, 1, row, palette);
+            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl);
+        }
+
+        return grid;
+    }
+
+    private static void AddAzureHeaderCell(Grid grid, int row, int column, string text, ThemePalette palette)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            FontSize = 9,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(palette.Foreground),
+            Opacity = 0.65,
+            Margin = new Thickness(0, 0, 6, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetRow(block, row);
+        Grid.SetColumn(block, column);
+        grid.Children.Add(block);
+    }
+
+    private static void AddAzureCell(
+        Grid grid,
+        int row,
+        int column,
+        string text,
+        WpfColor color,
+        bool bold,
+        string? runUrl)
+    {
+        var block = new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(color),
+            Margin = new Thickness(0, 0, 6, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap
+        };
+
+        if (!string.IsNullOrWhiteSpace(runUrl) && Uri.TryCreate(runUrl, UriKind.Absolute, out var uri))
+        {
+            var link = new Hyperlink(new Run(text))
+            {
+                NavigateUri = uri,
+                ToolTip = "Open in Azure DevOps",
+                TextDecorations = null
             };
             link.RequestNavigate += (_, e) =>
             {
@@ -409,41 +528,72 @@ internal static class StatusPanelVisuals
                     // ignore launch failures
                 }
             };
-            primary.Inlines.Add(link);
+            block.Inlines.Add(link);
         }
         else
         {
-            primary.Inlines.Add(new Run(azure.PrimaryLine));
+            block.Text = text;
         }
 
-        panel.Children.Add(primary);
+        Grid.SetRow(block, row);
+        Grid.SetColumn(block, column);
+        grid.Children.Add(block);
+    }
 
-        if (!string.IsNullOrWhiteSpace(azure.SecondaryLine))
+    private static void AddAzureStatusCell(Grid grid, int row, int column, AzureStatusTableRow data, ThemePalette palette)
+    {
+        var stack = new StackPanel { Margin = new Thickness(0, 0, 6, 1) };
+        var status = new TextBlock
         {
-            panel.Children.Add(new TextBlock
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = EmphasisBrush(data.Emphasis, palette),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap
+        };
+        var statusText = $"{data.StatusGlyph} {data.StatusText}";
+        if (!string.IsNullOrWhiteSpace(data.RunUrl) && Uri.TryCreate(data.RunUrl, UriKind.Absolute, out var uri))
+        {
+            var link = new Hyperlink(new Run(statusText))
             {
-                Text = azure.SecondaryLine,
-                FontSize = 10,
+                NavigateUri = uri,
+                ToolTip = "Open in Azure DevOps",
+                TextDecorations = null
+            };
+            link.RequestNavigate += (_, e) =>
+            {
+                e.Handled = true;
+                try
+                {
+                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+                }
+                catch
+                {
+                    // ignore
+                }
+            };
+            status.Inlines.Add(link);
+        }
+        else
+        {
+            status.Text = statusText;
+        }
+
+        stack.Children.Add(status);
+        if (!string.IsNullOrWhiteSpace(data.TimingText))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = data.TimingText,
+                FontSize = 9,
                 Foreground = new SolidColorBrush(palette.Foreground),
-                Opacity = 0.85,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(14, 1, 0, 0)
+                Opacity = 0.7,
+                TextTrimming = TextTrimming.CharacterEllipsis
             });
         }
 
-        if (!string.IsNullOrWhiteSpace(azure.AttentionLine))
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = azure.AttentionLine,
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(WpfColor.FromRgb(200, 80, 60)),
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(14, 2, 0, 0)
-            });
-        }
-
-        return panel;
+        Grid.SetRow(stack, row);
+        Grid.SetColumn(stack, column);
+        grid.Children.Add(stack);
     }
 }

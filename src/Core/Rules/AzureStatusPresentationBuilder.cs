@@ -19,100 +19,107 @@ public static class AzureStatusPresentationBuilder
 
         if (!hasSelectedPipelines)
         {
-            return new AzureStatusPresentation(
-                ShowSection: true,
-                HeaderLabel: "AZURE",
-                Glyph: "○",
-                PrimaryLine: "Connected · Not monitored",
-                SecondaryLine: null,
-                AttentionLine: null,
-                RunUrl: null,
-                Emphasis: StatusPanelRowEmphasis.Normal);
+            return Message("○", "Connected · Not monitored", null, StatusPanelRowEmphasis.Normal);
         }
 
         if (facet is null)
         {
-            return new AzureStatusPresentation(
-                ShowSection: true,
-                HeaderLabel: "AZURE",
-                Glyph: "…",
-                PrimaryLine: "Checking…",
-                SecondaryLine: null,
-                AttentionLine: null,
-                RunUrl: null,
-                Emphasis: StatusPanelRowEmphasis.Normal);
+            return Message("…", "Checking…", null, StatusPanelRowEmphasis.Normal);
         }
 
         if (facet.Availability == AzureMonitoringAvailability.AuthRequired)
         {
-            return new AzureStatusPresentation(
-                ShowSection: true,
-                HeaderLabel: "AZURE",
-                Glyph: "!",
-                PrimaryLine: "Authentication required",
-                SecondaryLine: facet.StatusMessage,
-                AttentionLine: null,
-                RunUrl: null,
-                Emphasis: StatusPanelRowEmphasis.Warning);
+            return Message("!", "Authentication required", facet.StatusMessage, StatusPanelRowEmphasis.Warning);
         }
 
         if (facet.Availability == AzureMonitoringAvailability.Unavailable)
         {
             var ago = FormatRelativeAgo(utcNow - facet.PolledAtUtc);
-            return new AzureStatusPresentation(
-                ShowSection: true,
-                HeaderLabel: "AZURE",
-                Glyph: "!",
-                PrimaryLine: "Azure DevOps unavailable",
-                SecondaryLine: string.IsNullOrWhiteSpace(facet.StatusMessage)
+            return Message(
+                "!",
+                "Azure DevOps unavailable",
+                string.IsNullOrWhiteSpace(facet.StatusMessage)
                     ? $"Last checked {ago}"
                     : Truncate(facet.StatusMessage, 120),
-                AttentionLine: null,
-                RunUrl: null,
-                Emphasis: StatusPanelRowEmphasis.Warning);
+                StatusPanelRowEmphasis.Warning);
         }
 
         if (facet.PrimaryRun is null)
         {
             if (facet.PolledAtUtc == DateTimeOffset.MinValue)
             {
-                return new AzureStatusPresentation(
-                    ShowSection: true,
-                    HeaderLabel: "AZURE",
-                    Glyph: "…",
-                    PrimaryLine: "Checking…",
-                    SecondaryLine: null,
-                    AttentionLine: null,
-                    RunUrl: null,
-                    Emphasis: StatusPanelRowEmphasis.Normal);
+                return Message("…", "Checking…", null, StatusPanelRowEmphasis.Normal);
             }
 
-            return new AzureStatusPresentation(
-                ShowSection: true,
-                HeaderLabel: "AZURE",
-                Glyph: "○",
-                PrimaryLine: "No runs",
-                SecondaryLine: facet.FocusBranch is null ? null : $"Focus · {facet.FocusBranch}",
-                AttentionLine: FormatAttention(facet.AttentionRuns),
-                RunUrl: null,
-                Emphasis: StatusPanelRowEmphasis.Normal);
+            return Message(
+                "○",
+                "No runs",
+                facet.FocusBranch is null ? null : $"Focus · {facet.FocusBranch}",
+                StatusPanelRowEmphasis.Normal,
+                attention: FormatAttention(facet.AttentionRuns));
         }
 
-        var run = facet.PrimaryRun;
-        var (glyph, emphasis, stateLabel) = DescribeRun(run);
-        var detail = FormatRunDetail(run, utcNow);
-        var attention = FormatAttention(facet.AttentionRuns);
+        var rows = new List<AzureStatusTableRow> { ToTableRow(facet.PrimaryRun, utcNow) };
+        foreach (var attentionRun in facet.AttentionRuns)
+        {
+            if (!ShouldShowAttentionAsRow(attentionRun))
+            {
+                continue;
+            }
+
+            rows.Add(ToTableRow(attentionRun, utcNow));
+            if (rows.Count >= 3)
+            {
+                break;
+            }
+        }
+
+        var shownRunIds = rows
+            .Select(r => r.RunDisplay)
+            .ToHashSet(StringComparer.Ordinal);
+        var hiddenAttention = facet.AttentionRuns
+            .Where(r => !shownRunIds.Contains(FormatRunId(r.RunId)))
+            .ToList();
 
         return new AzureStatusPresentation(
             ShowSection: true,
             HeaderLabel: "AZURE",
-            Glyph: glyph,
-            PrimaryLine: $"{run.PipelineDisplayName}",
-            SecondaryLine: $"{stateLabel} · {run.Branch} · {detail}",
-            AttentionLine: attention,
+            ShowTable: true,
+            MessageGlyph: null,
+            MessagePrimary: null,
+            MessageSecondary: null,
+            Rows: rows,
+            AttentionLine: FormatAttention(hiddenAttention),
+            PrimaryRunUrl: string.IsNullOrWhiteSpace(facet.PrimaryRun.RunUrl) ? null : facet.PrimaryRun.RunUrl,
+            Emphasis: rows[0].Emphasis);
+    }
+
+    public static AzureStatusTableRow ToTableRow(AzurePipelineRunInfo run, DateTimeOffset utcNow)
+    {
+        var (glyph, emphasis, stateLabel) = DescribeRun(run);
+        return new AzureStatusTableRow(
+            Pipeline: run.PipelineDisplayName,
+            StatusGlyph: glyph,
+            StatusText: stateLabel,
+            Branch: run.Branch,
+            RunDisplay: FormatRunId(run.RunId),
+            BuildNumberDisplay: FormatBuildNumber(run.BuildNumber),
+            PullRequestDisplay: FormatPullRequest(run.PullRequestNumber),
+            TimingText: FormatTiming(run, utcNow),
             RunUrl: string.IsNullOrWhiteSpace(run.RunUrl) ? null : run.RunUrl,
             Emphasis: emphasis);
     }
+
+    public static string FormatRunId(long runId) =>
+        runId > 0 ? string.Create(CultureInfo.InvariantCulture, $"#{runId}") : "—";
+
+    public static string FormatBuildNumber(string? buildNumber) =>
+        string.IsNullOrWhiteSpace(buildNumber) ? "—" : buildNumber.Trim();
+
+    public static string FormatPullRequest(int? pullRequestNumber) =>
+        pullRequestNumber is > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"#{pullRequestNumber.Value}")
+            : "—";
 
     public static (string Glyph, StatusPanelRowEmphasis Emphasis, string StateLabel) DescribeRun(AzurePipelineRunInfo run)
     {
@@ -142,20 +149,15 @@ public static class AzureStatusPresentationBuilder
         return ("○", StatusPanelRowEmphasis.Normal, "Unknown");
     }
 
-    public static string FormatRunDetail(AzurePipelineRunInfo run, DateTimeOffset utcNow)
+    public static string? FormatTiming(AzurePipelineRunInfo run, DateTimeOffset utcNow)
     {
-        if (AzureRunSelector.IsActive(run.State))
+        if (!AzureRunSelector.IsActive(run.State))
         {
-            var start = run.StartedAtUtc ?? run.QueuedAtUtc;
-            return FormatDuration(utcNow - start);
+            return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(run.BuildNumber))
-        {
-            return $"Build {run.BuildNumber}";
-        }
-
-        return run.RunId > 0 ? $"Build {run.RunId}" : "—";
+        var start = run.StartedAtUtc ?? run.QueuedAtUtc;
+        return "Running " + FormatDuration(utcNow - start);
     }
 
     public static string FormatDuration(TimeSpan elapsed)
@@ -181,6 +183,10 @@ public static class AzureStatusPresentationBuilder
 
         return string.Create(CultureInfo.InvariantCulture, $"{Math.Max(1, (int)elapsed.TotalSeconds)}s");
     }
+
+    private static bool ShouldShowAttentionAsRow(AzurePipelineRunInfo run) =>
+        run.State == PipelineRunState.Completed
+        && run.Result is PipelineRunResult.Failed or PipelineRunResult.PartiallySucceeded;
 
     private static string? FormatAttention(IReadOnlyList<AzurePipelineRunInfo> attention)
     {
@@ -239,6 +245,24 @@ public static class AzureStatusPresentationBuilder
         return trimmed.Length <= max ? trimmed : trimmed[..(max - 1)] + "…";
     }
 
+    private static AzureStatusPresentation Message(
+        string glyph,
+        string primary,
+        string? secondary,
+        StatusPanelRowEmphasis emphasis,
+        string? attention = null) =>
+        new(
+            ShowSection: true,
+            HeaderLabel: "AZURE",
+            ShowTable: false,
+            MessageGlyph: glyph,
+            MessagePrimary: primary,
+            MessageSecondary: secondary,
+            Rows: [],
+            AttentionLine: attention,
+            PrimaryRunUrl: null,
+            Emphasis: emphasis);
+
     private static AzureStatusPresentation Hidden() =>
-        new(false, "AZURE", string.Empty, string.Empty, null, null, null, StatusPanelRowEmphasis.Normal);
+        new(false, "AZURE", false, null, null, null, [], null, null, StatusPanelRowEmphasis.Normal);
 }

@@ -40,28 +40,35 @@ public sealed class AzureBuildPollClientTests
     }
 
     [Fact]
-    public async Task Ok_parses_runs_without_finish_time_order_assumption()
+    public async Task Ok_parses_distinct_run_id_build_number_and_pr()
     {
         const string json = """
             {
               "value": [
                 {
-                  "id": 50,
-                  "buildNumber": "50",
-                  "status": "inProgress",
+                  "id": 452,
+                  "buildNumber": "20260825.13",
+                  "status": "completed",
+                  "result": "succeeded",
+                  "reason": "individualCI",
                   "sourceBranch": "refs/heads/master",
-                  "queueTime": "2026-08-25T10:00:00Z",
-                  "startTime": "2026-08-25T10:01:00Z",
+                  "queueTime": "2026-08-25T09:24:15Z",
+                  "startTime": "2026-08-25T09:24:25Z",
+                  "finishTime": "2026-08-25T09:32:09Z",
                   "definition": { "name": "WitherbyConnect" }
                 },
                 {
-                  "id": 49,
-                  "buildNumber": "49",
-                  "status": "completed",
-                  "result": "failed",
-                  "sourceBranch": "refs/heads/master",
-                  "queueTime": "2026-08-25T09:00:00Z",
-                  "finishTime": "2026-08-25T09:30:00Z",
+                  "id": 453,
+                  "buildNumber": "20260825.14",
+                  "status": "inProgress",
+                  "reason": "pullRequest",
+                  "sourceBranch": "refs/pull/327/merge",
+                  "triggerInfo": {
+                    "pr.number": "327",
+                    "pr.sourceBranch": "refs/heads/feature/foo"
+                  },
+                  "queueTime": "2026-08-25T10:00:00Z",
+                  "startTime": "2026-08-25T10:01:00Z",
                   "definition": { "name": "WitherbyConnect" }
                 }
               ]
@@ -69,13 +76,10 @@ public sealed class AzureBuildPollClientTests
             """;
 
         using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
-        {
-            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            return response;
-        })));
+            })));
 
         var result = await client.ListRecentBuildsAsync(
             "https://dev.azure.com/org",
@@ -86,9 +90,53 @@ public sealed class AzureBuildPollClientTests
             CancellationToken.None);
 
         Assert.Equal(AzureBuildPollOutcome.Ok, result.Outcome);
-        Assert.Equal(2, result.Runs.Count);
-        Assert.Contains(result.Runs, r => r.RunId == 50 && r.State == Core.Models.PipelineRunState.InProgress);
-        Assert.DoesNotContain("secret-pat", result.Runs[0].RunUrl, StringComparison.OrdinalIgnoreCase);
+        var ci = Assert.Single(result.Runs, r => r.RunId == 452);
+        Assert.Equal("20260825.13", ci.BuildNumber);
+        Assert.Null(ci.PullRequestNumber);
+        Assert.Equal("master", ci.Branch);
+        Assert.Contains("buildId=452", ci.RunUrl, StringComparison.Ordinal);
+
+        var pr = Assert.Single(result.Runs, r => r.RunId == 453);
+        Assert.Equal(327, pr.PullRequestNumber);
+        Assert.Equal("feature/foo", pr.Branch);
+        Assert.Equal("20260825.14", pr.BuildNumber);
+    }
+
+    [Fact]
+    public async Task Missing_buildNumber_stays_null()
+    {
+        const string json = """
+            {
+              "value": [
+                {
+                  "id": 99,
+                  "status": "completed",
+                  "result": "succeeded",
+                  "sourceBranch": "refs/heads/main",
+                  "queueTime": "2026-08-25T10:00:00Z",
+                  "definition": { "name": "CI" }
+                }
+              ]
+            }
+            """;
+
+        using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })));
+
+        var result = await client.ListRecentBuildsAsync(
+            "https://dev.azure.com/org",
+            "proj",
+            8,
+            "CI",
+            "pat",
+            CancellationToken.None);
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(99, run.RunId);
+        Assert.Null(run.BuildNumber);
     }
 
     [Fact]
