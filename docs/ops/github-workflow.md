@@ -142,7 +142,7 @@ The script is idempotent (skips issues whose titles already exist) and ensures c
 | Tests | Run tests on file change (`OnFileChange` mode) |
 | Tray UX | Open log viewer from tray context menu |
 | Tray UX | WPF tray context menu (Phase 2, if #8 insufficient) |
-| Optional module | Wire Azure DevOps polling module |
+| Optional module | Azure DevOps polling (shipped — see SETTINGS / ARCHITECTURE; notifications still deferred) |
 | Diagnostics | Verdict feedback loop for adaptive debounce |
 
 Update this table when adding new planned issues.

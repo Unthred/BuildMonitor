@@ -312,7 +312,8 @@ public partial class SettingsWindow : Window
     {
         if (project.Azure is null)
         {
-            AzureAttachmentSummary.Text = "No Azure association. Continuous monitoring is not enabled yet.";
+            AzureAttachmentSummary.Text =
+                "No Azure association. Attach Azure DevOps to poll selected pipelines for this project.";
             AttachAzureButton.Visibility = project.Local is not null ? Visibility.Visible : Visibility.Collapsed;
             ChangeAzureButton.Visibility = Visibility.Collapsed;
             DetachAzureButton.Visibility = Visibility.Collapsed;

@@ -203,7 +203,7 @@
                                                 Click="AssociateLocalClicked" />
                                     </StackPanel>
                                     <TextBlock x:Name="AzureOnlyHint"
-                                               Text="Azure-only project: local build/run options are hidden until a local folder is associated. Continuous Azure monitoring is not enabled yet."
+                                               Text="Azure-only project: local build/run options are hidden until a local folder is associated. Active Azure projects with selected pipelines are polled continuously."
                                                TextWrapping="Wrap"
                                                Opacity="0.8"
                                                Margin="0,0,0,10"
@@ -573,7 +573,7 @@
 
                                        Margin="0,0,0,16"
 
-                                       Text="Configure an organisation connection and PAT for discovery. Use Projects → Add from Azure / Attach to associate repositories. Continuous Azure build monitoring is not enabled yet." />
+                                       Text="Configure an organisation connection and PAT for discovery. Use Projects → Add from Azure / Attach to associate repositories. Active projects with one or more selected pipelines are polled continuously (hover BUILDS and tray health)." />
 
                             <TextBlock Text="Display name" Margin="0,0,0,4" />
 

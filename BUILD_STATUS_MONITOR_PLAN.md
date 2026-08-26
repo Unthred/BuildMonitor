@@ -26,9 +26,9 @@ Windows 11 WPF tasktray app for monitoring and controlling local .NET projects y
 - Settings: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 - Logs: `%LOCALAPPDATA%/BuildMonitor/logs/{projectId}/last-build.log` (and test/run variants)
 
-## Optional future module
+## Azure DevOps monitoring
 
-Azure DevOps polling code remains under `src/Infrastructure/AzureDevOps/` but is not wired into the tray app startup.
+Continuous Azure build polling is **shipped** (connections, discovery, project association, hover BUILDS, tray health, control-plane `/projects`). See [docs/SETTINGS.md](docs/SETTINGS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Toast notifications and stage/job timeline remain deferred.
 
 ## Run from repo root
 
