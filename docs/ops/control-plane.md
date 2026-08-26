@@ -202,6 +202,7 @@ Omit `filter` to run the full configured test project/solution.
 - **`/run/tests` after compile errors** — fix build first (auto-build or rebuild), then filter tests.
 - **Treating `idle` as “tests passed”** — idle only resumes auto-build; use ship-check or `/run/tests` for verification.
 - **Overlapping `/run/rebuild`, `/run/tests`, `/run/ship-check`** — second call returns **409** until the first finishes.
+- **Cursor “Waiting up to Xm for shell” after tests already finished** — agent Shell/`AwaitShell` countdown, not BuildMonitor. See [agent skill § Shell wait rules](agent-skills/buildmonitor-control-plane/SKILL.md#shell-wait-rules-authoritative).
 
 ## Behaviour
 

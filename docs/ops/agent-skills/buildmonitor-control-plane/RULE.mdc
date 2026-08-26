@@ -27,6 +27,7 @@ unless the control plane is unreachable.
 6. When a compile is needed: `POST /run/rebuild`. For final verification: `POST /run/ship-check`. Optional `/run/tests` with `"filter"`.
 7. If `ok` is false, read failures/log and fix — do not claim success.
 8. Prefer pause/ship-check over starting a second `dotnet watch` or killing processes.
+9. Shell / `AwaitShell`: size `block_until_ms` to expected `/run/*` runtime; **never** background a ship-check then park on a multi-minute `AwaitShell`. `/run/*` returns when the process exits (pass or fail). Full rules: skill `buildmonitor-control-plane` → Shell wait rules.
 
 ## Chat announcements (required)
 

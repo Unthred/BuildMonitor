@@ -36,6 +36,8 @@ Settings shows **Cursor agent integration** status for the selected project: Not
 Canonical skill text: [buildmonitor-control-plane/SKILL.md](buildmonitor-control-plane/SKILL.md)  
 Canonical always-on rule: [buildmonitor-control-plane/RULE.mdc](buildmonitor-control-plane/RULE.mdc)
 
+**Shell / `AwaitShell` wait rules** live only in the canonical skill (§ Shell wait rules). Product repos must not duplicate that generic contract; reinstall from BuildMonitor when the skill changes.
+
 Installed copies under a repo’s `.cursor/skills/buildmonitor-control-plane/` and `.cursor/rules/buildmonitor-control-plane.mdc` are **generated** (installer overwrite). In the BuildMonitor repo those paths are gitignored so self-install does not dirty `git status`; other tracked `.cursor` rules/skills are unchanged.
 
 API details: [../control-plane.md](../control-plane.md)
