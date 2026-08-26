@@ -168,7 +168,9 @@ Restart the project from the tray after changing this option so the run process 
 
 When run/watch is active and the last build succeeded, **Run tests** keeps the site up: tests run with `dotnet test --no-build` against existing binaries (no app exe copy, no stop/restart).
 
-If test assemblies are missing or stale, Build Monitor stops run/watch briefly, rebuilds, runs tests, then restarts watch (with `--no-build`). The same brief stop happens when the last build failed and a full test build is required.
+If test assemblies are missing or stale, Build Monitor stops run/watch briefly, rebuilds, runs tests **once**, then restarts watch (with `--no-build`). The same brief stop happens when the last build failed and a full test build is required.
+
+VSTest can print `Test run for <dll>` **before** it opens the file. That banner is **not** treated as “tests executed”. A following `The test source file … was not found` (or `Could not find file`) still triggers the one-time recovery. Genuine assertion failures (`Starting test execution`, `Failed!` summaries, `[FAIL]`) do **not** rebuild.
 
 `TestResults` and similar output are ignored by file watchers during and after test runs so they do not trigger spurious rebuilds.
 

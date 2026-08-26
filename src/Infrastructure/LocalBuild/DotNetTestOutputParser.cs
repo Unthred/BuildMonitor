@@ -155,22 +155,36 @@ public static class DotNetTestOutputParser
             return false;
         }
 
-        if (TryParseSummary(logText) is { Total: > 0 })
-        {
-            return true;
-        }
-
-        return logText.Contains("Starting test execution", StringComparison.OrdinalIgnoreCase)
-               || logText.Contains("Test run for ", StringComparison.OrdinalIgnoreCase)
-               || logText.Contains("Passed!", StringComparison.OrdinalIgnoreCase)
-               || logText.Contains("Failed!", StringComparison.OrdinalIgnoreCase)
-               || logText.Contains("Total tests:", StringComparison.OrdinalIgnoreCase);
+        // Intentionally ignores "Test run for …" — VSTest prints that banner before opening the DLL.
+        return HasPostDiscoveryExecutionEvidence(logText);
     }
 
     public static bool LooksLikeRestoreOrBuildOnly(string logText) =>
         !LooksLikeTestsExecuted(logText)
         && (logText.Contains("(Restore target(s))", StringComparison.OrdinalIgnoreCase)
             || logText.Contains("Done Building Project", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// VSTest named a test assembly then reported it missing — tests never started.
+    /// </summary>
+    public static bool LooksLikeMissingTestSource(string logText)
+    {
+        if (string.IsNullOrWhiteSpace(logText))
+        {
+            return false;
+        }
+
+        var hasNotFound = logText.Contains("was not found", StringComparison.OrdinalIgnoreCase)
+                          || logText.Contains("could not be found", StringComparison.OrdinalIgnoreCase);
+        if (!hasNotFound)
+        {
+            return false;
+        }
+
+        return logText.Contains("test source file", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("The specified file", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("provided was not found", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>True when --no-build failed because assemblies are missing or out of date.</summary>
     public static bool LooksLikeNeedsFullBuildBeforeTest(string logText)
@@ -180,7 +194,9 @@ public static class DotNetTestOutputParser
             return false;
         }
 
-        if (LooksLikeRestoreOrBuildOnly(logText) || BuildLogParser.IsOutputLockError(logText))
+        if (LooksLikeMissingTestSource(logText)
+            || LooksLikeRestoreOrBuildOnly(logText)
+            || BuildLogParser.IsOutputLockError(logText))
         {
             return true;
         }
@@ -190,6 +206,25 @@ public static class DotNetTestOutputParser
                || logText.Contains("could not be found", StringComparison.OrdinalIgnoreCase)
                || logText.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
                || logText.Contains("No test is available in", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Evidence that discovery finished and the test host actually ran cases (or reported a run summary).
+    /// Does not include the VSTest "Test run for" banner, which is printed before the DLL is opened.
+    /// </summary>
+    private static bool HasPostDiscoveryExecutionEvidence(string logText)
+    {
+        if (TryParseSummary(logText) is { Total: > 0 })
+        {
+            return true;
+        }
+
+        return logText.Contains("Starting test execution", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("Passed!", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("Failed!", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("Total tests:", StringComparison.OrdinalIgnoreCase)
+               || logText.Contains("[FAIL]", StringComparison.Ordinal)
+               || logText.Contains("[PASS]", StringComparison.Ordinal);
     }
 
     private static bool TryParseFailedTest(string line, out string testName)

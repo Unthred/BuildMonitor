@@ -196,36 +196,41 @@ internal sealed partial class ProjectRuntime
         CancellationToken cancellationToken)
     {
         var stoppedApp = false;
-        CliRunResult result;
         var usedNoBuild = false;
+        var tryNoBuild = TestRunPlanner.ShouldTryNoBuildFirst(lastBuildExitCode);
 
-        if (TestRunPlanner.RequiresFullBuildFromStart(lastBuildExitCode))
+        if (!tryNoBuild)
         {
             stoppedApp = await StopAppForTestBuildIfNeededAsync(
                 wasRunProcessActive,
                 "stopping run/watch to rebuild before tests",
                 cancellationToken);
             await ReleaseLocksForTestBuildIfNeededAsync(releaseLocksSetting, stoppedApp, cancellationToken);
-            result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: false), cancellationToken);
         }
-        else
-        {
-            AppendTestNote("running tests while app stays up (--no-build)");
-            usedNoBuild = true;
-            result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: true), cancellationToken);
 
-            if (!DotNetTestOutputParser.LooksLikeTestsExecuted(result.Output)
-                && DotNetTestOutputParser.LooksLikeNeedsFullBuildBeforeTest(result.Output))
+        var result = await TestRunRecoveryCoordinator.RunWithOptionalFullBuildRecoveryAsync(
+            tryNoBuild,
+            async (attempt, ct) =>
             {
-                usedNoBuild = false;
-                stoppedApp = await StopAppForTestBuildIfNeededAsync(
-                    wasRunProcessActive,
-                    "test assemblies stale — stopping app briefly to rebuild",
-                    cancellationToken);
-                await ReleaseLocksForTestBuildIfNeededAsync(releaseLocksSetting, stoppedApp, cancellationToken);
-                result = await RunTestAttemptAsync(BuildTestArgs(target, noBuild: false), cancellationToken);
-            }
-        }
+                if (attempt.IsRecoveryRetry)
+                {
+                    usedNoBuild = false;
+                    stoppedApp |= await StopAppForTestBuildIfNeededAsync(
+                        wasRunProcessActive,
+                        "test assemblies stale — stopping app briefly to rebuild",
+                        ct);
+                    await ReleaseLocksForTestBuildIfNeededAsync(releaseLocksSetting, stoppedApp, ct);
+                }
+                else if (attempt.NoBuild)
+                {
+                    AppendTestNote("running tests while app stays up (--no-build)");
+                    usedNoBuild = true;
+                }
+
+                return await RunTestAttemptAsync(BuildTestArgs(target, attempt.NoBuild), ct);
+            },
+            static r => r.Output,
+            cancellationToken);
 
         var shouldReleaseLocks = TestRunPlanner.ShouldReleaseLocksForTestBuild(releaseLocksSetting, stoppedApp);
         var finalResult = await RetryTestOnLockErrorAsync(
@@ -378,6 +383,11 @@ internal sealed partial class ProjectRuntime
         if (BuildLogParser.IsOutputLockError(logText))
         {
             return "build failed — app executable is locked; enable Stop processes locking build output in settings";
+        }
+
+        if (DotNetTestOutputParser.LooksLikeMissingTestSource(logText))
+        {
+            return "test assembly missing or stale";
         }
 
         if (logText.Contains("No test is available", StringComparison.OrdinalIgnoreCase)

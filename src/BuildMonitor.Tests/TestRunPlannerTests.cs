@@ -47,4 +47,24 @@ public class TestRunPlannerTests
         Assert.Equal(
             expected,
             TestRunPlanner.ShouldReleaseLocksForTestBuild(releaseLocksSetting, appWasStoppedForTests));
+
+    [Fact]
+    public void ShouldRetryWithFullBuild_true_for_missing_assembly_after_no_build()
+    {
+        const string log = """
+            Test run for C:\src\App\bin\Debug\net10.0\App.Tests.dll (.NETCoreApp,Version=v10.0)
+            The test source file "C:\src\App\bin\Debug\net10.0\App.Tests.dll" provided was not found.
+            """;
+
+        Assert.True(TestRunPlanner.ShouldRetryWithFullBuild(usedNoBuild: true, log));
+        Assert.False(TestRunPlanner.ShouldRetryWithFullBuild(usedNoBuild: false, log));
+    }
+
+    [Fact]
+    public void ShouldRetryWithFullBuild_false_when_tests_executed()
+    {
+        const string log = "Failed!  - Failed: 1, Passed: 0, Skipped: 0, Total: 1, Duration: 1 s";
+
+        Assert.False(TestRunPlanner.ShouldRetryWithFullBuild(usedNoBuild: true, log));
+    }
 }

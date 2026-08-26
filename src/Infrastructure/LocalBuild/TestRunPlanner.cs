@@ -15,4 +15,12 @@ public static class TestRunPlanner
 
     public static bool ShouldReleaseLocksForTestBuild(bool releaseLocksSetting, bool appWasStoppedForTests) =>
         releaseLocksSetting || appWasStoppedForTests;
+
+    /// <summary>
+    /// After a <c>--no-build</c> attempt, retry once with a full test build when assemblies
+    /// look missing or stale. False after the recovery attempt (<paramref name="usedNoBuild"/> is false)
+    /// and when tests actually executed (assertion failures, failed cases, successful runs).
+    /// </summary>
+    public static bool ShouldRetryWithFullBuild(bool usedNoBuild, string logText) =>
+        usedNoBuild && DotNetTestOutputParser.LooksLikeNeedsFullBuildBeforeTest(logText);
 }
