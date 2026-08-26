@@ -31,7 +31,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/projects` | List configured projects (`id`, `displayName`, `rootFolder`, …) |
+| GET | `/projects` | List configured projects with authoritative Local/Azure health (see below) |
 | POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — use before Release deploy. Tray builds with the exit failsafe hard-exit within ~20s if graceful shutdown stalls; a second quit/Exit forces immediate hard exit. |
 | GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
 | POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |
@@ -50,6 +50,67 @@ Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": nu
 
 Optional rebuild body: `{ "projectId", "configuration": "Debug" }`.
 Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQualifiedName~MyTest" }`.
+
+## `GET /projects` — authoritative Local + Azure state
+
+`/projects` returns the **same** project snapshot facets that drive the tray / hover status panel. The handler is a **snapshot read only** — it does **not** call Azure HTTP, spawn git, or trigger a poll.
+
+### Terminology
+
+| Field | Meaning |
+|-------|---------|
+| **Run ID** (`azure.runId`) | Azure DevOps `Build.id` (e.g. `458`). Same primary/current run shown in the status UI. |
+| **Build number** (`azure.buildNumber`) | Azure `buildNumber` string (e.g. `20260826.3`). Never use this as the run id. |
+| **PR number** (`azure.pullRequestNumber`) | Pull request id when the primary run is PR-scoped; separate from run id / build number. |
+| **Poll timestamp** (`azure.polledAtUtc`) | When BuildMonitor last refreshed this Azure facet. Optional `ageSeconds` is derived; freshness is only as good as the poll cadence. |
+| **Overall health** (`overallHealth`) | Composite Local + Azure tray health (`green` / `amber` / `red` / `unknown`). |
+
+### Example (conceptual)
+
+```json
+{
+  "id": "1e6b255b-…",
+  "displayName": "WitherbyConnect (main)",
+  "rootFolder": "C:\\src\\WitherbyConnectDotNet9",
+  "projectFile": "WitherbyConnect.csproj",
+  "isActiveInSession": true,
+  "overallHealth": "red",
+  "overallHealthLabel": "Failed",
+  "sessionState": "idle",
+  "local": {
+    "status": "green",
+    "branch": "master",
+    "lastBuildAtUtc": "2026-08-26T06:40:00+00:00",
+    "errors": 0,
+    "warnings": 0,
+    "lifecycleState": "buildOk"
+  },
+  "azure": {
+    "availability": "available",
+    "ciState": "failed",
+    "pipeline": "WitherbyConnect",
+    "status": "Failed",
+    "branch": "PR #168",
+    "runId": 458,
+    "buildNumber": "20260826.3",
+    "pullRequestNumber": 168,
+    "runUrl": "https://dev.azure.com/…/_build/results?buildId=458",
+    "polledAtUtc": "2026-08-26T07:00:00+00:00",
+    "ageSeconds": 5
+  }
+}
+```
+
+### Semantics
+
+- **Primary run** = `ProjectAzureHealthFacet.PrimaryRun` (status-panel current run). `/projects` never independently picks “newest”.
+- **Zero pipelines:** Azure attached, `ciState: notMonitored`, `runId` null — no fake run.
+- **Auth / network:** `availability: authRequired` or `unavailable`; do not treat as healthy CI. Last-known attention text may appear in `attentionSummary` but does not replace availability.
+- Secrets (PATs, Authorization) are never serialized.
+
+### Agent guidance
+
+When BuildMonitor exposes Azure state for a monitored project, treat `GET /projects` as the **authoritative current Azure run/status**. Prefer it over independently querying Azure or inferring “latest” from history. Only query Azure independently if BuildMonitor has no Azure facet for that project, or the user asks for deeper history/details.
 
 ## Build-control modes (per project)
 
