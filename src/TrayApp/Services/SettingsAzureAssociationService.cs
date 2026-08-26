@@ -22,7 +22,7 @@ public sealed class SettingsAzureAssociationService(
         var attachment = await RunWizardAsync(
             AzureAssociationMode.AddFromAzure,
             "Add from Azure DevOps",
-            "Create an Azure-only BuildMonitor project. Continuous monitoring is not enabled yet.",
+            "Create an Azure-only BuildMonitor project. Active projects with selected pipelines are polled continuously.",
             localRoot: null,
             existing: null);
         return attachment is null ? null : AzureAssociationCoordinator.CreateAzureOnlyProject(attachment);

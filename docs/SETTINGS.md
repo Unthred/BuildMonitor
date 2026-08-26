@@ -93,7 +93,7 @@ Do **not** grant write, manage, or execute scopes for BuildMonitor connection/di
 
 Pipeline association uses Azure’s **repositoryId** filter on build definitions. Definitions that are not linked as `TfsGit` with that repository id may be omitted.
 
-### Project association (Slice 3A)
+### Project association
 
 On the **Projects** tab:
 
@@ -110,7 +110,7 @@ Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is
 
 Local Git (`git` on PATH): current branch / detached / unavailable plus remotes are used for attach suggestions and **status-panel focus** (not health eligibility).
 
-**Continuous Azure monitoring (Slice 3B)** runs for **Active in session** projects with ≥1 pipeline and a configured connection. Auth/network loss is Amber (not CI Red). Cancelled builds are Neutral. Hover panel shows an AZURE section; tray colour merges Local + Azure. **Notifications and stage/job timeline remain deferred.**
+**Continuous Azure monitoring** runs for **Active in session** projects with ≥1 pipeline and a configured connection. Auth/network loss is Amber (not CI Red). Cancelled builds are Neutral. Hover panel shows Local + Azure peer BUILDS rows; tray colour merges Local + Azure. Control-plane `GET /projects` exposes the same authoritative Azure primary run. **Notifications and stage/job timeline remain deferred.**
 
 ## Azure association (project attachment)
 
