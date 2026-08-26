@@ -141,14 +141,14 @@ internal static class StatusPanelVisuals
             var row = rows[i];
             var rowIndex = i + 1;
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, row.DeepLinkUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, runUrl: null, allowEllipsis: false, palette: palette);
             AddBuildStatusCell(grid, rowIndex, 1, row, palette);
-            AddAzureCell(grid, rowIndex, 2, row.BranchDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: true);
-            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, allowEllipsis: true);
-            AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 2, row.BranchDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, allowEllipsis: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, allowEllipsis: false, palette: palette);
 
             if (!string.IsNullOrWhiteSpace(row.AttentionNote))
             {
@@ -193,11 +193,13 @@ internal static class StatusPanelVisuals
         if (!string.IsNullOrWhiteSpace(data.DeepLinkUrl) && Uri.TryCreate(data.DeepLinkUrl, UriKind.Absolute, out var uri))
         {
             block.Text = null;
+            var statusBrush = EmphasisBrush(data.Emphasis, palette);
             var link = new Hyperlink(new Run($"{data.StatusGlyph} {data.StatusText}"))
             {
                 NavigateUri = uri,
                 ToolTip = "Open in Azure DevOps",
-                TextDecorations = null
+                TextDecorations = null,
+                Foreground = statusBrush
             };
             link.RequestNavigate += (_, e) =>
             {
@@ -268,12 +270,14 @@ internal static class StatusPanelVisuals
         StatusPanelSideRailPresentation sideRail,
         ThemePalette palette)
     {
-        var health = sideRail.Mode == StatusPanelSideRailMode.Accent
-            ? sideRail.AccentHealth
-            : sideRail.IdleHealth;
-        var label = sideRail.Mode == StatusPanelSideRailMode.Accent
-            ? sideRail.ActivityLabel
-            : sideRail.IdleLabel;
+        // Composite Overall uses IdleHealth/IdleLabel (Healthy / Building / Needs fix / Attention).
+        // Accent ActivityLabel remains available for DETAIL activity copy, not the footer.
+        var health = sideRail.IdleHealth != MonitorHealth.Unknown
+            ? sideRail.IdleHealth
+            : sideRail.AccentHealth;
+        var label = !string.IsNullOrWhiteSpace(sideRail.IdleLabel)
+            ? sideRail.IdleLabel
+            : sideRail.ActivityLabel;
         var glyph = health switch
         {
             MonitorHealth.Red => "●",
@@ -286,7 +290,7 @@ internal static class StatusPanelVisuals
             MonitorHealth.Red => WpfColor.FromRgb(220, 53, 69),
             MonitorHealth.Amber => WpfColor.FromRgb(255, 193, 7),
             MonitorHealth.Green => WpfColor.FromRgb(40, 167, 69),
-            _ => WpfColor.FromRgb(108, 117, 125)
+            _ => WpfColor.FromRgb(160, 168, 180)
         };
 
         var panel = new StackPanel
@@ -334,12 +338,22 @@ internal static class StatusPanelVisuals
     private static SolidColorBrush EmphasisBrush(StatusPanelRowEmphasis emphasis, ThemePalette palette) =>
         emphasis switch
         {
-            StatusPanelRowEmphasis.Error => new SolidColorBrush(WpfColor.FromRgb(220, 53, 69)),
-            StatusPanelRowEmphasis.Warning => new SolidColorBrush(WpfColor.FromRgb(180, 120, 0)),
-            StatusPanelRowEmphasis.Active => new SolidColorBrush(WpfColor.FromRgb(0, 123, 255)),
-            StatusPanelRowEmphasis.Busy => new SolidColorBrush(WpfColor.FromRgb(120, 90, 200)),
-            _ => new SolidColorBrush(palette.Foreground)
+            StatusPanelRowEmphasis.Error => new SolidColorBrush(WpfColor.FromRgb(240, 96, 96)),
+            StatusPanelRowEmphasis.Warning => new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
+            // Activity (Building / Queued) — amber, same for Local and Azure (not source-blue).
+            StatusPanelRowEmphasis.Active => new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
+            StatusPanelRowEmphasis.Busy => new SolidColorBrush(WpfColor.FromRgb(255, 193, 7)),
+            StatusPanelRowEmphasis.Success => new SolidColorBrush(WpfColor.FromRgb(72, 199, 116)),
+            // Neutral / cancelled / unknown — muted, high-contrast on dark panels.
+            _ => new SolidColorBrush(palette.Foreground) { Opacity = 0.88 }
         };
+
+    /// <summary>High-contrast link colour for identifiers (Run / Build No. / PR / Branch), not status semantics.</summary>
+    private static SolidColorBrush LinkBrush(ThemePalette palette) =>
+        new(WpfColor.FromRgb(
+            (byte)Math.Clamp(palette.Accent.R + 40, 0, 255),
+            (byte)Math.Clamp(palette.Accent.G + 30, 0, 255),
+            (byte)Math.Clamp(palette.Accent.B + 20, 0, 255)));
 
     public static UIElement BuildIssueSummary(int errors, int warnings, ThemePalette palette)
     {
@@ -526,6 +540,7 @@ internal static class StatusPanelVisuals
                 Cursor = System.Windows.Input.Cursors.Hand
             };
             link.Inlines.Add($"Open {canonicalUrl}");
+            link.Foreground = LinkBrush(palette);
             link.RequestNavigate += (_, e) =>
             {
                 try
@@ -661,12 +676,12 @@ internal static class StatusPanelVisuals
             var rowIndex = i + 1;
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl, allowEllipsis: true);
+            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
             AddAzureStatusCell(grid, rowIndex, 1, row, palette);
-            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: true);
-            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false);
+            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
         }
 
         return grid;
@@ -697,7 +712,9 @@ internal static class StatusPanelVisuals
         WpfColor color,
         bool bold,
         string? runUrl,
-        bool allowEllipsis = true)
+        bool allowEllipsis = true,
+        bool asIdentifierLink = false,
+        ThemePalette? palette = null)
     {
         var block = new TextBlock
         {
@@ -711,11 +728,15 @@ internal static class StatusPanelVisuals
 
         if (!string.IsNullOrWhiteSpace(runUrl) && Uri.TryCreate(runUrl, UriKind.Absolute, out var uri))
         {
+            var linkBrush = asIdentifierLink && palette is not null
+                ? LinkBrush(palette)
+                : new SolidColorBrush(color);
             var link = new Hyperlink(new Run(text))
             {
                 NavigateUri = uri,
                 ToolTip = "Open in Azure DevOps",
-                TextDecorations = null
+                TextDecorations = null,
+                Foreground = linkBrush
             };
             link.RequestNavigate += (_, e) =>
             {
@@ -755,11 +776,13 @@ internal static class StatusPanelVisuals
         var statusText = $"{data.StatusGlyph} {data.StatusText}";
         if (!string.IsNullOrWhiteSpace(data.RunUrl) && Uri.TryCreate(data.RunUrl, UriKind.Absolute, out var uri))
         {
+            var statusBrush = EmphasisBrush(data.Emphasis, palette);
             var link = new Hyperlink(new Run(statusText))
             {
                 NavigateUri = uri,
                 ToolTip = "Open in Azure DevOps",
-                TextDecorations = null
+                TextDecorations = null,
+                Foreground = statusBrush
             };
             link.RequestNavigate += (_, e) =>
             {

@@ -20,7 +20,9 @@ public enum StatusPanelRowEmphasis
     Busy = 1,
     Warning = 2,
     Error = 3,
-    Active = 4
+    Active = 4,
+    /// <summary>Settled success (Succeeded / Healthy) — green semantic colour.</summary>
+    Success = 5
 }
 
 /// <summary>

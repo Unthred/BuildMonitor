@@ -209,7 +209,7 @@ public sealed class BuildSourcePresentationBuilderTests
     }
 
     [Fact]
-    public void Previous_failure_attention_fits_azure_row_note()
+    public void Previous_failure_attention_not_shown_on_builds_row()
     {
         var failed = new AzurePipelineRunInfo(
             8,
@@ -237,20 +237,117 @@ public sealed class BuildSourcePresentationBuilderTests
             Now.AddMinutes(-30),
             "https://example/?buildId=453",
             168);
+        var building = new AzurePipelineRunInfo(
+            8,
+            "WitherbyConnect",
+            466,
+            "20260826.10",
+            PipelineRunState.InProgress,
+            PipelineRunResult.Unknown,
+            "master",
+            Now.AddMinutes(-2),
+            Now.AddMinutes(-2),
+            null,
+            "https://example/?buildId=466");
         var facet = new ProjectAzureHealthFacet(
             AzureMonitoringAvailability.Available,
-            AzureCiMonitoringState.Failed,
+            AzureCiMonitoringState.Activity,
             "master",
-            failed,
-            [previous],
+            building,
+            [failed, previous],
             Now,
             HasSelectedPipelines: true);
 
         var rows = BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now);
         var azure = Assert.Single(rows);
+        Assert.Equal("#466", azure.RunDisplay);
+        Assert.Equal("20260826.10", azure.BuildNumberDisplay);
+        Assert.Equal("https://example/?buildId=466", azure.DeepLinkUrl);
+        Assert.Null(azure.AttentionNote);
+        Assert.Equal(StatusPanelRowEmphasis.Busy, azure.Emphasis);
+        Assert.Equal("Building", azure.StatusText);
+    }
+
+    [Fact]
+    public void Azure_succeeded_uses_success_emphasis()
+    {
+        var run = new AzurePipelineRunInfo(
+            8,
+            "WitherbyConnect",
+            460,
+            "20260826.4",
+            PipelineRunState.Completed,
+            PipelineRunResult.Succeeded,
+            "master",
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-5),
+            "https://example/?buildId=460");
+        var facet = new ProjectAzureHealthFacet(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Healthy,
+            "master",
+            run,
+            [],
+            Now,
+            HasSelectedPipelines: true);
+
+        var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
+        Assert.Equal(StatusPanelRowEmphasis.Success, azure.Emphasis);
+        Assert.Equal("Succeeded", azure.StatusText);
+        Assert.Equal("✓", azure.StatusGlyph);
+    }
+
+    [Fact]
+    public void Azure_failed_uses_error_emphasis()
+    {
+        var run = new AzurePipelineRunInfo(
+            8,
+            "WitherbyConnect",
+            454,
+            "20260825.15",
+            PipelineRunState.Completed,
+            PipelineRunResult.Failed,
+            "PR #168",
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-10),
+            Now.AddMinutes(-5),
+            "https://example/?buildId=454",
+            168);
+        var facet = new ProjectAzureHealthFacet(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Failed,
+            "master",
+            run,
+            [],
+            Now,
+            HasSelectedPipelines: true);
+
+        var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
+        Assert.Equal(StatusPanelRowEmphasis.Error, azure.Emphasis);
+        Assert.Equal(168, run.PullRequestNumber);
         Assert.Equal("#454", azure.RunDisplay);
-        Assert.NotNull(azure.AttentionNote);
-        Assert.Contains("#453", azure.AttentionNote, StringComparison.Ordinal);
+        Assert.Equal("20260825.15", azure.BuildNumberDisplay);
+    }
+
+    [Fact]
+    public void Local_succeeded_uses_success_emphasis()
+    {
+        var snapshot = BaseSnapshot() with
+        {
+            State = ProjectLifecycleState.BuildOk,
+            Health = MonitorHealth.Green,
+            ErrorCount = 0,
+            WarningCount = 0,
+            LastBuildExitCode = 0
+        };
+        var row = BuildSourcePresentationBuilder.TryBuildLocal(
+            snapshot,
+            ControlPlaneStatusFormatter.Format(snapshot, Now),
+            Now);
+        Assert.NotNull(row);
+        Assert.Equal(StatusPanelRowEmphasis.Success, row!.Emphasis);
+        Assert.Equal("Succeeded", row.StatusText);
     }
 
     private static ProjectHealthSnapshot BaseSnapshot() =>

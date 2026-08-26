@@ -6,15 +6,22 @@ namespace BuildMonitor.Tests;
 public sealed class StatusPanelIdleRailFormatterTests
 {
     [Fact]
-    public void FormatIdleLabel_site_up_when_green_and_web_ready()
+    public void FormatIdleLabel_healthy_when_green_and_web_ready()
     {
-        Assert.Equal("Site up", StatusPanelIdleRailFormatter.FormatIdleLabel(MonitorHealth.Green, webReady: true));
+        Assert.Equal("Healthy", StatusPanelIdleRailFormatter.FormatIdleLabel(MonitorHealth.Green, webReady: true));
     }
 
     [Fact]
     public void FormatIdleLabel_healthy_when_green_without_web()
     {
         Assert.Equal("Healthy", StatusPanelIdleRailFormatter.FormatIdleLabel(MonitorHealth.Green, webReady: false));
+    }
+
+    [Fact]
+    public void FormatIdleLabel_amber_is_attention_not_warnings()
+    {
+        Assert.Equal("Attention", StatusPanelIdleRailFormatter.FormatIdleLabel(MonitorHealth.Amber, webReady: false));
+        Assert.NotEqual("Warnings", StatusPanelIdleRailFormatter.FormatIdleLabel(MonitorHealth.Amber, webReady: false));
     }
 
     [Fact]

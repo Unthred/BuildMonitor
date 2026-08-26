@@ -138,7 +138,7 @@ public static class AzureStatusPresentationBuilder
         {
             return run.Result switch
             {
-                PipelineRunResult.Succeeded => ("✓", StatusPanelRowEmphasis.Normal, "Succeeded"),
+                PipelineRunResult.Succeeded => ("✓", StatusPanelRowEmphasis.Success, "Succeeded"),
                 PipelineRunResult.PartiallySucceeded => ("!", StatusPanelRowEmphasis.Warning, "Partially succeeded"),
                 PipelineRunResult.Failed => ("✕", StatusPanelRowEmphasis.Error, "Failed"),
                 PipelineRunResult.Canceled => ("○", StatusPanelRowEmphasis.Normal, "Cancelled"),
