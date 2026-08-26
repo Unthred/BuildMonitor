@@ -18,13 +18,5 @@ public static class StatusPanelIdleRailFormatter
     }
 
     public static string FormatIdleLabel(MonitorHealth health, bool webReady) =>
-        webReady && health == MonitorHealth.Green
-            ? "Site up"
-            : health switch
-            {
-                MonitorHealth.Red => "Needs fix",
-                MonitorHealth.Amber => "Warnings",
-                MonitorHealth.Green => "Healthy",
-                _ => "Monitoring"
-            };
+        StatusPanelOverallFormatter.FormatLabelFromHealth(health, webReady);
 }

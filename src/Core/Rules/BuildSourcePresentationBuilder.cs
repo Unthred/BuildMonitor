@@ -107,16 +107,8 @@ public static class BuildSourcePresentationBuilder
         }
 
         var primary = azureUi.Rows[0];
-        string? attentionNote = null;
-        if (azureUi.Rows.Count > 1)
-        {
-            var prev = azureUi.Rows[1];
-            attentionNote = $"Previous · {prev.StatusGlyph} {prev.RunDisplay}";
-        }
-        else if (!string.IsNullOrWhiteSpace(azureUi.AttentionLine))
-        {
-            attentionNote = azureUi.AttentionLine;
-        }
+        // Previous-failure attention stays on the facet for future notifications; do not
+        // surface it under the current BUILDS row (at-a-glance current state only).
 
         var age = string.IsNullOrWhiteSpace(primary.TimingText)
             ? FormatAzureCompletedAge(facet?.PrimaryRun, utcNow)
@@ -136,7 +128,7 @@ public static class BuildSourcePresentationBuilder
                 IssuesDisplay: "—",
                 DeepLinkUrl: primary.RunUrl,
                 Emphasis: primary.Emphasis,
-                AttentionNote: attentionNote)
+                AttentionNote: null)
         ];
     }
 
@@ -232,7 +224,7 @@ public static class BuildSourcePresentationBuilder
 
         return localHealth switch
         {
-            MonitorHealth.Green => ("✓", StatusPanelRowEmphasis.Normal),
+            MonitorHealth.Green => ("✓", StatusPanelRowEmphasis.Success),
             MonitorHealth.Amber => ("!", StatusPanelRowEmphasis.Warning),
             MonitorHealth.Red => ("✕", StatusPanelRowEmphasis.Error),
             _ => ("○", StatusPanelRowEmphasis.Normal)

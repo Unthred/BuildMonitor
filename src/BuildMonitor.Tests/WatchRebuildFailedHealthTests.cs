@@ -161,7 +161,7 @@ public sealed class WatchRebuildFailedHealthTests
         Assert.Equal(ProjectLifecycleState.Watching, recovered.State);
         Assert.Equal("Watching", recovered.FailurePhase);
         Assert.Equal(
-            "Site up",
+            "Healthy",
             StatusPanelIdleRailFormatter.FormatIdleLabel(recovered.Health, webReady: true));
     }
 

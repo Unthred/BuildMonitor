@@ -283,6 +283,9 @@ public static class StatusPanelPresentationBuilder
 
     private static StatusPanelSideRailPresentation BuildSideRail(IReadOnlyList<ProjectHealthSnapshot> active)
     {
+        var overallHealth = StatusPanelIdleRailFormatter.ResolveHealth(active);
+        var overallLabel = StatusPanelOverallFormatter.FormatLabel(overallHealth, active);
+        var webReady = StatusPanelIdleRailFormatter.ResolveWebReady(active);
         var accentSnapshot = active.FirstOrDefault(StatusPanelAccentFormatter.ShouldShowAccentRail);
         if (accentSnapshot is not null)
         {
@@ -290,20 +293,17 @@ public static class StatusPanelPresentationBuilder
                 Mode: StatusPanelSideRailMode.Accent,
                 AccentHealth: StatusPanelAccentFormatter.ResolveAccentHealth(accentSnapshot),
                 ActivityLabel: StatusPanelAccentFormatter.FormatActivityLabel(accentSnapshot),
-                IdleHealth: MonitorHealth.Unknown,
-                IdleLabel: string.Empty,
+                IdleHealth: overallHealth,
+                IdleLabel: overallLabel,
                 ShowWebReadyBadge: false);
         }
-
-        var idleHealth = StatusPanelIdleRailFormatter.ResolveHealth(active);
-        var webReady = StatusPanelIdleRailFormatter.ResolveWebReady(active);
 
         return new StatusPanelSideRailPresentation(
             Mode: StatusPanelSideRailMode.Idle,
             AccentHealth: MonitorHealth.Unknown,
             ActivityLabel: string.Empty,
-            IdleHealth: idleHealth,
-            IdleLabel: StatusPanelIdleRailFormatter.FormatIdleLabel(idleHealth, webReady),
-            ShowWebReadyBadge: webReady && idleHealth == MonitorHealth.Green);
+            IdleHealth: overallHealth,
+            IdleLabel: overallLabel,
+            ShowWebReadyBadge: webReady && overallHealth == MonitorHealth.Green);
     }
 }

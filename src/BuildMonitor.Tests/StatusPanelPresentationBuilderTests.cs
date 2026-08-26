@@ -422,7 +422,7 @@ public sealed class StatusPanelPresentationBuilderTests
         Assert.Equal("—", localRow.BuildNumberDisplay);
         Assert.Equal("—", localRow.PullRequestDisplay);
         Assert.Null(localRow.DeepLinkUrl);
-        Assert.Equal(StatusPanelRowEmphasis.Normal, localRow.Emphasis);
+        Assert.Equal(StatusPanelRowEmphasis.Success, localRow.Emphasis);
 
         var azureRow = card.BuildSourceRows[1];
         Assert.Equal("✕", azureRow.StatusGlyph);
