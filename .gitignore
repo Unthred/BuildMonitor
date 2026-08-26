@@ -41,3 +41,9 @@ logs/
 *.pfx
 credentials.json
 secrets.json
+
+# Control-plane agent skill install copies (canonical source: docs/ops/agent-skills/buildmonitor-control-plane/).
+# Installer overwrites these under a watched repo's .cursor/; do not track them in BuildMonitor itself.
+# Keep other tracked .cursor/rules and .cursor/skills (feature-kickoff, etc.).
+.cursor/skills/buildmonitor-control-plane/
+.cursor/rules/buildmonitor-control-plane.mdc

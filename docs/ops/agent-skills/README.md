@@ -33,6 +33,9 @@ Settings shows **Cursor agent integration** status for the selected project: Not
 
 ### Source of truth
 
-Canonical skill text: [buildmonitor-control-plane/SKILL.md](buildmonitor-control-plane/SKILL.md)
+Canonical skill text: [buildmonitor-control-plane/SKILL.md](buildmonitor-control-plane/SKILL.md)  
+Canonical always-on rule: [buildmonitor-control-plane/RULE.mdc](buildmonitor-control-plane/RULE.mdc)
+
+Installed copies under a repo’s `.cursor/skills/buildmonitor-control-plane/` and `.cursor/rules/buildmonitor-control-plane.mdc` are **generated** (installer overwrite). In the BuildMonitor repo those paths are gitignored so self-install does not dirty `git status`; other tracked `.cursor` rules/skills are unchanged.
 
 API details: [../control-plane.md](../control-plane.md)
