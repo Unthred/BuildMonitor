@@ -84,7 +84,74 @@ If the control plane is unreachable, continue editing and announce that the hand
 
 **Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all).
 
-**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line.
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line; long `AwaitShell` after `/run/*` or `dotnet` already finished (see Shell wait rules).
+
+## Shell wait rules (authoritative)
+
+Cursor’s UI string **“Waiting up to Xm for shell”** is the agent **Shell / `AwaitShell` `block_until_ms` countdown**. It is **not** BuildMonitor holding an HTTP call open after work finishes.
+
+These rules are the **reusable** wait/monitoring contract for every watched repo. Do not restate them as long duplicated sections in product repos; point here (or reinstall this skill) instead.
+
+### Facts
+
+- `POST /run/rebuild`, `/run/tests`, and `/run/ship-check` return JSON **as soon as** the local build/test process exits (**pass or fail**).
+- Azure tray polling is a **separate** background loop (~**8s** while a run is active, ~**15s** settled; auth/network failure backoff capped ~**15–45s**). It does **not** gate `/run/*` responses.
+- Successful and failed commands must both surface promptly — do not wait longer on failure.
+- Expected detection delay after a known terminal state is normally **≤15 seconds** (one short poll), never multi-minute.
+
+### AwaitShell semantics (critical)
+
+`AwaitShell.block_until_ms` is a **maximum wait**, not a requested sleep duration.
+
+- Do **not** use a very large `AwaitShell` (e.g. 5–10 minutes / `600000`) as a substitute for monitoring process state.
+- Prefer **repeated short waits** when monitoring is required: about **5–15 seconds** per poll.
+- Do **not** use multi-minute polling intervals for an active local BuildMonitor command.
+- When exit code / footer / `"ok"` JSON / Azure `status=completed` is known, **return immediately** — never wait for the remainder of a timeout budget.
+
+### Required workflow
+
+```text
+command
+→ wait briefly (foreground Shell sized to expected runtime)
+→ if complete, return
+→ if still running, short poll (~5–15s)
+→ repeat until exit / terminal state
+```
+
+**Not:**
+
+```text
+command
+→ background (default ~30s Shell budget)
+→ AwaitShell 600000
+→ sit for several minutes after work already finished
+```
+
+### Local `/run/*` commands
+
+For `/run/ship-check`, `/run/tests`, and `/run/rebuild`:
+
+1. Prefer a Shell that **stays attached** until normal completion.
+2. Set Shell `block_until_ms` to a **realistic** expected runtime (e.g. a few minutes for filtered tests; often **5–15 min** for full ship-check) so the call stays foreground until JSON arrives.
+3. Do **not** automatically background a BuildMonitor command and then call `AwaitShell` with a 5–10 minute timeout.
+4. If backgrounding happens because the initial Shell wait was exceeded: poll with **short** waits (`AwaitShell` ~5–15s, or `block_until_ms: 0` / read the terminal file); detect process exit promptly; return as soon as exit code is available.
+5. Treat **exit code 0 and non-zero** as terminal states.
+6. Never wait for the remainder of a timeout budget once process completion is known.
+
+| Do | Do not |
+|----|--------|
+| One foreground Shell with realistic `block_until_ms` until `/run/*` JSON returns | Background with default ~30s, then `AwaitShell` for minutes |
+| On process exit / HTTP response, read `ok` or exit code and announce immediately | Keep waiting after `"ok"` JSON, `Passed!`, non-zero exit, or Azure `status=completed` |
+| If backgrounded: short polls (~5–15s); stop on exit | Use a long `AwaitShell` as a substitute for monitoring state |
+
+### Azure DevOps monitoring (agent watchers)
+
+When the agent itself watches an Azure build (separate from tray polling):
+
+- Poll at about **5–15 seconds**.
+- When Azure reports `status=completed`, **stop immediately** and report succeeded / failed / cancelled.
+- Do **not** keep a Shell / `AwaitShell` alive after a terminal Azure result.
+- Auth/API errors may use modest backoff, but **terminal build state always wins**.
 
 ## Discover base URL and projectId (probe)
 
