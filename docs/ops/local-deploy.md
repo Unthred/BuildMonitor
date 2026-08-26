@@ -21,6 +21,8 @@ The script:
 
 If quit is unavailable (build without `/app/quit`, or tray already stopped), exit BuildMonitor from the tray menu once, then re-run deploy. The script does **not** kill the process.
 
+**Agents:** if `/app/quit` fails or a rebuild is blocked by a locked tray binary, **stop and ask** the user to Exit the tray or approve stopping the process. Do **not** copy the app to `%TEMP%`, start a second tray instance, or invent another install path. See `.cursor/rules/tray-exit-and-binary-locks.mdc`.
+
 Builds that include the exit failsafe will still terminate within ~20s after a successful `/app/quit` (or a second Exit forces an immediate hard exit) so a hung child stop cannot leave binaries locked indefinitely.
 
 Override the folder:

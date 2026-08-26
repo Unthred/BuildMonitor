@@ -158,7 +158,7 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 
 **Busy vs watch pause:** `/session/busy` marks agent editing. In **File Watching** it also holds auto-rebuilds. In **AI Controlled** auto-rebuilds are already off. `/watch/pause` stops the supervised `dotnet run`/`watch` child.
 
-**Tests without rebuild:** `/run/tests` does **not** compile first. If binaries may be stale, run `/run/rebuild` or `/run/ship-check` first.
+**Tests without rebuild:** `/run/tests` does **not** compile first. If the previous build succeeded it uses `dotnet test --no-build`. Missing or stale test assemblies (including VSTest `Test run for …` + `test source file … was not found`) trigger **one** full-build recovery and a single retry. Genuine executed-test failures do not rebuild. Prefer `/run/rebuild` or `/run/ship-check` when you already know binaries are stale.
 
 ### Cost-aware workflows
 
@@ -209,7 +209,7 @@ Omit `filter` to run the full configured test project/solution.
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
 - Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective.
 - **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running.
-- **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first. **409** if tests, rebuild, or ship-check is already running.
+- **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first unless `--no-build` hits missing/stale test assemblies, in which case it does **one** full-build recovery and retries tests once. **409** if tests, rebuild, or ship-check is already running.
 - Busy timeout (default **120s**) is measured from the last **busy POST or file-change while busy**, not from the original busy start. If timeout fires, the status card says **Agent busy timed out · build allowed** (as opposed to **Agent finished editing** when `/session/idle` arrived).
 - Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project.
 - Pause = stop the supervised `dotnet run`/`watch` process (preferred over kill-as-default).
@@ -272,6 +272,7 @@ $result | ConvertTo-Json -Depth 5
 | 4 | Gate file-change builds | `ProjectRuntime` + session store |
 | 5 | Ship-check | `ProjectRuntime.RunShipCheckAsync` |
 | 6 | Agent rebuild | `ProjectRuntime.RunAgentRebuildAsync` |
+| 7 | `/run/tests` `--no-build` then at most one stale-assembly recovery | `TestRunRecoveryCoordinator`, `DotNetTestOutputParser`, `ProjectRuntime.Test` |
 
 **Failure / fallback:** if the port cannot bind, the tray shows a warning; monitoring continues without the API.
 

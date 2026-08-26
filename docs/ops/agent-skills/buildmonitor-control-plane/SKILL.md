@@ -77,7 +77,7 @@ If the control plane is unreachable, continue editing and announce that the hand
 | Scenario | Workflow |
 |----------|----------|
 | Edit burst (AI Controlled) | ensure mode → `busy` → edit → `idle` → explicit `/run/rebuild` if needed |
-| One or a few tests | `/run/tests` with `filter` — rebuild first if binaries may be stale |
+| One or a few tests | `/run/tests` with `filter` — missing/stale assemblies get one recovery rebuild; otherwise no compile first |
 | Full verification | `/run/ship-check` — before claiming tests pass |
 | Locked DLLs / bad incremental | `/run/rebuild` |
 | Still editing after a pause | `busy` again before more writes |

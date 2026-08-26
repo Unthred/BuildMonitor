@@ -1,0 +1,29 @@
+---
+description: Stop and ask the user when the tray cannot quit or locks binaries — never TEMP tray workarounds
+alwaysApply: true
+---
+
+# Tray exit and binary locks
+
+When the BuildMonitor tray cannot exit cleanly (`/app/quit` fails, hangs, or returns an error), **or** a rebuild/publish is blocked because the running tray has locked its binaries:
+
+**STOP.**
+
+Ask the user to:
+
+- exit the tray manually (tray **Exit**), **or**
+- explicitly approve stopping the process
+
+## Do not
+
+- copy the tray/application to `%TEMP%` (or any ad-hoc folder)
+- launch a temporary second tray instance
+- invent an alternate installation/runtime location
+- kill the process without explicit approval in the current conversation
+
+## Preferred path
+
+1. `POST /app/quit` when the control plane is up
+2. Wait until the control plane port is closed
+3. If quit fails or binaries stay locked → ask the user; wait for Exit or approval
+4. Then rebuild, deploy (`docs/ops/local-deploy.md`), or restart from the normal install (`C:\Utils\BuildMonitor` or the user’s chosen deploy path)
