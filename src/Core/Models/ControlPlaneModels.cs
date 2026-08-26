@@ -26,7 +26,44 @@ public sealed record ControlPlaneProjectInfo(
     string DisplayName,
     string RootFolder,
     string ProjectFile,
-    bool IsActiveInSession);
+    bool IsActiveInSession,
+    MonitorHealth? OverallHealth = null,
+    string? OverallHealthLabel = null,
+    ControlPlaneSessionState? SessionState = null,
+    ControlPlaneLocalFacetInfo? Local = null,
+    ControlPlaneAzureFacetInfo? Azure = null);
+
+/// <summary>Local build facet on <c>GET /projects</c> — from the tray snapshot, not a live rebuild.</summary>
+public sealed record ControlPlaneLocalFacetInfo(
+    MonitorHealth Status,
+    string? Branch,
+    DateTimeOffset? LastBuildAtUtc,
+    int Errors,
+    int Warnings,
+    ProjectLifecycleState LifecycleState,
+    int? LastBuildExitCode = null);
+
+/// <summary>
+/// Azure CI facet on <c>GET /projects</c>.
+/// <see cref="RunId"/> is Azure Build.id; <see cref="BuildNumber"/> is Azure buildNumber — never conflate them.
+/// Primary run matches the hover status panel (facet <c>PrimaryRun</c>), not independent newest-run selection.
+/// </summary>
+public sealed record ControlPlaneAzureFacetInfo(
+    AzureMonitoringAvailability Availability,
+    AzureCiMonitoringState CiState,
+    string? Pipeline,
+    string? Status,
+    string? Branch,
+    long? RunId,
+    string? BuildNumber,
+    int? PullRequestNumber,
+    string? RunUrl,
+    DateTimeOffset PolledAtUtc,
+    int? AgeSeconds = null,
+    string? StatusMessage = null,
+    bool HasSelectedPipelines = true,
+    string? AttentionSummary = null,
+    string? FocusBranch = null);
 
 public sealed record ControlPlaneSessionStatus(
     ControlPlaneSessionState State,

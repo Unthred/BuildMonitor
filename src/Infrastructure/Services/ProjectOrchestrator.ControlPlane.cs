@@ -10,18 +10,50 @@ public sealed partial class ProjectOrchestrator
 {
     public IReadOnlyList<ControlPlaneProjectInfo> ListControlPlaneProjects()
     {
+        // Copy settings under lock, then map from published/cached snapshots outside the
+        // orchestrator lock so Azure poll / health coalesce are not blocked.
+        List<(
+            string Id,
+            string DisplayName,
+            string RootFolder,
+            string ProjectFile,
+            bool IsActiveInSession,
+            bool HasLocal,
+            bool AzureAttached)> projects;
         lock (sync)
         {
-            return settings.Projects
-                .Select(p => new ControlPlaneProjectInfo(
+            projects = settings.Projects
+                .Select(p => (
                     p.Id,
                     p.DisplayName,
                     p.Local?.RootFolder ?? string.Empty,
                     p.Local?.ProjectFile ?? string.Empty,
-                    p.IsActiveInSession))
-                .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    p.IsActiveInSession,
+                    p.Local is not null,
+                    p.Azure is not null))
                 .ToList();
         }
+
+        var utcNow = DateTimeOffset.UtcNow;
+        return projects
+            .Select(p =>
+            {
+                var snapshot = healthCoalescer.TryGetControlPlaneSnapshot(p.Id);
+                var session = sessionStore.GetStatus(p.Id);
+                return ControlPlaneProjectStatusMapper.Map(
+                    p.Id,
+                    p.DisplayName,
+                    p.RootFolder,
+                    p.ProjectFile,
+                    p.IsActiveInSession,
+                    p.HasLocal,
+                    p.AzureAttached,
+                    snapshot,
+                    session,
+                    utcNow);
+            })
+            .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public bool ControlPlaneProjectExists(string projectId)

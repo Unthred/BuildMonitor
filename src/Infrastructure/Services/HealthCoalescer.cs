@@ -26,6 +26,7 @@ internal sealed class HealthCoalescer : IDisposable
     private readonly Task loopTask;
     private readonly object cacheSync = new();
     private readonly Dictionary<string, ProjectHealthSnapshot> localSnapshotCache = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<ProjectHealthSnapshot> lastPublishedSnapshots = [];
 
     private int trayMenuOpen;
     private int pendingPublish;
@@ -72,6 +73,67 @@ internal sealed class HealthCoalescer : IDisposable
         {
             RefreshLocalCache(runtimes, projects, forceRuntime: false);
             return BuildMergedList(runtimes, projects);
+        }
+    }
+
+    /// <summary>
+    /// Last tray-published snapshots (includes Azure facets and local Git as shown in the UI).
+    /// Snapshot-read only — does not call Azure, git, or trigger a poll.
+    /// </summary>
+    public IReadOnlyList<ProjectHealthSnapshot> GetLastPublishedSnapshots()
+    {
+        lock (cacheSync)
+        {
+            return lastPublishedSnapshots;
+        }
+    }
+
+    /// <summary>
+    /// Control-plane read path: prefer last published tray snapshot; otherwise merge local cache + facet
+    /// without refreshing Git (no subprocess on the HTTP request).
+    /// </summary>
+    public ProjectHealthSnapshot? TryGetControlPlaneSnapshot(string projectId)
+    {
+        lock (cacheSync)
+        {
+            foreach (var published in lastPublishedSnapshots)
+            {
+                if (string.Equals(published.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return published;
+                }
+            }
+
+            var facet = getAzureFacet(projectId);
+            if (localSnapshotCache.TryGetValue(projectId, out var local))
+            {
+                var withoutGit = local with { Azure = null, LocalGit = null };
+                return ProjectHealthComposer.WithAzure(withoutGit, facet);
+            }
+
+            if (facet is null)
+            {
+                return null;
+            }
+
+            // Azure-attached before first local cache / publish — still expose facet PrimaryRun.
+            return ProjectHealthComposer.WithAzure(
+                new ProjectHealthSnapshot(
+                    projectId,
+                    string.Empty,
+                    MonitorHealth.Unknown,
+                    ProjectHealthEvaluator.ToLabel(MonitorHealth.Unknown),
+                    ProjectLifecycleState.Idle,
+                    null,
+                    null,
+                    null,
+                    0,
+                    0,
+                    DateTimeOffset.MinValue,
+                    null,
+                    false,
+                    []),
+                facet);
         }
     }
 
@@ -189,6 +251,11 @@ internal sealed class HealthCoalescer : IDisposable
         WorkerHealthRegistry.Shared.SetCurrentAction(
             "health.coalescer",
             $"Publishing tray health ({activeOnly.Count} active)");
+        lock (cacheSync)
+        {
+            lastPublishedSnapshots = snapshots;
+        }
+
         publish(snapshots, rollup);
         WorkerHealthRegistry.Shared.Heartbeat(
             "health.coalescer.publish",

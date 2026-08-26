@@ -112,7 +112,7 @@ Base example: `http://127.0.0.1:7700`
 
 | Method | Path | Body / query |
 |--------|------|-------------|
-| GET | `/projects` | — |
+| GET | `/projects` | Authoritative Local + Azure project status (same primary Azure run as the tray/status panel). Prefer this over independently querying Azure. |
 | GET | `/mode` | `?projectId=` → `{ "mode": "file-watching" \| "ai-controlled" }` |
 | POST | `/mode` | `{ "projectId": "…", "mode": "ai-controlled" }` → includes `previousMode` |
 | POST | `/session/busy` | `{ "projectId": "…" }` |
@@ -155,6 +155,20 @@ $result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentTyp
 
 Treat `ok: false` on ship-check as a failed verification — read `failures` / `log` and fix before claiming success.
 
+## Authoritative Azure / Local status
+
+When BuildMonitor exposes Azure state on `GET /projects` for a monitored project, treat it as the **authoritative current Azure run/status** (same primary run as the hover status UI). Do **not** independently infer “latest” from Azure history or stale chat context.
+
+| Field | Use as |
+|-------|--------|
+| `azure.runId` | Azure Build.id (e.g. `458`) — current primary run |
+| `azure.buildNumber` | Azure buildNumber string — **not** the run id |
+| `azure.pullRequestNumber` | PR id when present |
+| `azure.polledAtUtc` / `ageSeconds` | Freshness of BuildMonitor’s poll (not stronger than poll cadence) |
+| `overallHealth` | Composite Local + Azure tray health |
+
+Only query Azure independently if `/projects` has no `azure` facet for that project, or the user asks for deeper Azure history/details.
+
 ## Rules
 
 - Prefer AI Controlled for agent edit sessions; leave it set after the task.
@@ -162,5 +176,6 @@ Treat `ok: false` on ship-check as a failed verification — read `failures` / `
 - `/session/idle` never means “build now” in AI Controlled.
 - Prefer `/run/tests` with a filter over a full ship-check when only a subset matters.
 - Prefer `/run/rebuild` only when a clean rebuild is needed; prefer `/run/ship-check` for final verification.
+- Prefer `GET /projects` for current Azure run/status over independent Azure inference.
 - Always announce handshake and `/run/*` in chat (see table above).
 - Never invent MCP tools for BuildMonitor.
