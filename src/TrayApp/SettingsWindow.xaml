@@ -107,15 +107,40 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
 
                         <!-- One outer grid for all peer rows: Left | gutter | Right -->
-                        <Grid>
+                        <Grid Grid.IsSharedSizeScope="True">
                         <Grid.Resources>
-                            <Style TargetType="TextBox" x:Key="SettingsFieldTextBox">
+                            <!-- BasedOn theme styles — keyed styles without BasedOn dropped dark ComboBox chrome (#89 regression). -->
+                            <Style x:Key="SettingsFieldTextBox" TargetType="{x:Type TextBox}"
+                                   BasedOn="{StaticResource {x:Type TextBox}}">
                                 <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                <Setter Property="MinHeight" Value="26" />
                                 <Setter Property="Margin" Value="0,4,0,10" />
                             </Style>
-                            <Style TargetType="ComboBox" x:Key="SettingsFieldComboBox">
+                            <Style x:Key="SettingsFieldComboBox" TargetType="{x:Type ComboBox}"
+                                   BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                <Setter Property="MinHeight" Value="26" />
                                 <Setter Property="Margin" Value="0,4,0,10" />
+                            </Style>
+                            <Style x:Key="SettingsSectionHeader" TargetType="{x:Type TextBlock}"
+                                   BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="Margin" Value="0,0,0,8" />
+                                <Setter Property="VerticalAlignment" Value="Bottom" />
+                            </Style>
+                            <Style x:Key="SettingsSectionHelp" TargetType="{x:Type TextBlock}"
+                                   BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="TextWrapping" Value="Wrap" />
+                                <Setter Property="Opacity" Value="0.75" />
+                                <Setter Property="Margin" Value="0,0,0,6" />
+                                <Setter Property="MinHeight" Value="36" />
+                                <Setter Property="VerticalAlignment" Value="Top" />
+                            </Style>
+                            <Style x:Key="SettingsFieldLabel" TargetType="{x:Type TextBlock}"
+                                   BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Bottom" />
+                                <Setter Property="Margin" Value="0,0,0,0" />
                             </Style>
                             <Style TargetType="Border" x:Key="SettingsSectionCard">
                                 <Setter Property="Background" Value="{DynamicResource ThemeCardBrush}" />
@@ -140,10 +165,14 @@
 
                         <!-- Project (left) -->
                         <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource SettingsSectionCard}">
-                            <StackPanel>
-                                    <TextBlock Text="Project" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
-
-                                    <TextBlock Text="Display name" />
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="TopHeader" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Project" Style="{StaticResource SettingsSectionHeader}" />
+                                <StackPanel Grid.Row="1">
+                                    <TextBlock Text="Display name" Style="{StaticResource SettingsFieldLabel}" />
                                     <TextBox x:Name="DisplayNameText"
                                              Style="{StaticResource SettingsFieldTextBox}"
                                              TextChanged="DisplayNameTextChanged" />
@@ -181,10 +210,10 @@
                                                Margin="0,0,0,10"
                                                Visibility="Collapsed" />
 
-                                    <TextBlock Text="Root folder" />
+                                    <TextBlock Text="Root folder" Style="{StaticResource SettingsFieldLabel}" />
                                     <DockPanel Margin="0,4,0,10" LastChildFill="True">
                                         <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseFolderClicked" />
-                                        <TextBox x:Name="RootFolderText" HorizontalAlignment="Stretch" />
+                                        <TextBox x:Name="RootFolderText" Style="{StaticResource SettingsFieldTextBox}" Margin="0" />
                                     </DockPanel>
 
                                     <TextBlock Text="Cursor agent integration" FontWeight="SemiBold" Margin="0,0,0,4" />
@@ -211,26 +240,32 @@
                                                 ToolTip="Re-check whether the installed skill and rule match this BuildMonitor version." />
                                     </StackPanel>
 
-                                    <TextBlock Text="Project file (.csproj / .sln)" />
+                                    <TextBlock Text="Project file (.csproj / .sln)" Style="{StaticResource SettingsFieldLabel}" />
                                     <DockPanel Margin="0,4,0,0" LastChildFill="True">
                                         <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseProjectFileClicked" />
                                         <TextBox x:Name="ProjectFileText"
-                                                 HorizontalAlignment="Stretch"
+                                                 Style="{StaticResource SettingsFieldTextBox}"
+                                                 Margin="0"
                                                  LostFocus="ProjectFileTextLostFocus" />
                                     </DockPanel>
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Build CLI (right) -->
                         <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource SettingsSectionCard}">
-                            <StackPanel>
-                                    <TextBlock Text="Build CLI" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
-
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="TopHeader" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Build CLI" Style="{StaticResource SettingsSectionHeader}" />
+                                <StackPanel Grid.Row="1">
                                     <StackPanel x:Name="LaunchProfilePanel">
-                                    <TextBlock Text="Launch profile" />
+                                    <TextBlock Text="Launch profile" Style="{StaticResource SettingsFieldLabel}" />
                                     <TextBlock Text="Use https when available — matches dotnet run / Visual Studio."
-                                               TextWrapping="Wrap"
-                                               Opacity="0.75"
+                                               Style="{StaticResource SettingsSectionHelp}"
+                                               MinHeight="0"
                                                Margin="0,0,0,0" />
                                     <ComboBox x:Name="LaunchProfileCombo"
                                               Style="{StaticResource SettingsFieldComboBox}"
@@ -239,42 +274,51 @@
                                     </StackPanel>
 
                                     <StackPanel x:Name="SiteUrlPanel">
-                                    <TextBlock Text="Preferred site URL" />
+                                    <TextBlock Text="Preferred site URL" Style="{StaticResource SettingsFieldLabel}" />
                                     <TextBlock Text="When the launch profile lists both HTTP and HTTPS, which URL to show and open."
-                                               TextWrapping="Wrap"
-                                               Opacity="0.75" />
+                                               Style="{StaticResource SettingsSectionHelp}"
+                                               MinHeight="0"
+                                               Margin="0,0,0,0" />
                                     <ComboBox x:Name="PreferredSiteUrlCombo"
                                               Style="{StaticResource SettingsFieldComboBox}" />
                                     </StackPanel>
 
-                                    <TextBlock Text="Extra dotnet args" />
+                                    <TextBlock Text="Extra dotnet args" Style="{StaticResource SettingsFieldLabel}" />
                                     <TextBlock Text="Applied to run commands; also inspected for risky base-output paths during builds."
-                                               TextWrapping="Wrap"
-                                               Opacity="0.75" />
+                                               Style="{StaticResource SettingsSectionHelp}"
+                                               MinHeight="0"
+                                               Margin="0,0,0,0" />
                                     <TextBox x:Name="ExtraArgsText"
                                              Style="{StaticResource SettingsFieldTextBox}"
                                              Margin="0,4,0,0" />
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Run & restart (left) -->
                         <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource SettingsSectionCard}">
-                            <StackPanel>
-                                <TextBlock Text="Run &amp; restart" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
-                                <TextBlock Text="Watch — debounced rebuilds (default). Run — dotnet run once. None — build only."
-                                           TextWrapping="Wrap"
-                                           Opacity="0.75"
-                                           Margin="0,0,0,6" />
-
-                                <TextBlock Text="Run mode" />
-                                <ComboBox x:Name="RunModeCombo"
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidHeader" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidHelp" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidLabel1" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidCtrl1" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Run &amp; restart" Style="{StaticResource SettingsSectionHeader}" />
+                                <TextBlock Grid.Row="1"
+                                           Text="Watch — debounced rebuilds (default). Run — dotnet run once. None — build only."
+                                           Style="{StaticResource SettingsSectionHelp}" />
+                                <TextBlock Grid.Row="2" Text="Run mode" Style="{StaticResource SettingsFieldLabel}" />
+                                <ComboBox Grid.Row="3" x:Name="RunModeCombo"
                                           Style="{StaticResource SettingsFieldComboBox}"
                                           SelectionChanged="RunModeComboSelectionChanged" />
-
-                                <TextBlock Text="Build control" />
+                                <StackPanel Grid.Row="4">
+                                <TextBlock Text="Build control" Style="{StaticResource SettingsFieldLabel}" />
                                 <TextBlock Text="File Watching — automatic rebuilds on change. AI Controlled — observe only; agent/manual rebuild required."
-                                           TextWrapping="Wrap"
-                                           Opacity="0.75" />
+                                           Style="{StaticResource SettingsSectionHelp}"
+                                           MinHeight="0"
+                                           Margin="0,0,0,0" />
                                 <ComboBox x:Name="BuildControlModeCombo"
                                           Style="{StaticResource SettingsFieldComboBox}" />
 
@@ -297,25 +341,33 @@
                                           Content="Restart app after rebuild"
                                           ToolTip="When the app was running, start it again after a successful rebuild (manual or file-triggered)."
                                           Margin="0,0,0,8" />
-                                <TextBlock Text="Max restart retries" />
+                                <TextBlock Text="Max restart retries" Style="{StaticResource SettingsFieldLabel}" />
                                 <TextBox x:Name="MaxRetriesText"
-                                         Margin="0,4,0,0"
+                                         Style="{StaticResource SettingsFieldTextBox}"
                                          Width="80"
-                                         HorizontalAlignment="Left" />
+                                         HorizontalAlignment="Left"
+                                         Margin="0,4,0,0" />
                                 </StackPanel>
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Tests (right) -->
                         <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource SettingsSectionCard}">
-                            <StackPanel>
-                                <TextBlock Text="Tests" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
-                                <TextBlock Text="Leave test target blank to auto-detect a .sln/.slnx or *Tests.csproj."
-                                           TextWrapping="Wrap"
-                                           Opacity="0.75"
-                                           Margin="0,0,0,6" />
-
-                                <TextBlock Text="Test project / solution (optional)" />
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidHeader" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidHelp" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidLabel1" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="MidCtrl1" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Tests" Style="{StaticResource SettingsSectionHeader}" />
+                                <TextBlock Grid.Row="1"
+                                           Text="Leave test target blank to auto-detect a .sln/.slnx or *Tests.csproj."
+                                           Style="{StaticResource SettingsSectionHelp}" />
+                                <TextBlock Grid.Row="2" Text="Test project / solution (optional)" Style="{StaticResource SettingsFieldLabel}" />
+                                <StackPanel Grid.Row="3">
                                 <ComboBox x:Name="TestProjectCombo"
                                           Style="{StaticResource SettingsFieldComboBox}"
                                           Margin="0,4,0,4"
@@ -324,65 +376,80 @@
                                 <TextBlock x:Name="TestTargetEffectiveHint"
                                            TextWrapping="Wrap"
                                            Opacity="0.75"
-                                           Margin="0,0,0,10" />
-
-                                <TextBlock Text="Run tests" />
+                                           Margin="0,0,0,0" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="4">
+                                <TextBlock Text="Run tests" Style="{StaticResource SettingsFieldLabel}" />
                                 <ComboBox x:Name="RunTestsCombo"
                                           Style="{StaticResource SettingsFieldComboBox}"
                                           Margin="0,4,0,0" />
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- File watching (left) -->
                         <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource SettingsSectionCard}" Margin="0">
-                            <StackPanel>
-                                    <TextBlock Text="File watching" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
-                                    <TextBlock Text="When Run mode is Watch, prefer Watch only unless using Trigger rebuild mode."
-                                               TextWrapping="Wrap"
-                                               Opacity="0.75"
-                                               Margin="0,0,0,6" />
-
-                                    <TextBlock Text="File changes" />
-                                    <ComboBox x:Name="FileChangesCombo"
-                                              Style="{StaticResource SettingsFieldComboBox}" />
-
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotHeader" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotHelp" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotLabel1" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotCtrl1" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="File watching" Style="{StaticResource SettingsSectionHeader}" />
+                                <TextBlock Grid.Row="1"
+                                           Text="When Run mode is Watch, prefer Watch only unless using Trigger rebuild mode."
+                                           Style="{StaticResource SettingsSectionHelp}" />
+                                <TextBlock Grid.Row="2" Text="File changes" Style="{StaticResource SettingsFieldLabel}" />
+                                <ComboBox Grid.Row="3" x:Name="FileChangesCombo"
+                                          Style="{StaticResource SettingsFieldComboBox}" />
+                                <StackPanel Grid.Row="4">
                                     <TextBlock Text="Auto-open log"
+                                               Style="{StaticResource SettingsFieldLabel}"
                                                ToolTip="When to open the log viewer automatically after a build or test completes." />
                                     <ComboBox x:Name="AutoOpenLogCombo"
                                               Style="{StaticResource SettingsFieldComboBox}" />
-
                                     <CheckBox x:Name="ShowStatusPanelWhileBuildingCheck"
                                               Content="Show status panel while building"
                                               ToolTip="Opens the hover status panel when a build starts and hides it when the build finishes. Also keeps the panel open from the edit quiet countdown into the build." />
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Excludes & locks (right) -->
                         <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource SettingsSectionCard}" Margin="0">
-                            <StackPanel>
-                                    <TextBlock Text="Excludes &amp; locks" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
-                                    <TextBlock Text="Watch exclude segments (semicolon-separated folder names)"
-                                               TextWrapping="Wrap"
-                                               Opacity="0.75" />
-
-                                    <TextBox x:Name="WatchExcludeSegmentsText"
-                                             Style="{StaticResource SettingsFieldTextBox}"
-                                             ToolTip="Semicolon-separated folder names ignored by BuildMonitor file watcher. For dotnet watch, also add Watch Remove entries to your .csproj (see docs/features/health-and-logs.md)." />
-
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotHeader" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotHelp" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotLabel1" />
+                                    <RowDefinition Height="Auto" SharedSizeGroup="BotCtrl1" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Excludes &amp; locks" Style="{StaticResource SettingsSectionHeader}" />
+                                <TextBlock Grid.Row="1"
+                                           Text="Semicolon-separated folder names ignored by the file watcher."
+                                           Style="{StaticResource SettingsSectionHelp}" />
+                                <TextBlock Grid.Row="2" Text="Watch exclude segments" Style="{StaticResource SettingsFieldLabel}" />
+                                <TextBox Grid.Row="3" x:Name="WatchExcludeSegmentsText"
+                                         Style="{StaticResource SettingsFieldTextBox}"
+                                         VerticalAlignment="Stretch"
+                                         ToolTip="Semicolon-separated folder names ignored by BuildMonitor file watcher. For dotnet watch, also add Watch Remove entries to your .csproj (see docs/features/health-and-logs.md)." />
+                                <StackPanel Grid.Row="4">
                                     <CheckBox x:Name="ReleaseOutputLocksCheck"
                                               Content="Stop processes locking build output before build and tests"
                                               ToolTip="Attempts a graceful stop of apps running this project outside Build Monitor (e.g. dotnet run in a terminal) before builds. For tests, run/watch usually stays up (--no-build); this setting applies when a full test rebuild is needed or on lock-error retry. Works for processes you own; apps started elsewhere or with higher privileges must be closed manually." />
-
                                     <CheckBox x:Name="ForceCompleteWarningCountsCheck"
                                               Content="Always report full warning counts (--no-incremental)"
                                               Margin="0,8,0,0"
                                               ToolTip="Forces a full compile on every build (including file-change) so MSBuild re-emits the complete warning/error summary. Turn off for faster file-change builds — those may show 0/0 when nothing recompiled. Startup and Rebuild always use a full compile." />
-
                                     <CheckBox x:Name="AutoRepairCorruptedOutputCheck"
                                               Content="Auto-repair corrupted build output (artifacts/bin/obj)"
                                               Margin="0,8,0,0"
                                               ToolTip="When build output indicates a poisoned MSBuild output tree, stop watch/run, delete artifacts/, bin/, and obj/ under the project root, then retry the build." />
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         </Grid>
