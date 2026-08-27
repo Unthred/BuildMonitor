@@ -33,7 +33,18 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 
 During large builds MSBuild can emit thousands of lines. Parsing issue counts and refreshing the tray on every line starves the UI thread.
 
-**Builds and runs execute on thread-pool / process output threads**, not the WPF dispatcher. Auto-start and settings apply call `ApplySettingsAndStartAsync` via `Task.Run` so `dotnet build` continuations do not marshal back to the UI thread (manual **Rebuild** from the tray already used this pattern).
+**Builds and runs execute on thread-pool / process output threads**, not the WPF dispatcher. Auto-start and **Local-affecting** settings apply call `ApplySettingsAndStartAsync` via `Task.Run` so `dotnet build` continuations do not marshal back to the UI thread (manual **Rebuild** from the tray already used this pattern).
+
+Settings Save is classified by `SettingsApplyImpactClassifier`:
+
+| Impact | Example | StopAll + StartActive (may build) |
+|--------|---------|-------------------------------------|
+| Presentation | Tray menu layout, theme, toasts | No |
+| SoftRuntime | Monitor debounce, Azure attachment, display name | No (orchestrator refresh only) |
+| HardRestart | Local paths/run options, active-in-session | Yes |
+| None | Save with no diffs | No |
+
+Presentation-only saves still refresh the tray menu immediately; they must not schedule a Local rebuild.
 
 The tray uses WinForms `NotifyIcon` with `ContextMenuStrip` assigned directly (same as `main`). Health snapshots are coalesced in `HealthCoalescer` (~250 ms) on a background thread. The UI applies them via a single coalesced `Dispatcher.BeginInvoke(Normal)` pass so the tray stays in step with build toasts: tray icon always updates; hover panel updates only when visible; toasts and sounds are skipped while the tray menu is open. `HealthCoalescer` also pauses publish while the menu is open. Agent-tooling folder activity marks health dirty for the next coalesce tick (not an immediate publish) so Cursor writes do not flood the UI; lifecycle and meaningful source saves still request immediate coalesce.
 

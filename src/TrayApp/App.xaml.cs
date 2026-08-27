@@ -163,7 +163,8 @@ public partial class App : System.Windows.Application
             await WaitForUiIdleAsync();
         }
 
-        await Task.Run(async () => await ApplySettingsAndStartAsync().ConfigureAwait(false));
+        await Task.Run(async () => await ApplySettingsAndStartAsync(
+            SettingsApplyImpactClassifier.CreatePlan(before: null, currentSettings)).ConfigureAwait(false));
     }
 
     private async Task OpenBuildMonitorHealthWhenReadyAsync()
@@ -175,7 +176,7 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private async Task ApplySettingsAndStartAsync()
+    private async Task ApplySettingsAndStartAsync(SettingsApplyPlan plan)
     {
         if (Volatile.Read(ref exitRequested) != 0)
         {
@@ -190,18 +191,31 @@ public partial class App : System.Windows.Application
                 return;
             }
 
-            previousProjectHealth.Clear();
-            buildLifecycleToastNotifier.Reset();
-            autoOpenLogSession.Reset();
-            previousProjectLifecycleState.Clear();
-            statusPanelAutoShownForBuild = false;
-            fileChangeBuildStarts.Clear();
-            ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
-            await orchestrator.StopAllAsync();
-            orchestrator.ApplySettings(currentSettings);
-            ApplyControlPlaneHost();
+            if (plan.ResetHealthTransitionState)
+            {
+                previousProjectHealth.Clear();
+                buildLifecycleToastNotifier.Reset();
+                autoOpenLogSession.Reset();
+                previousProjectLifecycleState.Clear();
+                statusPanelAutoShownForBuild = false;
+                fileChangeBuildStarts.Clear();
+            }
 
-            if (AppLaunchPolicy.ShouldAutoStartAnyProjectsOnLaunch(currentSettings))
+            ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
+
+            if (plan.StopAllAndRestartActiveProjects)
+            {
+                await orchestrator.StopAllAsync();
+            }
+
+            if (plan.ApplyOrchestratorSettings)
+            {
+                orchestrator.ApplySettings(currentSettings);
+                ApplyControlPlaneHost();
+            }
+
+            if (plan.StopAllAndRestartActiveProjects
+                && AppLaunchPolicy.ShouldAutoStartAnyProjectsOnLaunch(currentSettings))
             {
                 await orchestrator.StartActiveProjectsAsync(CancellationToken.None).ConfigureAwait(false);
             }
@@ -1451,6 +1465,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        var previousSettings = currentSettings;
         currentSettings = window.Settings;
         ThemeService.ApplyTheme(currentSettings.AppBehavior.Theme);
         ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
@@ -1459,21 +1474,43 @@ public partial class App : System.Windows.Application
         ApplyThemeToUi();
         RebuildTrayMenu();
 
-        var applyVersion = Interlocked.Increment(ref settingsApplyVersion);
-        _ = ApplySettingsAndStartInBackgroundAsync(applyVersion);
+        var plan = SettingsApplyImpactClassifier.CreatePlan(previousSettings, currentSettings);
+        if (plan.StopAllAndRestartActiveProjects || plan.ApplyOrchestratorSettings)
+        {
+            var applyVersion = Interlocked.Increment(ref settingsApplyVersion);
+            _ = ApplySettingsAndStartInBackgroundAsync(applyVersion, plan);
+        }
 
-        ToastNotificationService.ShowIfEnabled(
-            "Settings saved",
-            "Projects with start on launch enabled are starting in the background.",
-            ToastKind.Success,
-            UserNotificationCategory.Info);
+        if (plan.ShowProjectsStartingToast)
+        {
+            ToastNotificationService.ShowIfEnabled(
+                "Settings saved",
+                "Projects with start on launch enabled are starting in the background.",
+                ToastKind.Success,
+                UserNotificationCategory.Info);
+        }
+        else
+        {
+            ToastNotificationService.ShowIfEnabled(
+                "Settings saved",
+                plan.Impact switch
+                {
+                    SettingsApplyImpact.None => "No changes to apply.",
+                    SettingsApplyImpact.Presentation => "Presentation settings updated.",
+                    SettingsApplyImpact.SoftRuntime => "Runtime settings updated without rebuilding.",
+                    _ => "Settings updated."
+                },
+                ToastKind.Success,
+                UserNotificationCategory.Info);
+        }
     }
 
-    private async Task ApplySettingsAndStartInBackgroundAsync(int applyVersion)
+    private async Task ApplySettingsAndStartInBackgroundAsync(int applyVersion, SettingsApplyPlan plan)
     {
         try
         {
-            await Task.Run(ApplySettingsAndStartAsync).ConfigureAwait(false);
+            await Task.Run(async () => await ApplySettingsAndStartAsync(plan).ConfigureAwait(false))
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
