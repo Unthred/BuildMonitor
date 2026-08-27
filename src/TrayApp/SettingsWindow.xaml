@@ -180,137 +180,155 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Project (left) -->
-                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource SettingsSectionCard}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" SharedSizeGroup="TopHeader" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="Project" Style="{StaticResource SettingsSectionHeader}" />
-                                <StackPanel Grid.Row="1">
-                                    <TextBlock Text="Display name" Style="{StaticResource SettingsFieldLabel}" />
-                                    <TextBox x:Name="DisplayNameText"
-                                             Style="{StaticResource SettingsFieldTextBox}"
-                                             TextChanged="DisplayNameTextChanged" />
+                        <!-- Project | Build CLI — one parent Grid owns shared peer-field Y positions -->
+                        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                                    <TextBlock Text="Azure DevOps" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock x:Name="AzureAttachmentSummary"
-                                               Text="No Azure association"
-                                               TextWrapping="Wrap"
-                                               Margin="0,0,0,6" />
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <Button x:Name="AttachAzureButton"
-                                                Content="Attach Azure DevOps…"
-                                                Padding="8,4"
-                                                Click="AttachAzureClicked" />
-                                        <Button x:Name="ChangeAzureButton"
-                                                Content="Change…"
-                                                Margin="6,0,0,0"
-                                                Padding="8,4"
-                                                Click="ChangeAzureClicked" />
-                                        <Button x:Name="DetachAzureButton"
-                                                Content="Detach"
-                                                Margin="6,0,0,0"
-                                                Padding="8,4"
-                                                Click="DetachAzureClicked" />
-                                        <Button x:Name="AssociateLocalButton"
-                                                Content="Associate local…"
-                                                Margin="6,0,0,0"
-                                                Padding="8,4"
-                                                Click="AssociateLocalClicked" />
-                                    </StackPanel>
-                                    <TextBlock x:Name="AzureOnlyHint"
-                                               Text="Azure-only project: local build/run options are hidden until a local folder is associated. Active Azure projects with selected pipelines are polled continuously."
-                                               TextWrapping="Wrap"
-                                               Opacity="0.8"
-                                               Margin="0,0,0,10"
-                                               Visibility="Collapsed" />
+                            <Border Grid.Row="0" Grid.RowSpan="9" Grid.Column="0"
+                                    Style="{StaticResource SettingsSectionCardChrome}" />
+                            <Border Grid.Row="0" Grid.RowSpan="9" Grid.Column="2"
+                                    Style="{StaticResource SettingsSectionCardChrome}" />
 
-                                    <TextBlock Text="Root folder" Style="{StaticResource SettingsFieldLabel}" />
-                                    <DockPanel Margin="0,4,0,10" LastChildFill="True">
-                                        <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseFolderClicked" />
-                                        <TextBox x:Name="RootFolderText" Style="{StaticResource SettingsFieldTextBox}" Margin="0" />
-                                    </DockPanel>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Margin="12,12,12,0"
+                                       Text="Project" Style="{StaticResource SettingsSectionHeader}" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" Margin="12,12,12,0"
+                                       Text="Build CLI" Style="{StaticResource SettingsSectionHeader}" />
 
-                                    <TextBlock Text="Cursor agent integration" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock x:Name="AgentSkillStatusSummary"
-                                               Text="Not checked"
-                                               FontWeight="SemiBold"
-                                               Margin="0,0,0,2"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock x:Name="AgentSkillStatusDetail"
-                                               Text="Select a project to see whether the control-plane skill and always-on rule are installed."
-                                               Opacity="0.85"
-                                               Margin="0,0,0,6"
-                                               TextWrapping="Wrap" />
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <Button x:Name="InstallAgentSkillButton"
-                                                Content="Install / Update"
-                                                Padding="10,4"
-                                                Click="InstallAgentSkillClicked"
-                                                ToolTip="Copies the BuildMonitor skill and an always-on Cursor rule into this project's .cursor folder so agents use busy/idle/ship-check without paste." />
-                                        <Button Content="Refresh"
-                                                Margin="8,0,0,0"
-                                                Padding="10,4"
-                                                Click="RefreshAgentSkillStatusClicked"
-                                                ToolTip="Re-check whether the installed skill and rule match this BuildMonitor version." />
-                                    </StackPanel>
+                            <!-- Peer 1: Display name ↔ Launch profile -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Margin="12,0,12,0"
+                                       Text="Display name" Style="{StaticResource SettingsFieldLabel}" />
+                            <TextBlock x:Name="LaunchProfileLabel"
+                                       Grid.Row="1" Grid.Column="2" Margin="12,0,12,0"
+                                       Text="Launch profile"
+                                       Style="{StaticResource SettingsFieldLabel}"
+                                       ToolTip="Use https when available — matches dotnet run / Visual Studio." />
 
-                                    <TextBlock Text="Project file (.csproj / .sln)" Style="{StaticResource SettingsFieldLabel}" />
-                                    <DockPanel Margin="0,4,0,0" LastChildFill="True">
-                                        <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0" Click="BrowseProjectFileClicked" />
-                                        <TextBox x:Name="ProjectFileText"
-                                                 Style="{StaticResource SettingsFieldTextBox}"
-                                                 Margin="0"
-                                                 LostFocus="ProjectFileTextLostFocus" />
-                                    </DockPanel>
+                            <TextBox Grid.Row="2" Grid.Column="0" Margin="12,4,12,0"
+                                     x:Name="DisplayNameText"
+                                     Style="{StaticResource SettingsPeerFieldTextBox}"
+                                     TextChanged="DisplayNameTextChanged" />
+                            <ComboBox Grid.Row="2" Grid.Column="2" Margin="12,4,12,0"
+                                      x:Name="LaunchProfileCombo"
+                                      Style="{StaticResource SettingsPeerFieldComboBox}"
+                                      IsEditable="True"
+                                      SelectionChanged="LaunchProfileComboSelectionChanged" />
+
+                            <!-- Project-only: Azure -->
+                            <StackPanel Grid.Row="3" Grid.Column="0" Margin="12,10,12,0">
+                                <TextBlock Text="Azure DevOps" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock x:Name="AzureAttachmentSummary"
+                                           Text="No Azure association"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,6" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                                    <Button x:Name="AttachAzureButton"
+                                            Content="Attach Azure DevOps…"
+                                            Padding="8,4"
+                                            Click="AttachAzureClicked" />
+                                    <Button x:Name="ChangeAzureButton"
+                                            Content="Change…"
+                                            Margin="6,0,0,0"
+                                            Padding="8,4"
+                                            Click="ChangeAzureClicked" />
+                                    <Button x:Name="DetachAzureButton"
+                                            Content="Detach"
+                                            Margin="6,0,0,0"
+                                            Padding="8,4"
+                                            Click="DetachAzureClicked" />
+                                    <Button x:Name="AssociateLocalButton"
+                                            Content="Associate local…"
+                                            Margin="6,0,0,0"
+                                            Padding="8,4"
+                                            Click="AssociateLocalClicked" />
                                 </StackPanel>
-                            </Grid>
-                        </Border>
+                                <TextBlock x:Name="AzureOnlyHint"
+                                           Text="Azure-only project: local build/run options are hidden until a local folder is associated. Active Azure projects with selected pipelines are polled continuously."
+                                           TextWrapping="Wrap"
+                                           Opacity="0.8"
+                                           Margin="0,8,0,0"
+                                           Visibility="Collapsed" />
+                            </StackPanel>
 
-                        <!-- Build CLI (right) -->
-                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource SettingsSectionCard}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" SharedSizeGroup="TopHeader" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="Build CLI" Style="{StaticResource SettingsSectionHeader}" />
-                                <StackPanel Grid.Row="1">
-                                    <StackPanel x:Name="LaunchProfilePanel">
-                                    <TextBlock Text="Launch profile" Style="{StaticResource SettingsFieldLabel}" />
-                                    <TextBlock Text="Use https when available — matches dotnet run / Visual Studio."
-                                               Style="{StaticResource SettingsSectionHelp}"
-                                               MinHeight="0"
-                                               Margin="0,0,0,0" />
-                                    <ComboBox x:Name="LaunchProfileCombo"
-                                              Style="{StaticResource SettingsFieldComboBox}"
-                                              IsEditable="True"
-                                              SelectionChanged="LaunchProfileComboSelectionChanged" />
-                                    </StackPanel>
+                            <!-- Peer 2: Root folder ↔ Preferred site URL -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Margin="12,10,12,0"
+                                       Text="Root folder" Style="{StaticResource SettingsFieldLabel}" />
+                            <TextBlock x:Name="SiteUrlLabel"
+                                       Grid.Row="4" Grid.Column="2" Margin="12,10,12,0"
+                                       Text="Preferred site URL"
+                                       Style="{StaticResource SettingsFieldLabel}"
+                                       ToolTip="When the launch profile lists both HTTP and HTTPS, which URL to show and open." />
 
-                                    <StackPanel x:Name="SiteUrlPanel">
-                                    <TextBlock Text="Preferred site URL" Style="{StaticResource SettingsFieldLabel}" />
-                                    <TextBlock Text="When the launch profile lists both HTTP and HTTPS, which URL to show and open."
-                                               Style="{StaticResource SettingsSectionHelp}"
-                                               MinHeight="0"
-                                               Margin="0,0,0,0" />
-                                    <ComboBox x:Name="PreferredSiteUrlCombo"
-                                              Style="{StaticResource SettingsFieldComboBox}" />
-                                    </StackPanel>
+                            <DockPanel Grid.Row="5" Grid.Column="0" Margin="12,4,12,0" LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0"
+                                        Click="BrowseFolderClicked" />
+                                <TextBox x:Name="RootFolderText"
+                                         Style="{StaticResource SettingsPeerFieldTextBox}" />
+                            </DockPanel>
+                            <ComboBox Grid.Row="5" Grid.Column="2" Margin="12,4,12,0"
+                                      x:Name="PreferredSiteUrlCombo"
+                                      Style="{StaticResource SettingsPeerFieldComboBox}" />
 
-                                    <TextBlock Text="Extra dotnet args" Style="{StaticResource SettingsFieldLabel}" />
-                                    <TextBlock Text="Applied to run commands; also inspected for risky base-output paths during builds."
-                                               Style="{StaticResource SettingsSectionHelp}"
-                                               MinHeight="0"
-                                               Margin="0,0,0,0" />
-                                    <TextBox x:Name="ExtraArgsText"
-                                             Style="{StaticResource SettingsFieldTextBox}"
-                                             Margin="0,4,0,0" />
+                            <!-- Project-only: Cursor agent -->
+                            <StackPanel Grid.Row="6" Grid.Column="0" Margin="12,10,12,0">
+                                <TextBlock Text="Cursor agent integration" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock x:Name="AgentSkillStatusSummary"
+                                           Text="Not checked"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,2"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="AgentSkillStatusDetail"
+                                           Text="Select a project to see whether the control-plane skill and always-on rule are installed."
+                                           Opacity="0.85"
+                                           Margin="0,0,0,6"
+                                           TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="InstallAgentSkillButton"
+                                            Content="Install / Update"
+                                            Padding="10,4"
+                                            Click="InstallAgentSkillClicked"
+                                            ToolTip="Copies the BuildMonitor skill and an always-on Cursor rule into this project's .cursor folder so agents use busy/idle/ship-check without paste." />
+                                    <Button Content="Refresh"
+                                            Margin="8,0,0,0"
+                                            Padding="10,4"
+                                            Click="RefreshAgentSkillStatusClicked"
+                                            ToolTip="Re-check whether the installed skill and rule match this BuildMonitor version." />
                                 </StackPanel>
-                            </Grid>
-                        </Border>
+                            </StackPanel>
+
+                            <!-- Peer 3: Project file ↔ Extra dotnet args -->
+                            <TextBlock Grid.Row="7" Grid.Column="0" Margin="12,10,12,0"
+                                       Text="Project file (.csproj / .sln)" Style="{StaticResource SettingsFieldLabel}" />
+                            <TextBlock Grid.Row="7" Grid.Column="2" Margin="12,10,12,0"
+                                       Text="Extra dotnet args"
+                                       Style="{StaticResource SettingsFieldLabel}"
+                                       ToolTip="Applied to run commands; also inspected for risky base-output paths during builds." />
+
+                            <DockPanel Grid.Row="8" Grid.Column="0" Margin="12,4,12,12" LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0"
+                                        Click="BrowseProjectFileClicked" />
+                                <TextBox x:Name="ProjectFileText"
+                                         Style="{StaticResource SettingsPeerFieldTextBox}"
+                                         LostFocus="ProjectFileTextLostFocus" />
+                            </DockPanel>
+                            <TextBox Grid.Row="8" Grid.Column="2" Margin="12,4,12,12"
+                                     x:Name="ExtraArgsText"
+                                     Style="{StaticResource SettingsPeerFieldTextBox}" />
+                        </Grid>
 
                         <!-- Run & restart | Tests — one parent Grid owns shared row Y positions -->
                         <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,10">

@@ -344,8 +344,12 @@ public partial class SettingsWindow : Window
             launchProfilesAvailable: profiles.Count > 0,
             siteUrlApplicable: siteUrl);
 
-        LaunchProfilePanel.Visibility = caps.LaunchProfilesAvailable ? Visibility.Visible : Visibility.Collapsed;
-        SiteUrlPanel.Visibility = caps.SiteUrlApplicable ? Visibility.Visible : Visibility.Collapsed;
+        var launchVis = caps.LaunchProfilesAvailable ? Visibility.Visible : Visibility.Collapsed;
+        var siteVis = caps.SiteUrlApplicable ? Visibility.Visible : Visibility.Collapsed;
+        LaunchProfileLabel.Visibility = launchVis;
+        LaunchProfileCombo.Visibility = launchVis;
+        SiteUrlLabel.Visibility = siteVis;
+        PreferredSiteUrlCombo.Visibility = siteVis;
         RestartOptionsPanel.Visibility = caps.RestartApplicable ? Visibility.Visible : Visibility.Collapsed;
         AutoRestartOnWatchChangesCheck.Visibility =
             caps.WatchRestartApplicable ? Visibility.Visible : Visibility.Collapsed;
@@ -603,7 +607,7 @@ public partial class SettingsWindow : Window
         var local = selectedProject.Local;
         local.RootFolder = RootFolderText.Text.Trim();
         local.ProjectFile = ProjectFileText.Text.Trim();
-        if (LaunchProfilePanel.Visibility == Visibility.Visible)
+        if (LaunchProfileCombo.Visibility == Visibility.Visible)
         {
             local.LaunchProfile = LaunchProfileCombo.Text.Trim();
         }
@@ -614,7 +618,7 @@ public partial class SettingsWindow : Window
         local.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
         local.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
         local.BuildControlMode = ResolveBuildControlMode();
-        if (SiteUrlPanel.Visibility == Visibility.Visible)
+        if (PreferredSiteUrlCombo.Visibility == Visibility.Visible)
         {
             local.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
         }
