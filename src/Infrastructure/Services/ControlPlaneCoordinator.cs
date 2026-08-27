@@ -30,16 +30,7 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
     public bool ProjectExists(string projectId) =>
         orchestrator.ControlPlaneProjectExists(projectId);
 
-    public bool RequestAppQuit()
-    {
-        if (requestAppQuit is null)
-        {
-            return false;
-        }
-
-        requestAppQuit();
-        return true;
-    }
+    public bool RequestAppQuit() => AppQuitLifecycle.TryInvokeQuitCallback(requestAppQuit);
 
     public ControlPlaneSessionStatus GetSession(string projectId) =>
         sessions.GetStatus(projectId);

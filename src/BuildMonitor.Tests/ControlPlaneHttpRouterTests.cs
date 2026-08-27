@@ -210,12 +210,33 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.False(actions.QuitRequested);
     }
 
+    [Fact]
+    public async Task Post_app_quit_callback_exception_wrapped_returns_503_not_500()
+    {
+        var actions = new FakeActions
+        {
+            QuitCallback = () => throw new InvalidOperationException(
+                "The calling thread cannot access this object because a different thread owns it.")
+        };
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/app/quit"),
+            new MemoryStream(),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.False(actions.QuitRequested);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
         public bool Exists { get; set; }
         public bool QuitAvailable { get; set; } = true;
         public bool QuitRequested { get; private set; }
+        public Action? QuitCallback { get; set; }
         public string? LastBusyProjectId { get; private set; }
         public bool? LastBusySuppress { get; private set; }
         public string? LastRebuildProjectId { get; private set; }
@@ -236,6 +257,12 @@ public sealed class ControlPlaneHttpRouterTests
         public bool RequestAppQuit()
         {
             if (!QuitAvailable)
+            {
+                return false;
+            }
+
+            // Same wrap as ControlPlaneCoordinator — exceptions must not become HTTP 500.
+            if (!AppQuitLifecycle.TryInvokeQuitCallback(QuitCallback ?? (() => { })))
             {
                 return false;
             }

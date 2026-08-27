@@ -50,36 +50,73 @@ function Get-ControlPlaneBaseUrl {
 function Request-BuildMonitorQuit {
     $base = Get-ControlPlaneBaseUrl
     Write-Host "Requesting tray quit via $base/app/quit ..."
+
+    $status = $null
+    $transportFailed = $false
     try {
         $response = Invoke-WebRequest -Method Post -Uri "$base/app/quit" -UseBasicParsing -TimeoutSec 5
-        Write-Host "Quit accepted (HTTP $($response.StatusCode)). Waiting for control plane to stop ..."
+        $status = [int]$response.StatusCode
+        Write-Host "Quit HTTP $status body=$($response.Content)"
     }
     catch {
-        $status = $null
-        try { $status = [int]$_.Exception.Response.StatusCode } catch { }
-        if ($status -eq 404 -or $status -eq 503) {
-            Write-Warning "This tray build has no /app/quit (or quit unavailable). Exit BuildMonitor from the tray menu, then re-run deploy."
-            return $false
+        $transportFailed = $true
+        try {
+            if ($_.Exception.Response) {
+                $status = [int]$_.Exception.Response.StatusCode
+                $transportFailed = $false
+                try {
+                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                    Write-Host "Quit HTTP $status body=$($reader.ReadToEnd())"
+                }
+                catch {
+                    Write-Host "Quit HTTP $status (body unavailable)"
+                }
+            }
+            else {
+                Write-Host "Quit transport failure: $($_.Exception.Message)"
+            }
+        }
+        catch {
+            Write-Host "Quit transport failure: $($_.Exception.Message)"
+        }
+    }
+
+    # Disposition mirrors AppQuitHttpDispositionClassifier (Infrastructure).
+    if ($status -eq 202) {
+        Write-Host "Quit accepted (HTTP 202). Waiting for control plane to stop ..."
+        $deadline = (Get-Date).AddSeconds(45)
+        while ((Get-Date) -lt $deadline) {
+            try {
+                Invoke-WebRequest -Uri "$base/projects" -UseBasicParsing -TimeoutSec 2 | Out-Null
+                Start-Sleep -Milliseconds 400
+            }
+            catch {
+                Write-Host "Tray control plane is down."
+                return $true
+            }
         }
 
+        Write-Warning "Timed out waiting for tray quit after HTTP 202. Exit BuildMonitor from the tray menu (or approve a force-stop), then re-run deploy."
+        return $false
+    }
+
+    if ($status -eq 404 -or $status -eq 503) {
+        Write-Warning "Quit unavailable (HTTP $status). Exit BuildMonitor from the tray menu, then re-run deploy."
+        return $false
+    }
+
+    if ($null -ne $status -and $status -ge 500) {
+        Write-Warning "Quit failed with HTTP $status — tray is NOT treated as already stopped. Exit BuildMonitor from the tray menu (or approve a force-stop), then re-run deploy."
+        return $false
+    }
+
+    if ($transportFailed -or $null -eq $status) {
         # Connection refused / already stopped is fine.
         Write-Host "Control plane not reachable (tray already stopped?). Continuing."
         return $true
     }
 
-    $deadline = (Get-Date).AddSeconds(45)
-    while ((Get-Date) -lt $deadline) {
-        try {
-            Invoke-WebRequest -Uri "$base/projects" -UseBasicParsing -TimeoutSec 2 | Out-Null
-            Start-Sleep -Milliseconds 400
-        }
-        catch {
-            Write-Host "Tray control plane is down."
-            return $true
-        }
-    }
-
-    Write-Warning "Timed out waiting for tray quit. Exit BuildMonitor from the tray menu, then re-run deploy."
+    Write-Warning "Unexpected quit HTTP status $status. Exit BuildMonitor from the tray menu, then re-run deploy."
     return $false
 }
 

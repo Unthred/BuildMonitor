@@ -1493,30 +1493,25 @@ public partial class App : System.Windows.Application
 
     private void RequestExit()
     {
-        if (Interlocked.Exchange(ref exitRequested, 1) != 0)
+        switch (AppQuitLifecycle.TryClaim(ref exitRequested))
         {
-            // Prior Exit/quit accepted but process stayed alive (e.g. hung child stop).
-            Environment.Exit(0);
-            return;
+            case AppQuitClaimResult.AlreadyInProgress:
+                // Prior Exit/quit accepted but process stayed alive (e.g. hung child stop).
+                Environment.Exit(0);
+                return;
+            case AppQuitClaimResult.Accepted:
+                break;
         }
 
-        CancelStatusPanelTimers();
-        hoverPanel?.Hide();
+        // Failsafe BEFORE any UI work: /app/quit runs on an HTTP thread and must not
+        // throw (or skip the deadline) when touching WinForms/WPF objects.
+        AppQuitLifecycle.ArmFailsafeThenScheduleGraceful(
+            ArmExitFailsafe,
+            ScheduleGracefulExitOnUiThread);
+    }
 
-        if (notifyIcon is not null)
-        {
-            notifyIcon.Visible = false;
-        }
-
-        if (trayContextMenu is not null)
-        {
-            trayContextMenu.Hide();
-        }
-
-        // Normal (not ApplicationIdle): Idle can be delayed while watch/UI work is busy.
-        // Defer one pump so WinForms tray menu can finish its click handler.
-        Dispatcher.BeginInvoke(DispatcherPriority.Normal, () => _ = ExitAsync());
-
+    private static void ArmExitFailsafe()
+    {
         // Hard deadline so /app/quit and tray Exit cannot leave a zombie holding binaries.
         _ = Task.Run(async () =>
         {
@@ -1531,6 +1526,46 @@ public partial class App : System.Windows.Application
 
             Environment.Exit(0);
         });
+    }
+
+    private void ScheduleGracefulExitOnUiThread()
+    {
+        void beginUiTeardown()
+        {
+            try
+            {
+                CancelStatusPanelTimers();
+                hoverPanel?.Hide();
+
+                if (notifyIcon is not null)
+                {
+                    notifyIcon.Visible = false;
+                }
+
+                if (trayContextMenu is not null)
+                {
+                    trayContextMenu.Hide();
+                }
+
+                // Normal (not ApplicationIdle): Idle can be delayed while watch/UI work is busy.
+                // Defer one pump so WinForms tray menu can finish its click handler.
+                Dispatcher.BeginInvoke(DispatcherPriority.Normal, () => _ = ExitAsync());
+            }
+            catch (Exception ex)
+            {
+                // Failsafe already armed — do not rethrow onto the HTTP /app/quit thread.
+                System.Diagnostics.Debug.WriteLine($"Graceful exit UI schedule failed: {ex}");
+            }
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            beginUiTeardown();
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Normal, beginUiTeardown);
+        }
     }
 
     private async Task ExitAsync()
