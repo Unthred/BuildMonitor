@@ -6,18 +6,12 @@
 
         Title="Local Build Monitor Settings"
 
-        Width="980"
-
-        Height="820"
-
-        MinWidth="900"
-
-        MinHeight="760"
-
+        Width="1160"
+        Height="800"
+        MinWidth="1000"
+        MinHeight="700"
         SizeToContent="Manual"
-
         WindowStartupLocation="Manual"
-
         Loaded="WindowLoaded">
 
     <Grid Margin="12">
@@ -261,8 +255,9 @@
 
                                 <StackPanel Grid.Column="2">
 
-                                    <TextBlock Text="Launch &amp; CLI" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
+                                    <TextBlock Text="Build CLI" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10" />
 
+                                    <StackPanel x:Name="LaunchProfilePanel">
                                     <TextBlock Text="Launch profile" />
 
                                     <TextBlock Text="Use https when available — matches dotnet run / Visual Studio."
@@ -280,16 +275,22 @@
                                               Margin="0,4,0,10"
 
                                               SelectionChanged="LaunchProfileComboSelectionChanged" />
+                                    </StackPanel>
 
+                                    <StackPanel x:Name="SiteUrlPanel">
                                     <TextBlock Text="Preferred site URL" />
                                     <TextBlock Text="When the launch profile lists both HTTP and HTTPS, which URL to show and open."
                                                TextWrapping="Wrap"
                                                Opacity="0.75"
                                                Margin="0,0,0,4" />
                                     <ComboBox x:Name="PreferredSiteUrlCombo" Margin="0,4,0,10" />
+                                    </StackPanel>
 
                                     <TextBlock Text="Extra dotnet args" />
-
+                                    <TextBlock Text="Applied to run commands; also inspected for risky base-output paths during builds."
+                                               TextWrapping="Wrap"
+                                               Opacity="0.75"
+                                               Margin="0,0,0,4" />
                                     <TextBox x:Name="ExtraArgsText" Margin="0,4,0,0" />
 
                                 </StackPanel>
@@ -330,7 +331,8 @@
 
                                 <TextBlock Text="Run mode" />
 
-                                <ComboBox x:Name="RunModeCombo" Margin="0,4,0,10" />
+                                <ComboBox x:Name="RunModeCombo" Margin="0,4,0,10"
+                                          SelectionChanged="RunModeComboSelectionChanged" />
 
                                 <TextBlock Text="Build control" />
                                 <TextBlock Text="File Watching — automatic rebuilds on change. AI Controlled — observe only; agent/manual rebuild required."
@@ -344,6 +346,7 @@
                                           ToolTip="When checked, this project builds and runs automatically on app startup and after saving settings. Requires Active in session (left list)."
                                           Margin="0,0,0,10" />
 
+                                <StackPanel x:Name="RestartOptionsPanel">
                                 <CheckBox x:Name="RestartOnCrashCheck" Content="Restart on crash" Margin="0,0,0,6" />
 
                                 <CheckBox x:Name="AutoRestartOnWatchChangesCheck"
@@ -373,6 +376,7 @@
                                 <TextBlock Text="Max restart retries" />
 
                                 <TextBox x:Name="MaxRetriesText" Margin="0,4,0,0" Width="80" HorizontalAlignment="Left" />
+                                </StackPanel>
 
                             </StackPanel>
 
@@ -414,9 +418,13 @@
 
                                           IsEditable="True"
 
-                                          Margin="0,4,0,10"
+                                          Margin="0,4,0,4"
 
                                           LostFocus="TestProjectComboLostFocus" />
+                                <TextBlock x:Name="TestTargetEffectiveHint"
+                                           TextWrapping="Wrap"
+                                           Opacity="0.75"
+                                           Margin="0,0,0,10" />
 
                                 <TextBlock Text="Run tests" />
 

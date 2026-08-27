@@ -72,6 +72,54 @@ public static class LaunchProfileDiscovery
         return profiles[0];
     }
 
+    /// <summary>
+    /// True when any launch profile declares <c>applicationUrl</c> (web/site-ready projects).
+    /// </summary>
+    public static bool AnyProfileHasApplicationUrl(string rootFolder, string projectFile)
+    {
+        var fullProjectPath = ResolveProjectPath(rootFolder, projectFile);
+        if (string.IsNullOrWhiteSpace(fullProjectPath) || !File.Exists(fullProjectPath))
+        {
+            return false;
+        }
+
+        var projectDir = Path.GetDirectoryName(fullProjectPath);
+        if (string.IsNullOrWhiteSpace(projectDir))
+        {
+            return false;
+        }
+
+        var launchSettingsPath = Path.Combine(projectDir, "Properties", "launchSettings.json");
+        if (!File.Exists(launchSettingsPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(launchSettingsPath));
+            if (!doc.RootElement.TryGetProperty("profiles", out var profiles))
+            {
+                return false;
+            }
+
+            foreach (var profile in profiles.EnumerateObject())
+            {
+                if (profile.Value.TryGetProperty("applicationUrl", out var url)
+                    && !string.IsNullOrWhiteSpace(url.GetString()))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     public static string ToRelativePath(string rootFolder, string absolutePath)
     {
         if (string.IsNullOrWhiteSpace(rootFolder) || !Directory.Exists(rootFolder))
