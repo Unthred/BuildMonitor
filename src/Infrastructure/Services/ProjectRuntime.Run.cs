@@ -18,6 +18,7 @@ internal sealed partial class ProjectRuntime
 
     private void StartRunProcess(bool skipEmbeddedBuild = false)
     {
+        Interlocked.Increment(ref processStartCount);
         SetProjectCurrentAction(skipEmbeddedBuild
             ? "Starting app (dotnet run --no-build)"
             : "Starting app (dotnet run)");

@@ -203,7 +203,7 @@ public partial class App : System.Windows.Application
 
             ToastNotificationService.ApplySettings(currentSettings.AppBehavior);
 
-            if (plan.StopAllAndRestartActiveProjects)
+            if (plan.ColdStartActiveProjectsWithBuild)
             {
                 await orchestrator.StopAllAsync();
             }
@@ -214,10 +214,16 @@ public partial class App : System.Windows.Application
                 ApplyControlPlaneHost();
             }
 
-            if (plan.StopAllAndRestartActiveProjects
+            if (plan.ColdStartActiveProjectsWithBuild
                 && AppLaunchPolicy.ShouldAutoStartAnyProjectsOnLaunch(currentSettings))
             {
                 await orchestrator.StartActiveProjectsAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            else if (plan.RemountAffectedLocalProjectsWithoutBuild)
+            {
+                await orchestrator.RemountLocalProjectsWithoutBuildAsync(
+                    plan.LocalRemounts,
+                    CancellationToken.None).ConfigureAwait(false);
             }
         }
         finally
@@ -1475,7 +1481,9 @@ public partial class App : System.Windows.Application
         RebuildTrayMenu();
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(previousSettings, currentSettings);
-        if (plan.StopAllAndRestartActiveProjects || plan.ApplyOrchestratorSettings)
+        if (plan.ColdStartActiveProjectsWithBuild
+            || plan.RemountAffectedLocalProjectsWithoutBuild
+            || plan.ApplyOrchestratorSettings)
         {
             var applyVersion = Interlocked.Increment(ref settingsApplyVersion);
             _ = ApplySettingsAndStartInBackgroundAsync(applyVersion, plan);
@@ -1498,6 +1506,8 @@ public partial class App : System.Windows.Application
                     SettingsApplyImpact.None => "No changes to apply.",
                     SettingsApplyImpact.Presentation => "Presentation settings updated.",
                     SettingsApplyImpact.SoftRuntime => "Runtime settings updated without rebuilding.",
+                    SettingsApplyImpact.HardRestart =>
+                        "Local runtime remounted without rebuilding.",
                     _ => "Settings updated."
                 },
                 ToastKind.Success,

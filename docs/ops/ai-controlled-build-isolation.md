@@ -19,7 +19,7 @@ When `buildControlMode` is **AI Controlled**, source-file changes must never ini
 | `TryHandleHotReloadRestartRequest` | May rebuild/restart | Blocked unless explicit agent rebuild/ship-check in progress |
 | Busy timeout → idle | May resume auto-build | Policy still false; no schedule started |
 | `/session/idle` | May resume debounce build | Does not schedule in AI Controlled |
-| Startup / `StartOnLaunch` | Initial build | Allowed (not a source-change schedule) |
+| Startup / `StartOnLaunch` | Initial build on **cold** BuildMonitor/session start | Allowed (not a source-change schedule). Settings HardRestart remounts never compile, including AI Controlled + StartOnLaunch. |
 | Manual Rebuild / Restart / Tests | Explicit | Allowed |
 | `/run/rebuild`, `/run/ship-check`, `/run/tests`, `/run/stop` | Explicit | Allowed |
 

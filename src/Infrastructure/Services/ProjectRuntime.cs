@@ -85,6 +85,12 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     private int healthDirty;
 
+    // Lifecycle probes for #90 remount-without-build regression tests.
+    private int buildAsyncInvocationCount;
+    private int remountWithoutBuildCount;
+    private int watcherCreateCount;
+    private int processStartCount;
+
     private readonly List<string> registeredWorkerIds = [];
     private readonly Dictionary<string, DateTimeOffset> lastWorkerHeartbeatUtc = new(StringComparer.OrdinalIgnoreCase);
 
@@ -94,6 +100,18 @@ internal sealed partial class ProjectRuntime : IDisposable
     public string DisplayName => projectSettings.DisplayName;
     public bool IsRunProcessActive => runProcess?.IsRunning == true;
     public bool RestartAppAfterRebuild => Local.RunOptions.RestartAppAfterRebuild;
+
+    /// <summary>Test probe: how many times <see cref="BuildAsync"/> was entered.</summary>
+    public int BuildAsyncInvocationCount => Volatile.Read(ref buildAsyncInvocationCount);
+
+    /// <summary>Test probe: Settings remount-without-build entries.</summary>
+    public int RemountWithoutBuildCount => Volatile.Read(ref remountWithoutBuildCount);
+
+    /// <summary>Test probe: file watcher constructions.</summary>
+    public int WatcherCreateCount => Volatile.Read(ref watcherCreateCount);
+
+    /// <summary>Test probe: supervised process start attempts.</summary>
+    public int ProcessStartCount => Volatile.Read(ref processStartCount);
 
     public ProjectHealthSnapshot Snapshot => BuildSnapshot();
 
@@ -483,6 +501,88 @@ internal sealed partial class ProjectRuntime : IDisposable
         }
 
         TryStartFileWatcher();
+    }
+
+    /// <summary>
+    /// Remount watcher/process after a Hard Settings Save. Structurally does not call
+    /// <see cref="BuildAsync"/> — Settings remount is never a build trigger.
+    /// </summary>
+    public async Task RemountWithoutBuildAsync(LocalRemountKind kind, CancellationToken cancellationToken)
+    {
+        if (kind is LocalRemountKind.None or LocalRemountKind.StopOnly)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref remountWithoutBuildCount);
+        SetProjectCurrentAction("Remounting runtime (no build)");
+
+        switch (kind)
+        {
+            case LocalRemountKind.WatcherOnly:
+                RemountFileWatcherOnly();
+                break;
+
+            case LocalRemountKind.MountFresh:
+                await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
+                RemountFileWatcherOnly();
+                SetState(fileWatcher is null ? ProjectLifecycleState.Idle : ProjectLifecycleState.Watching);
+                break;
+
+            case LocalRemountKind.SourceIdentity:
+                await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
+                lastBuildExitCode = -1;
+                lastBuildFinishedAtUtc = null;
+                RemountFileWatcherOnly();
+                SetState(fileWatcher is null ? ProjectLifecycleState.Idle : ProjectLifecycleState.Watching);
+                break;
+
+            case LocalRemountKind.ProcessAndWatcher:
+                await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
+                RemountFileWatcherOnly();
+                if (Local.RunOptions.RunMode == ProjectRunMode.None)
+                {
+                    SetState(fileWatcher is null ? ProjectLifecycleState.Idle : ProjectLifecycleState.Watching);
+                    break;
+                }
+
+                if (lastBuildExitCode == 0)
+                {
+                    StartRunProcess(skipEmbeddedBuild: true);
+                }
+                else
+                {
+                    SetState(fileWatcher is null ? ProjectLifecycleState.Idle : ProjectLifecycleState.Watching);
+                }
+
+                break;
+
+            default:
+                break;
+        }
+
+        RefreshHealth();
+        HealthCoalesceRequested?.Invoke(true);
+    }
+
+    private void RemountFileWatcherOnly()
+    {
+        var wasRunning = runProcess?.IsRunning == true;
+        fileWatcher?.Dispose();
+        fileWatcher = null;
+        TryStartFileWatcher();
+        if (wasRunning && runProcess?.IsRunning == true)
+        {
+            // Process intentionally left running across watcher-only remount.
+            SetState(Local.RunOptions.RunMode == ProjectRunMode.Watch
+                ? ProjectLifecycleState.Watching
+                : ProjectLifecycleState.Running);
+        }
+        else if (runProcess?.IsRunning != true && fileWatcher is not null
+                 && Local.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            SetState(ProjectLifecycleState.Watching);
+        }
     }
     private void SetState(ProjectLifecycleState newState)
     {

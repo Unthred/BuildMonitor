@@ -38,16 +38,16 @@ During large builds MSBuild can emit thousands of lines. Parsing issue counts an
 Settings Save is classified by `SettingsApplyImpactClassifier` using the exhaustive
 `SettingsApplyImpactCatalog` (every persisted leaf path under `AppSettings`):
 
-| Impact | Example | StopAll + StartActive (may build) |
-|--------|---------|-------------------------------------|
+| Impact | Example | Local action |
+|--------|---------|--------------|
 | Presentation | Tray menu layout, theme, toasts, VD follow | No |
 | SoftRuntime | Monitor, Azure, display name, test/restart/build-control policies, Local UI prefs | No (orchestrator `UpdateDefinition` only) |
-| HardRestart | Local Id/active, RootFolder/ProjectFile/launch/args, RunMode, WatchExcludeSegments | Yes |
+| HardRestart | Local Id/active, RootFolder/ProjectFile/launch/args, RunMode, WatchExcludeSegments | Remount **affected** Local runtimes **without** `BuildAsync` |
 | None | Identical save / schema version only | No |
 
 Azure-only project add/active toggles are **SoftRuntime** (not HardRestart). Presentation-only saves still refresh the tray menu immediately; they must not schedule a Local rebuild.
 
-**HardRestart is reserved for settings that invalidate the live Local process/watcher context.** Policy knobs read on the next crash/build/test (RunTests, TestProjectFile, restart flags, BuildControlMode, FileChanges, lock/repair) are SoftRuntime. There is no separate “restart process without rebuild” apply path yet — changing RootFolder/ProjectFile/RunMode still uses StopAll + StartActive (may build when StartOnLaunch is on).
+**HardRestart invalidates live Local process/watcher context for the changed project(s) only** when practical. Remount recreates the watcher and may restart the app with `--no-build`; it never compiles solely because Settings were saved. Cold BuildMonitor startup (`before == null`) still uses `StartAsync` / StartOnLaunch startup builds. Policy knobs read on the next crash/build/test (RunTests, TestProjectFile, restart flags, BuildControlMode, FileChanges, lock/repair) remain SoftRuntime.
 
 Coverage: `SettingsApplyImpactClassifierTests.Catalog_covers_every_discovered_persisted_leaf_path` fails if a new persisted property is added without a catalog entry. Mutation theories assert each catalog path yields its declared impact.
 
