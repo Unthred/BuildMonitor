@@ -32,7 +32,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/projects` | List configured projects with authoritative Local/Azure health (see below) |
-| POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — use before Release deploy. Tray builds with the exit failsafe hard-exit within ~20s if graceful shutdown stalls; a second quit/Exit forces immediate hard exit. |
+| POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — accept-and-exit: response returns as soon as quit is scheduled (failsafe armed first); teardown continues asynchronously. **503** when quit cannot be scheduled. Must **not** return **500** for thread-affinity/UI errors on the HTTP thread. Hard-exit failsafe (~20s) is armed before UI teardown so a later hang still terminates the process; a second quit/Exit forces immediate hard exit. |
 | GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
 | POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — agent editing |

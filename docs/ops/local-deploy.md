@@ -15,9 +15,18 @@ From the repo root (after `dotnet build` / `dotnet test` if you want a quick che
 The script:
 
 1. Calls `POST http://127.0.0.1:{port}/app/quit` when the control plane is up (graceful tray exit — same as tray **Exit**)
-2. Waits until the control plane port is closed so deploy files unlock
+2. Waits until the control plane port is closed so deploy files unlock (**only after HTTP 202**)
 3. Runs `dotnet publish` (Release) to `artifacts\publish\Release`
 4. Mirrors files into the deploy folder and writes `deploy-info.txt`
+
+Quit disposition (must stay honest):
+
+| HTTP / transport | Deploy behaviour |
+|------------------|------------------|
+| **202** | Wait for control plane to go down (graceful exit) |
+| **404 / 503** | Quit unavailable — stop and ask for tray **Exit** |
+| **5xx** (e.g. **500**) | **Not** “already stopped” — stop and ask for tray **Exit** / force-stop approval |
+| Connection refused / no response | Treat as already stopped; continue |
 
 If quit is unavailable (build without `/app/quit`, or tray already stopped), exit BuildMonitor from the tray menu once, then re-run deploy. The script does **not** kill the process.
 
