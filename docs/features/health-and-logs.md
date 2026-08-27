@@ -41,11 +41,13 @@ Settings Save is classified by `SettingsApplyImpactClassifier` using the exhaust
 | Impact | Example | StopAll + StartActive (may build) |
 |--------|---------|-------------------------------------|
 | Presentation | Tray menu layout, theme, toasts, VD follow | No |
-| SoftRuntime | Monitor debounce/control plane, Azure attachment/pipelines, display name, Local UI prefs (`AutoOpenLog`, status-panel-while-building) | No (orchestrator refresh only) |
-| HardRestart | Local paths/run mode/watch excludes/build-control mode, Local active-in-session | Yes |
+| SoftRuntime | Monitor, Azure, display name, test/restart/build-control policies, Local UI prefs | No (orchestrator `UpdateDefinition` only) |
+| HardRestart | Local Id/active, RootFolder/ProjectFile/launch/args, RunMode, WatchExcludeSegments | Yes |
 | None | Identical save / schema version only | No |
 
 Azure-only project add/active toggles are **SoftRuntime** (not HardRestart). Presentation-only saves still refresh the tray menu immediately; they must not schedule a Local rebuild.
+
+**HardRestart is reserved for settings that invalidate the live Local process/watcher context.** Policy knobs read on the next crash/build/test (RunTests, TestProjectFile, restart flags, BuildControlMode, FileChanges, lock/repair) are SoftRuntime. There is no separate “restart process without rebuild” apply path yet — changing RootFolder/ProjectFile/RunMode still uses StopAll + StartActive (may build when StartOnLaunch is on).
 
 Coverage: `SettingsApplyImpactClassifierTests.Catalog_covers_every_discovered_persisted_leaf_path` fails if a new persisted property is added without a catalog entry. Mutation theories assert each catalog path yields its declared impact.
 

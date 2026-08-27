@@ -19,14 +19,15 @@ public enum SettingsApplyImpact
     Presentation = 1,
 
     /// <summary>
-    /// Monitor, connections, Azure attachments, display names, Local UI preferences —
-    /// refresh orchestrator/Azure without StopAll + StartActive.
+    /// Monitor, connections, Azure, display names, Local policy/UI prefs (tests, restart flags,
+    /// build-control mode, etc.) — refresh orchestrator/Azure without StopAll + StartActive.
     /// </summary>
     SoftRuntime = 2,
 
     /// <summary>
-    /// Local build/run-defining configuration or Local active-session membership —
-    /// stop/restart Local runtimes (may build via StartAsync when StartOnLaunch is enabled).
+    /// Local process/watcher identity (paths, launch/args, RunMode, watch excludes) or Local
+    /// active-session membership — stop/restart Local runtimes (may build via StartAsync when
+    /// StartOnLaunch is enabled). There is no restart-without-build apply path yet.
     /// </summary>
     HardRestart = 3
 }
@@ -162,12 +163,21 @@ public static class SettingsApplyImpactClassifier
         local.ProjectFile,
         local.LaunchProfile,
         local.ExtraDotNetArgs,
-        local.TestProjectFile,
-        local.StartOnLaunch,
-        local.BuildControlMode,
         RunOptions = new
         {
             local.RunOptions.RunMode,
+            local.RunOptions.WatchExcludeSegments
+        }
+    };
+
+    private static object SliceLocalSoft(LocalProjectAttachment local) => new
+    {
+        local.TestProjectFile,
+        local.StartOnLaunch,
+        local.BuildControlMode,
+        local.PreferredSiteUrlScheme,
+        RunOptions = new
+        {
             local.RunOptions.RestartOnCrash,
             local.RunOptions.MaxRestartRetries,
             local.RunOptions.AutoRestartOnWatchChanges,
@@ -177,16 +187,10 @@ public static class SettingsApplyImpactClassifier
             local.RunOptions.FileChanges,
             local.RunOptions.ReleaseOutputLocksBeforeBuild,
             local.RunOptions.AutoRepairCorruptedOutput,
-            local.RunOptions.WatchExcludeSegments
+            local.RunOptions.AutoOpenLog,
+            local.RunOptions.ShowStatusPanelWhileBuilding,
+            local.RunOptions.ForceCompleteWarningCounts
         }
-    };
-
-    private static object SliceLocalSoft(LocalProjectAttachment local) => new
-    {
-        local.PreferredSiteUrlScheme,
-        local.RunOptions.AutoOpenLog,
-        local.RunOptions.ShowStatusPanelWhileBuilding,
-        local.RunOptions.ForceCompleteWarningCounts
     };
 
     private static string Serialize<T>(T value) =>

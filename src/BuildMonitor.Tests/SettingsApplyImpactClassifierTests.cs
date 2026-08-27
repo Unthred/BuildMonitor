@@ -201,11 +201,68 @@ public sealed class SettingsApplyImpactClassifierTests
     }
 
     [Fact]
-    public void Ai_controlled_mode_change_is_hard_restart_preserving_build_policy_surface()
+    public void Ai_controlled_mode_change_is_soft_runtime()
     {
         var before = SampleSettings();
         var after = Clone(before);
         after.Projects[0].Local!.BuildControlMode = ProjectBuildControlMode.AiControlled;
+
+        var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
+        Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
+        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.True(plan.ApplyOrchestratorSettings);
+    }
+
+    [Fact]
+    public void RunTests_and_TestProjectFile_are_soft_runtime_without_local_rebuild()
+    {
+        var before = SampleSettings();
+        var afterTests = Clone(before);
+        afterTests.Projects[0].Local!.RunOptions.RunTests = TestRunTrigger.OnBuildSuccess;
+        Assert.Equal(
+            SettingsApplyImpact.SoftRuntime,
+            SettingsApplyImpactClassifier.Classify(before, afterTests));
+
+        var afterTarget = Clone(before);
+        afterTarget.Projects[0].Local!.TestProjectFile = "Other.Tests.csproj";
+        Assert.Equal(
+            SettingsApplyImpact.SoftRuntime,
+            SettingsApplyImpactClassifier.Classify(before, afterTarget));
+    }
+
+    [Fact]
+    public void Restart_policy_flags_are_soft_runtime()
+    {
+        var before = SampleSettings();
+        var after = Clone(before);
+        after.Projects[0].Local!.RunOptions.RestartOnCrash = true;
+        after.Projects[0].Local!.RunOptions.MaxRestartRetries = 9;
+
+        var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
+        Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
+        Assert.False(plan.StopAllAndRestartActiveProjects);
+    }
+
+    [Fact]
+    public void RunMode_change_is_hard_restart()
+    {
+        var before = SampleSettings();
+        // Default RunMode is Watch — flip to Run so the hard fingerprint changes.
+        Assert.Equal(ProjectRunMode.Watch, before.Projects[0].Local!.RunOptions.RunMode);
+        var after = Clone(before);
+        after.Projects[0].Local!.RunOptions.RunMode = ProjectRunMode.Run;
+
+        var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
+        Assert.Equal(SettingsApplyImpact.HardRestart, plan.Impact);
+        Assert.True(plan.StopAllAndRestartActiveProjects);
+    }
+
+    [Fact]
+    public void Watch_exclude_segments_change_is_hard_restart()
+    {
+        var before = SampleSettings();
+        var after = Clone(before);
+        after.Projects[0].Local!.RunOptions.WatchExcludeSegments = "bin;obj;custom";
 
         Assert.Equal(
             SettingsApplyImpact.HardRestart,
