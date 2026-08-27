@@ -11,8 +11,12 @@
 
 ## Viewing
 
-- Hover panel → **View log** on a project card
-- Tray → run app and use log viewer from hover (context menu expansion planned)
+- Hover / status panel → **Log** on a project card (opens the local BuildMonitor log viewer)
+- Tray context menu → **View log**
+  - **By project** layout: under each Local project's submenu (after Stop; before Clean build output)
+  - **By operation** layout: **View log** → project name
+- Reuses a single log window per project (second open activates the existing window)
+- Azure-only projects are not listed for **View log** — the viewer is for local BuildMonitor logs; use Azure run links for cloud builds
 
 ## Error parsing
 

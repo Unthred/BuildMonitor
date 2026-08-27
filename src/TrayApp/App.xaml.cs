@@ -1284,44 +1284,42 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (openLogViewers.TryGetValue(projectId, out var existing))
+        if (openLogViewers.TryGetValue(projectId, out var existing)
+            && LogViewerWindowReuse.ShouldActivateExisting(hasOpenEntry: true, windowIsLoaded: existing.IsLoaded))
         {
             try
             {
-                if (existing.IsLoaded)
+                existing.ConfigureVirtualDesktopFollow(
+                    currentSettings.AppBehavior.FollowBuildLogToVirtualDesktop);
+                WindowLayoutService.Apply(existing, windowsLayoutStore.Layout.BuildLog, 960, 720);
+                if (double.IsNaN(windowsLayoutStore.Layout.BuildLog.Left))
                 {
-                    existing.ConfigureVirtualDesktopFollow(
-                        currentSettings.AppBehavior.FollowBuildLogToVirtualDesktop);
-                    WindowLayoutService.Apply(existing, windowsLayoutStore.Layout.BuildLog, 960, 720);
-                    if (double.IsNaN(windowsLayoutStore.Layout.BuildLog.Left))
-                    {
-                        TrayScreenPlacement.PlaceWindowCentered(existing);
-                    }
-
-                    if (!existing.IsVisible)
-                    {
-                        existing.Show();
-                    }
-
-                    if (logKind is not null)
-                    {
-                        existing.SelectLogKind(logKind.Value);
-                    }
-
-                    if (selectErrorsFilter)
-                    {
-                        existing.SelectErrorsFilter();
-                    }
-                    else if (selectWarningsFilter)
-                    {
-                        existing.SelectWarningsFilter();
-                    }
-
-                    existing.Activate();
-                    existing.Focus();
-                    existing.TryFollowVirtualDesktop();
-                    return;
+                    TrayScreenPlacement.PlaceWindowCentered(existing);
                 }
+
+                if (!existing.IsVisible)
+                {
+                    existing.Show();
+                }
+
+                if (logKind is not null)
+                {
+                    existing.SelectLogKind(logKind.Value);
+                }
+
+                if (selectErrorsFilter)
+                {
+                    existing.SelectErrorsFilter();
+                }
+                else if (selectWarningsFilter)
+                {
+                    existing.SelectWarningsFilter();
+                }
+
+                existing.Activate();
+                existing.Focus();
+                existing.TryFollowVirtualDesktop();
+                return;
             }
             catch (InvalidOperationException)
             {

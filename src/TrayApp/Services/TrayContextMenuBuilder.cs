@@ -1,4 +1,5 @@
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.Services;
 using Forms = System.Windows.Forms;
@@ -30,7 +31,8 @@ public sealed class TrayContextMenuBuilder
         ProjectOrchestrator orchestrator,
         Host host)
     {
-        var active = settings.Projects.Where(p => p.IsActiveInSession && p.Local is not null).ToList();
+        // Local attachment required for rebuild/run/log actions (Azure-only stays off this menu).
+        var active = TrayViewLogMenuPolicy.SelectLocalLogProjects(settings.Projects).ToList();
 
         menu.Items.Clear();
 
@@ -109,7 +111,7 @@ public sealed class TrayContextMenuBuilder
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Stop", null, (_, _) =>
                 host.RunBackground(() => orchestrator.StopProjectAsync(id))));
             submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("View log", null, (_, _) =>
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem(TrayViewLogMenuPolicy.ItemText, null, (_, _) =>
                 host.RunUi(() => host.OpenLogViewerForProject(id, null))));
             submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Clean build output", null, (_, _) =>
                 host.RunBackground(() => orchestrator.RepairBuildOutputAsync(id, CancellationToken.None))));
@@ -244,7 +246,10 @@ public sealed class TrayContextMenuBuilder
 
     private static Forms.ToolStripMenuItem BuildViewLogsMenu(List<MonitoredProjectSettings> active, Host host)
     {
-        var menu = new Forms.ToolStripMenuItem("View Log") { Enabled = active.Count > 0 };
+        var menu = new Forms.ToolStripMenuItem(TrayViewLogMenuPolicy.ByOperationRootText)
+        {
+            Enabled = active.Count > 0
+        };
         foreach (var project in active)
         {
             var id = project.Id;
