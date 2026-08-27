@@ -33,7 +33,23 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 
 During large builds MSBuild can emit thousands of lines. Parsing issue counts and refreshing the tray on every line starves the UI thread.
 
-**Builds and runs execute on thread-pool / process output threads**, not the WPF dispatcher. Auto-start and settings apply call `ApplySettingsAndStartAsync` via `Task.Run` so `dotnet build` continuations do not marshal back to the UI thread (manual **Rebuild** from the tray already used this pattern).
+**Builds and runs execute on thread-pool / process output threads**, not the WPF dispatcher. Auto-start and **Local-affecting** settings apply call `ApplySettingsAndStartAsync` via `Task.Run` so `dotnet build` continuations do not marshal back to the UI thread (manual **Rebuild** from the tray already used this pattern).
+
+Settings Save is classified by `SettingsApplyImpactClassifier` using the exhaustive
+`SettingsApplyImpactCatalog` (every persisted leaf path under `AppSettings`):
+
+| Impact | Example | StopAll + StartActive (may build) |
+|--------|---------|-------------------------------------|
+| Presentation | Tray menu layout, theme, toasts, VD follow | No |
+| SoftRuntime | Monitor, Azure, display name, test/restart/build-control policies, Local UI prefs | No (orchestrator `UpdateDefinition` only) |
+| HardRestart | Local Id/active, RootFolder/ProjectFile/launch/args, RunMode, WatchExcludeSegments | Yes |
+| None | Identical save / schema version only | No |
+
+Azure-only project add/active toggles are **SoftRuntime** (not HardRestart). Presentation-only saves still refresh the tray menu immediately; they must not schedule a Local rebuild.
+
+**HardRestart is reserved for settings that invalidate the live Local process/watcher context.** Policy knobs read on the next crash/build/test (RunTests, TestProjectFile, restart flags, BuildControlMode, FileChanges, lock/repair) are SoftRuntime. There is no separate “restart process without rebuild” apply path yet — changing RootFolder/ProjectFile/RunMode still uses StopAll + StartActive (may build when StartOnLaunch is on).
+
+Coverage: `SettingsApplyImpactClassifierTests.Catalog_covers_every_discovered_persisted_leaf_path` fails if a new persisted property is added without a catalog entry. Mutation theories assert each catalog path yields its declared impact.
 
 The tray uses WinForms `NotifyIcon` with `ContextMenuStrip` assigned directly (same as `main`). Health snapshots are coalesced in `HealthCoalescer` (~250 ms) on a background thread. The UI applies them via a single coalesced `Dispatcher.BeginInvoke(Normal)` pass so the tray stays in step with build toasts: tray icon always updates; hover panel updates only when visible; toasts and sounds are skipped while the tray menu is open. `HealthCoalescer` also pauses publish while the menu is open. Agent-tooling folder activity marks health dirty for the next coalesce tick (not an immediate publish) so Cursor writes do not flood the UI; lifecycle and meaningful source saves still request immediate coalesce.
 
