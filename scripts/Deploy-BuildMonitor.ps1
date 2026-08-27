@@ -106,7 +106,7 @@ function Request-BuildMonitorQuit {
     }
 
     if ($null -ne $status -and $status -ge 500) {
-        Write-Warning "Quit failed with HTTP $status — tray is NOT treated as already stopped. Exit BuildMonitor from the tray menu (or approve a force-stop), then re-run deploy."
+        Write-Warning "Quit failed with HTTP $status - tray is NOT treated as already stopped. Exit BuildMonitor from the tray menu (or approve a force-stop), then re-run deploy."
         return $false
     }
 
