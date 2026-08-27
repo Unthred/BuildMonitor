@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.AzureDevOps;
 using BuildMonitor.Infrastructure.ControlPlane;
@@ -125,6 +126,7 @@ public partial class SettingsWindow : Window
 
         foreach (var project in Settings.Projects)
         {
+            SanitizePersistedTestTarget(project);
             projectItems.Add(project);
         }
 
@@ -243,6 +245,7 @@ public partial class SettingsWindow : Window
 
             if (local is not null)
             {
+                SanitizePersistedTestTarget(project);
                 RootFolderText.Text = local.RootFolder;
                 ProjectFileText.Text = local.ProjectFile;
                 ExtraArgsText.Text = local.ExtraDotNetArgs;
@@ -263,23 +266,123 @@ public partial class SettingsWindow : Window
                 ReleaseOutputLocksCheck.IsChecked = local.RunOptions.ReleaseOutputLocksBeforeBuild;
                 ForceCompleteWarningCountsCheck.IsChecked = local.RunOptions.ForceCompleteWarningCounts;
                 AutoRepairCorruptedOutputCheck.IsChecked = local.RunOptions.AutoRepairCorruptedOutput;
+                // Clear combo text before reload so prior project values cannot bleed into current.
+                TestProjectCombo.ItemsSource = null;
+                TestProjectCombo.Text = string.Empty;
+                LaunchProfileCombo.ItemsSource = null;
+                LaunchProfileCombo.Text = string.Empty;
                 ReloadLaunchProfiles(selectCurrent: true);
-                ReloadTestProjectCandidates(selectCurrent: true);
+                ReloadTestProjectCandidates(selectCurrent: true, preferModelValue: true);
                 RefreshAgentSkillStatus();
+                ApplyCapabilityPresentation(project);
             }
             else
             {
                 RootFolderText.Text = string.Empty;
                 ProjectFileText.Text = string.Empty;
+                TestProjectCombo.ItemsSource = null;
+                TestProjectCombo.Text = string.Empty;
+                TestTargetEffectiveHint.Text = string.Empty;
                 AgentSkillStatusSummary.Text = "Azure-only project";
                 AgentSkillStatusDetail.Text = "Associate a local folder to enable agent skill install and local build options.";
                 InstallAgentSkillButton.IsEnabled = false;
+                ApplyCapabilityPresentation(project);
             }
         }
         finally
         {
             isLoadingEditor = false;
         }
+    }
+
+    private static void SanitizePersistedTestTarget(MonitoredProjectSettings project)
+    {
+        if (project.Local is null)
+        {
+            return;
+        }
+
+        project.Local.TestProjectFile = TestProjectPathRules.SanitizeForRoot(
+            project.Local.RootFolder,
+            project.Local.TestProjectFile);
+    }
+
+    private void RunModeComboSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (isLoadingEditor || selectedProject is null)
+        {
+            return;
+        }
+
+        if (RunModeCombo.SelectedItem is ProjectRunMode mode && selectedProject.Local is not null)
+        {
+            selectedProject.Local.RunOptions.RunMode = mode;
+        }
+
+        ApplyCapabilityPresentation(selectedProject);
+    }
+
+    private void ApplyCapabilityPresentation(MonitoredProjectSettings? project)
+    {
+        var root = project?.Local?.RootFolder ?? RootFolderText.Text.Trim();
+        var projectFile = project?.Local?.ProjectFile ?? ProjectFileText.Text.Trim();
+        var profiles = string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(projectFile)
+            ? Array.Empty<string>()
+            : LaunchProfileDiscovery.DiscoverProfiles(root, projectFile);
+        var siteUrl = !string.IsNullOrWhiteSpace(root)
+                      && !string.IsNullOrWhiteSpace(projectFile)
+                      && LaunchProfileDiscovery.AnyProfileHasApplicationUrl(root, projectFile);
+
+        // Use combo RunMode when editing so visibility updates before commit.
+        if (project?.Local is not null && RunModeCombo.SelectedItem is ProjectRunMode mode)
+        {
+            project.Local.RunOptions.RunMode = mode;
+        }
+
+        var caps = SettingsProjectCapabilityPolicy.Evaluate(
+            project,
+            launchProfilesAvailable: profiles.Count > 0,
+            siteUrlApplicable: siteUrl);
+
+        var launchVis = caps.LaunchProfilesAvailable ? Visibility.Visible : Visibility.Collapsed;
+        var siteVis = caps.SiteUrlApplicable ? Visibility.Visible : Visibility.Collapsed;
+        LaunchProfileLabel.Visibility = launchVis;
+        LaunchProfileCombo.Visibility = launchVis;
+        SiteUrlLabel.Visibility = siteVis;
+        PreferredSiteUrlCombo.Visibility = siteVis;
+        RestartOptionsPanel.Visibility = caps.RestartApplicable ? Visibility.Visible : Visibility.Collapsed;
+        AutoRestartOnWatchChangesCheck.Visibility =
+            caps.WatchRestartApplicable ? Visibility.Visible : Visibility.Collapsed;
+
+        var runMode = project?.Local?.RunOptions.RunMode
+                      ?? (RunModeCombo.SelectedItem as ProjectRunMode?)
+                      ?? ProjectRunMode.Watch;
+        var profileForContext = LaunchProfileCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(profileForContext))
+        {
+            profileForContext = LaunchProfileDiscovery.GetPreferredProfile(profiles) ?? string.Empty;
+        }
+
+        ApplyBuildCliContextPresentation(
+            SettingsBuildCliContextPresenter.Build(
+                caps,
+                launchProfilesDetected: profiles.Count > 0,
+                webEndpointDetected: siteUrl,
+                selectedOrPreferredLaunchProfile: profileForContext,
+                runMode: runMode));
+    }
+
+    private void ApplyBuildCliContextPresentation(SettingsBuildCliContextView view)
+    {
+        BuildCliLaunchBehaviourPanel.Visibility =
+            view.ShowLaunchBehaviour ? Visibility.Visible : Visibility.Collapsed;
+        BuildCliLaunchBehaviourTitle.Text = view.LaunchBehaviourTitle;
+        BuildCliLaunchBehaviourBody.Text = view.LaunchBehaviourBody;
+
+        BuildCliDetectionPanel.Visibility =
+            view.ShowDetection ? Visibility.Visible : Visibility.Collapsed;
+        BuildCliDetectionTitle.Text = view.DetectionTitle;
+        BuildCliDetectionBody.Text = string.Join(Environment.NewLine, view.DetectionLines);
     }
 
     private void SetLocalEditorEnabled(bool enabled)
@@ -457,7 +560,7 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void ReloadTestProjectCandidates(bool selectCurrent)
+    private void ReloadTestProjectCandidates(bool selectCurrent, bool preferModelValue = false)
     {
         var root = RootFolderText.Text.Trim();
         var projectFile = ProjectFileText.Text.Trim();
@@ -466,11 +569,24 @@ public partial class SettingsWindow : Window
             .Select(path => LaunchProfileDiscovery.ToRelativePath(root, path))
             .ToList();
 
-        var current = selectCurrent
-            ? (TestProjectCombo.Text.Trim().Length > 0 ? TestProjectCombo.Text.Trim() : selectedProject?.Local?.TestProjectFile)
-            : selectedProject?.Local?.TestProjectFile;
+        // Prefer model when loading a project. Preferring combo Text caused cross-project bleed:
+        // WitherbyConnect's test path remained in the ComboBox and was written onto BuildMonitor.
+        string? current;
+        if (preferModelValue || !selectCurrent)
+        {
+            current = selectedProject?.Local?.TestProjectFile;
+        }
+        else
+        {
+            current = TestProjectCombo.Text.Trim().Length > 0
+                ? TestProjectCombo.Text.Trim()
+                : selectedProject?.Local?.TestProjectFile;
+        }
+
+        current = TestProjectPathRules.SanitizeForRoot(root, current);
 
         TestProjectCombo.ItemsSource = candidates;
+        TestTargetEffectiveHint.Text = string.Empty;
 
         if (!string.IsNullOrWhiteSpace(current))
         {
@@ -483,31 +599,25 @@ public partial class SettingsWindow : Window
             {
                 TestProjectCombo.Text = current;
             }
+
+            return;
+        }
+
+        TestProjectCombo.Text = string.Empty;
+        TestProjectCombo.SelectedItem = null;
+        var resolution = TestProjectDiscovery.Resolve(root, projectFile, null);
+        if (resolution.AutoDiscovered && resolution.Targets.Count >= 1)
+        {
+            var relative = LaunchProfileDiscovery.ToRelativePath(root, resolution.Targets[0]);
+            TestTargetEffectiveHint.Text = $"Auto-detects: {relative}";
+            if (selectedProject is not null && preferModelValue)
+            {
+                EnsureLocal(selectedProject).TestProjectFile = string.Empty;
+            }
         }
         else
         {
-            var resolution = TestProjectDiscovery.Resolve(root, projectFile, null);
-            if (resolution.AutoDiscovered && resolution.Targets.Count == 1)
-            {
-                var relative = LaunchProfileDiscovery.ToRelativePath(root, resolution.Targets[0]);
-                if (candidates.Contains(relative, StringComparer.OrdinalIgnoreCase))
-                {
-                    TestProjectCombo.SelectedItem = relative;
-                }
-                else
-                {
-                    TestProjectCombo.Text = relative;
-                }
-
-                if (selectedProject is not null && selectCurrent)
-                {
-                    EnsureLocal(selectedProject).TestProjectFile = string.Empty;
-                }
-            }
-            else
-            {
-                TestProjectCombo.Text = string.Empty;
-            }
+            TestTargetEffectiveHint.Text = resolution.DiscoveryNote;
         }
     }
 
@@ -527,22 +637,38 @@ public partial class SettingsWindow : Window
         var local = selectedProject.Local;
         local.RootFolder = RootFolderText.Text.Trim();
         local.ProjectFile = ProjectFileText.Text.Trim();
-        local.LaunchProfile = LaunchProfileCombo.Text.Trim();
-        local.TestProjectFile = TestProjectCombo.Text.Trim();
+        if (LaunchProfileCombo.Visibility == Visibility.Visible)
+        {
+            local.LaunchProfile = LaunchProfileCombo.Text.Trim();
+        }
+
+        local.TestProjectFile = TestProjectPathRules.SanitizeForRoot(
+            local.RootFolder,
+            TestProjectCombo.Text.Trim());
         local.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
         local.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
         local.BuildControlMode = ResolveBuildControlMode();
-        local.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
-        local.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
-        local.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
-        if (int.TryParse(MaxRetriesText.Text, out var retries))
+        if (PreferredSiteUrlCombo.Visibility == Visibility.Visible)
         {
-            local.RunOptions.MaxRestartRetries = retries;
+            local.PreferredSiteUrlScheme = ResolvePreferredSiteUrlScheme();
         }
 
-        local.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
-        local.RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
-        local.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
+        local.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
+        if (RestartOptionsPanel.Visibility == Visibility.Visible)
+        {
+            local.RunOptions.RestartOnCrash = RestartOnCrashCheck.IsChecked == true;
+            if (int.TryParse(MaxRetriesText.Text, out var retries))
+            {
+                local.RunOptions.MaxRestartRetries = retries;
+            }
+
+            local.RunOptions.AutoRestartOnHotReloadRequest = AutoRestartOnHotReloadRequestCheck.IsChecked == true;
+            local.RunOptions.RestartAppAfterRebuild = RestartAppAfterRebuildCheck.IsChecked == true;
+            if (AutoRestartOnWatchChangesCheck.Visibility == Visibility.Visible)
+            {
+                local.RunOptions.AutoRestartOnWatchChanges = AutoRestartOnWatchChangesCheck.IsChecked == true;
+            }
+        }
 
         local.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
         local.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
