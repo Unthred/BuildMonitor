@@ -137,6 +137,18 @@
                                 <Setter Property="MinHeight" Value="36" />
                                 <Setter Property="VerticalAlignment" Value="Top" />
                             </Style>
+                            <Style x:Key="SettingsContextMetaHeading" TargetType="{x:Type TextBlock}"
+                                   BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="Opacity" Value="0.72" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                            </Style>
+                            <Style x:Key="SettingsContextMetaBody" TargetType="{x:Type TextBlock}"
+                                   BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="TextWrapping" Value="Wrap" />
+                                <Setter Property="Opacity" Value="0.68" />
+                                <Setter Property="Margin" Value="0,0,0,2" />
+                            </Style>
                             <Style x:Key="SettingsFieldLabel" TargetType="{x:Type TextBlock}"
                                    BasedOn="{StaticResource {x:Type TextBlock}}">
                                 <Setter Property="VerticalAlignment" Value="Bottom" />
@@ -264,6 +276,18 @@
                                            Visibility="Collapsed" />
                             </StackPanel>
 
+                            <!-- Build CLI context: between Launch profile and Preferred site URL -->
+                            <StackPanel x:Name="BuildCliLaunchBehaviourPanel"
+                                        Grid.Row="3" Grid.Column="2" Margin="12,10,12,0"
+                                        VerticalAlignment="Top">
+                                <TextBlock x:Name="BuildCliLaunchBehaviourTitle"
+                                           Style="{StaticResource SettingsContextMetaHeading}"
+                                           Text="Launch behaviour" />
+                                <TextBlock x:Name="BuildCliLaunchBehaviourBody"
+                                           Style="{StaticResource SettingsContextMetaBody}"
+                                           Text="" />
+                            </StackPanel>
+
                             <!-- Peer 2: Root folder ↔ Preferred site URL -->
                             <TextBlock Grid.Row="4" Grid.Column="0" Margin="12,10,12,0"
                                        Text="Root folder" Style="{StaticResource SettingsFieldLabel}" />
@@ -308,6 +332,18 @@
                                             Click="RefreshAgentSkillStatusClicked"
                                             ToolTip="Re-check whether the installed skill and rule match this BuildMonitor version." />
                                 </StackPanel>
+                            </StackPanel>
+
+                            <!-- Build CLI context: between Preferred site URL and Extra dotnet args -->
+                            <StackPanel x:Name="BuildCliDetectionPanel"
+                                        Grid.Row="6" Grid.Column="2" Margin="12,10,12,0"
+                                        VerticalAlignment="Top">
+                                <TextBlock x:Name="BuildCliDetectionTitle"
+                                           Style="{StaticResource SettingsContextMetaHeading}"
+                                           Text="Detected application" />
+                                <TextBlock x:Name="BuildCliDetectionBody"
+                                           Style="{StaticResource SettingsContextMetaBody}"
+                                           Text="" />
                             </StackPanel>
 
                             <!-- Peer 3: Project file ↔ Extra dotnet args -->

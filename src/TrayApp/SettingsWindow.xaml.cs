@@ -353,6 +353,36 @@ public partial class SettingsWindow : Window
         RestartOptionsPanel.Visibility = caps.RestartApplicable ? Visibility.Visible : Visibility.Collapsed;
         AutoRestartOnWatchChangesCheck.Visibility =
             caps.WatchRestartApplicable ? Visibility.Visible : Visibility.Collapsed;
+
+        var runMode = project?.Local?.RunOptions.RunMode
+                      ?? (RunModeCombo.SelectedItem as ProjectRunMode?)
+                      ?? ProjectRunMode.Watch;
+        var profileForContext = LaunchProfileCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(profileForContext))
+        {
+            profileForContext = LaunchProfileDiscovery.GetPreferredProfile(profiles) ?? string.Empty;
+        }
+
+        ApplyBuildCliContextPresentation(
+            SettingsBuildCliContextPresenter.Build(
+                caps,
+                launchProfilesDetected: profiles.Count > 0,
+                webEndpointDetected: siteUrl,
+                selectedOrPreferredLaunchProfile: profileForContext,
+                runMode: runMode));
+    }
+
+    private void ApplyBuildCliContextPresentation(SettingsBuildCliContextView view)
+    {
+        BuildCliLaunchBehaviourPanel.Visibility =
+            view.ShowLaunchBehaviour ? Visibility.Visible : Visibility.Collapsed;
+        BuildCliLaunchBehaviourTitle.Text = view.LaunchBehaviourTitle;
+        BuildCliLaunchBehaviourBody.Text = view.LaunchBehaviourBody;
+
+        BuildCliDetectionPanel.Visibility =
+            view.ShowDetection ? Visibility.Visible : Visibility.Collapsed;
+        BuildCliDetectionTitle.Text = view.DetectionTitle;
+        BuildCliDetectionBody.Text = string.Join(Environment.NewLine, view.DetectionLines);
     }
 
     private void SetLocalEditorEnabled(bool enabled)
