@@ -9,7 +9,7 @@ namespace BuildMonitor.Core.Rules;
 /// </summary>
 public enum SettingsApplyImpact
 {
-    /// <summary>No meaningful difference.</summary>
+    /// <summary>No meaningful difference (or identity-only fields such as schema version).</summary>
     None = 0,
 
     /// <summary>
@@ -19,14 +19,14 @@ public enum SettingsApplyImpact
     Presentation = 1,
 
     /// <summary>
-    /// Monitor, connections, Azure attachments, or display names — refresh orchestrator/Azure
-    /// without StopAll + StartActive (no Local rebuild side effect).
+    /// Monitor, connections, Azure attachments, display names, Local UI preferences —
+    /// refresh orchestrator/Azure without StopAll + StartActive.
     /// </summary>
     SoftRuntime = 2,
 
     /// <summary>
-    /// Local attachment / active-session membership changed — stop/restart Local runtimes
-    /// (may build via StartAsync when StartOnLaunch is enabled).
+    /// Local build/run-defining configuration or Local active-session membership —
+    /// stop/restart Local runtimes (may build via StartAsync when StartOnLaunch is enabled).
     /// </summary>
     HardRestart = 3
 }
@@ -41,6 +41,7 @@ public sealed record SettingsApplyPlan(
 
 /// <summary>
 /// Classifies Settings Save diffs so presentation/Azure/monitor updates are not treated as launch.
+/// Field groupings follow <see cref="SettingsApplyImpactCatalog"/>.
 /// </summary>
 public static class SettingsApplyImpactClassifier
 {
@@ -58,8 +59,8 @@ public static class SettingsApplyImpactClassifier
             return SettingsApplyImpact.HardRestart;
         }
 
-        var beforeLocal = SerializeLocalRuntimeFingerprint(before);
-        var afterLocal = SerializeLocalRuntimeFingerprint(after);
+        var beforeLocal = SerializeLocalHardFingerprint(before);
+        var afterLocal = SerializeLocalHardFingerprint(after);
         if (!string.Equals(beforeLocal, afterLocal, StringComparison.Ordinal))
         {
             return SettingsApplyImpact.HardRestart;
@@ -115,23 +116,25 @@ public static class SettingsApplyImpactClassifier
     }
 
     /// <summary>
-    /// Local build/run identity: active flag + Local attachment. Azure/display name excluded.
+    /// Local projects only: active flag + build/run-defining Local fields.
+    /// Azure-only projects are excluded so attaching Azure does not HardRestart.
     /// </summary>
-    private static string SerializeLocalRuntimeFingerprint(AppSettings settings)
+    private static string SerializeLocalHardFingerprint(AppSettings settings)
     {
         var rows = settings.Projects
+            .Where(p => p.Local is not null)
             .OrderBy(p => p.Id, StringComparer.Ordinal)
             .Select(p => new
             {
                 p.Id,
                 p.IsActiveInSession,
-                Local = p.Local
+                Local = SliceLocalHard(p.Local!)
             });
         return Serialize(rows);
     }
 
     /// <summary>
-    /// Monitor, org connections, per-project Azure + display name (no Local rebuild required).
+    /// Monitor, connections, Azure, display names, Azure-only active flag, Local UI preferences.
     /// </summary>
     private static string SerializeSoftRuntimeFingerprint(AppSettings settings)
     {
@@ -141,6 +144,8 @@ public static class SettingsApplyImpactClassifier
             {
                 p.Id,
                 p.DisplayName,
+                AzureOnlyActive = p.Local is null ? p.IsActiveInSession : (bool?)null,
+                LocalUi = p.Local is null ? null : SliceLocalSoft(p.Local),
                 p.Azure
             });
         return Serialize(new
@@ -150,6 +155,39 @@ public static class SettingsApplyImpactClassifier
             Projects = rows
         });
     }
+
+    private static object SliceLocalHard(LocalProjectAttachment local) => new
+    {
+        local.RootFolder,
+        local.ProjectFile,
+        local.LaunchProfile,
+        local.ExtraDotNetArgs,
+        local.TestProjectFile,
+        local.StartOnLaunch,
+        local.BuildControlMode,
+        RunOptions = new
+        {
+            local.RunOptions.RunMode,
+            local.RunOptions.RestartOnCrash,
+            local.RunOptions.MaxRestartRetries,
+            local.RunOptions.AutoRestartOnWatchChanges,
+            local.RunOptions.AutoRestartOnHotReloadRequest,
+            local.RunOptions.RestartAppAfterRebuild,
+            local.RunOptions.RunTests,
+            local.RunOptions.FileChanges,
+            local.RunOptions.ReleaseOutputLocksBeforeBuild,
+            local.RunOptions.AutoRepairCorruptedOutput,
+            local.RunOptions.WatchExcludeSegments
+        }
+    };
+
+    private static object SliceLocalSoft(LocalProjectAttachment local) => new
+    {
+        local.PreferredSiteUrlScheme,
+        local.RunOptions.AutoOpenLog,
+        local.RunOptions.ShowStatusPanelWhileBuilding,
+        local.RunOptions.ForceCompleteWarningCounts
+    };
 
     private static string Serialize<T>(T value) =>
         JsonSerializer.Serialize(value, JsonOptions);
