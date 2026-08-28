@@ -122,10 +122,13 @@ public sealed class AzureBranchNavigationResolver : IAzureBranchNavigationResolv
 
     private bool TryGetFreshCacheEntry(AzureBuildBranchNavigationRequest request, out CachedBranchNav entry)
     {
-        if (!cache.TryGetValue(BuildCacheKey(request), out entry))
+        if (!cache.TryGetValue(BuildCacheKey(request), out var cached))
         {
+            entry = default!;
             return false;
         }
+
+        entry = cached;
 
         if (AzureBranchNavigationPolicy.IsLongLivedCache(entry.Existence))
         {
