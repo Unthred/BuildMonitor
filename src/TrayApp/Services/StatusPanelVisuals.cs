@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BuildMonitor.Core.Abstractions;
@@ -17,6 +18,10 @@ namespace BuildMonitor.TrayApp.Services;
 internal static class StatusPanelVisuals
 {
     internal static IBuildSourceLinkOpener? LinkOpener { get; set; }
+
+    private sealed class BuildSourceLinkClickTag(
+        AzureBuildLinkTarget Target,
+        AzureBuildFailureNavigationRequest? FailureRequest);
 
     public static UIElement BuildStepProgressChart(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
     {
@@ -184,40 +189,20 @@ internal static class StatusPanelVisuals
         BuildSourcePresentationRow data,
         ThemePalette palette)
     {
-        var block = new TextBlock
-        {
-            FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = EmphasisBrush(data.Emphasis, palette),
-            Margin = new Thickness(0, 0, 6, 1),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            TextWrapping = TextWrapping.NoWrap,
-            Text = $"{data.StatusGlyph} {data.StatusText}"
-        };
-        if (TryGetNavigationUri(data.AzureNavigation?.Status, data.AzureNavigation?.FailureRequest, out var uri))
-        {
-            block.Text = null;
-            var statusBrush = EmphasisBrush(data.Emphasis, palette);
-            var link = new Hyperlink(new Run($"{data.StatusGlyph} {data.StatusText}"))
-            {
-                NavigateUri = uri ?? new Uri("about:blank"),
-                ToolTip = data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
-                    ? "Open failure details in Azure DevOps"
-                    : "Open in Azure DevOps",
-                TextDecorations = null,
-                Foreground = statusBrush
-            };
-            link.RequestNavigate += (_, e) =>
-            {
-                e.Handled = true;
-                NavigateBuildLink(data.AzureNavigation!.Status, data.AzureNavigation.FailureRequest);
-            };
-            block.Inlines.Add(link);
-        }
+        var statusText = $"{data.StatusGlyph} {data.StatusText}";
+        var content = CreateBuildLinkContent(
+            statusText,
+            data.AzureNavigation?.Status,
+            data.AzureNavigation?.FailureRequest,
+            EmphasisBrush(data.Emphasis, palette),
+            fontWeight: FontWeights.SemiBold,
+            margin: new Thickness(0, 0, 6, 1),
+            allowEllipsis: true,
+            toolTip: data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
+                ? "Open failure details in Azure DevOps"
+                : "Open in Azure DevOps");
 
-        Grid.SetRow(block, row);
-        Grid.SetColumn(block, column);
-        grid.Children.Add(block);
+        PlaceBuildCell(grid, row, column, content);
     }
 
     private static void AddBuildLinkCell(
@@ -230,50 +215,99 @@ internal static class StatusPanelVisuals
         ThemePalette palette,
         bool allowEllipsis)
     {
+        var content = CreateBuildLinkContent(
+            text,
+            target,
+            failureRequest,
+            LinkBrush(palette),
+            fontWeight: FontWeights.Normal,
+            margin: new Thickness(0, 0, 8, 1),
+            allowEllipsis: allowEllipsis,
+            toolTip: "Open in Azure DevOps");
+
+        PlaceBuildCell(grid, row, column, content);
+    }
+
+    private static UIElement CreateBuildLinkContent(
+        string text,
+        AzureBuildLinkTarget? target,
+        AzureBuildFailureNavigationRequest? failureRequest,
+        SolidColorBrush foreground,
+        FontWeight fontWeight,
+        Thickness margin,
+        bool allowEllipsis,
+        string? toolTip)
+    {
         var block = new TextBlock
         {
             FontSize = 10,
-            FontWeight = FontWeights.Normal,
-            Foreground = new SolidColorBrush(palette.Foreground),
-            Margin = new Thickness(0, 0, 8, 1),
+            FontWeight = fontWeight,
+            Foreground = foreground,
+            Margin = margin,
             TextTrimming = allowEllipsis ? TextTrimming.CharacterEllipsis : TextTrimming.None,
             TextWrapping = TextWrapping.NoWrap
         };
 
-        if (target is not null
-            && TryGetNavigationUri(target, failureRequest, out var uri))
+        if (target is not null && IsClickableBuildLink(target, failureRequest))
         {
-            var link = new Hyperlink(new Run(text))
-            {
-                NavigateUri = uri ?? new Uri("about:blank"),
-                ToolTip = "Open in Azure DevOps",
-                TextDecorations = null,
-                Foreground = LinkBrush(palette)
-            };
-            link.RequestNavigate += (_, e) =>
-            {
-                e.Handled = true;
-                NavigateBuildLink(target, failureRequest);
-            };
-            block.Inlines.Add(link);
+            block.Text = null;
+            block.Inlines.Add(CreateBuildHyperlink(text, foreground, target, failureRequest, toolTip));
         }
         else
         {
             block.Text = text;
         }
 
-        Grid.SetRow(block, row);
-        Grid.SetColumn(block, column);
-        grid.Children.Add(block);
+        return new Border
+        {
+            Child = block,
+            ClipToBounds = true,
+            Background = Brushes.Transparent
+        };
     }
 
-    private static bool TryGetNavigationUri(
-        AzureBuildLinkTarget? target,
+    private static Hyperlink CreateBuildHyperlink(
+        string text,
+        SolidColorBrush foreground,
+        AzureBuildLinkTarget target,
         AzureBuildFailureNavigationRequest? failureRequest,
-        out Uri? uri)
+        string? toolTip)
     {
-        uri = null;
-        if (target is null || target.Kind == AzureBuildLinkKind.None)
+        var link = new Hyperlink(new Run(text))
+        {
+            ToolTip = toolTip,
+            TextDecorations = null,
+            Foreground = foreground,
+            Cursor = Cursors.Hand,
+            Tag = new BuildSourceLinkClickTag(target, failureRequest)
+        };
+        link.PreviewMouseLeftButtonDown += OnBuildHyperlinkClick;
+        return link;
+    }
+
+    private static void PlaceBuildCell(Grid grid, int row, int column, UIElement content)
+    {
+        Grid.SetRow(content, row);
+        Grid.SetColumn(content, column);
+        grid.Children.Add(content);
+    }
+
+    private static void OnBuildHyperlinkClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Hyperlink { Tag: BuildSourceLinkClickTag tag })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        NavigateBuildLink(tag.Target, tag.FailureRequest);
+    }
+
+    private static bool IsClickableBuildLink(
+        AzureBuildLinkTarget target,
+        AzureBuildFailureNavigationRequest? failureRequest)
+    {
+        if (target.Kind == AzureBuildLinkKind.None)
         {
             return false;
         }
@@ -283,14 +317,8 @@ internal static class StatusPanelVisuals
             return failureRequest is not null;
         }
 
-        if (string.IsNullOrWhiteSpace(target.Uri)
-            || !Uri.TryCreate(target.Uri, UriKind.Absolute, out var parsed))
-        {
-            return false;
-        }
-
-        uri = parsed;
-        return true;
+        return !string.IsNullOrWhiteSpace(target.Uri)
+            && Uri.TryCreate(target.Uri, UriKind.Absolute, out _);
     }
 
     private static void NavigateBuildLink(
