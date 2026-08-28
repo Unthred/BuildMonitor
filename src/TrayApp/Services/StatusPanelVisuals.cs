@@ -22,6 +22,46 @@ internal static class StatusPanelVisuals
 
     internal static Action<string, string, TextBlock>? RegisterBuildSourceAgeCell { get; set; }
 
+    internal static Action<string, string, BuildSourceStatusCellHandle>? RegisterBuildSourceStatusCell { get; set; }
+
+    internal sealed class BuildSourceStatusCellHandle(TextBlock block, string projectId)
+    {
+        internal void Apply(BuildSourcePresentationRow row, ThemePalette palette)
+        {
+            var statusText = $"{row.StatusGlyph} {row.StatusText}";
+            block.FontWeight = FontWeights.SemiBold;
+            block.Foreground = EmphasisBrush(row.Emphasis, palette);
+            block.Inlines.Clear();
+            block.Text = null;
+
+            var localLogAction = StatusPanelLocalStatusActionRules.Resolve(row);
+            if (localLogAction != LocalBuildStatusLogAction.None)
+            {
+                var link = new Hyperlink(new Run(statusText))
+                {
+                    ToolTip = localLogAction == LocalBuildStatusLogAction.OpenLogWithErrorsFilter
+                        ? "View build log (errors)"
+                        : "View build log (warnings)",
+                    TextDecorations = null,
+                    Foreground = LinkBrush(palette),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                link.PreviewMouseLeftButtonDown += (_, e) =>
+                {
+                    e.Handled = true;
+                    OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                        projectId,
+                        SelectErrors: localLogAction == LocalBuildStatusLogAction.OpenLogWithErrorsFilter,
+                        SelectWarnings: localLogAction == LocalBuildStatusLogAction.OpenLogWithWarningsFilter));
+                };
+                block.Inlines.Add(link);
+                return;
+            }
+
+            block.Text = statusText;
+        }
+    }
+
     private sealed record BuildSourceLinkClickTag(
         string ProjectId,
         AzureBuildLinkTarget Target,
@@ -225,6 +265,15 @@ internal static class StatusPanelVisuals
         }
 
         PlaceBuildCell(grid, row, column, content);
+
+        if (string.Equals(data.Source, "Local", StringComparison.OrdinalIgnoreCase)
+            && content is Border { Child: TextBlock statusBlock })
+        {
+            RegisterBuildSourceStatusCell?.Invoke(
+                projectId,
+                data.Source,
+                new BuildSourceStatusCellHandle(statusBlock, projectId));
+        }
     }
 
     private static UIElement CreateLocalStatusLogContent(
