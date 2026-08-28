@@ -33,6 +33,8 @@ public static class SettingsApplyImpactCatalog
             "ProjectRuntime dictionary is keyed by Id; renaming Id invalidates the live runtime mapping."),
         new("Projects[].DisplayName", SettingsApplyImpact.SoftRuntime,
             "UI label only."),
+        new("Projects[].LinkBrowserRegisteredId", SettingsApplyImpact.Presentation,
+            "Per-project browser for opened http(s) links; no build or runtime remount."),
         new("Projects[].IsActiveInSession", SettingsApplyImpact.HardRestart,
             "Activating/deactivating a Local project must remount/stop its runtime without compiling. " +
             "Azure-only active toggles are applied via SoftRuntime when Local is null " +

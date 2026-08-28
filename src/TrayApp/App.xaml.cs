@@ -102,6 +102,10 @@ public partial class App : System.Windows.Application
 
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
         StatusPanelVisuals.LinkOpener = orchestrator.BuildSourceLinkOpener;
+        StatusPanelVisuals.OpenProjectLog = request => OpenLogViewer(
+            request.ProjectId,
+            selectErrorsFilter: request.SelectErrors,
+            selectWarningsFilter: request.SelectWarnings);
         orchestrator.SetSettingsPersistHandler(settings =>
         {
             if (settingsStore is null)
@@ -1092,12 +1096,18 @@ public partial class App : System.Windows.Application
         hoverPanel.RunTestsRequested += projectId =>
         {
             var name = currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
-            OpenLogViewer(projectId, name, BuildLogKind.Test);
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await orchestrator!.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                    if (orchestrator!.IsManualTestRunBlocked(projectId))
+                    {
+                        await orchestrator.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                        return;
+                    }
+
+                    await Dispatcher.InvokeAsync(() => OpenLogViewer(projectId, name, BuildLogKind.Test));
+                    await orchestrator.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1441,7 +1451,10 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var window = new SettingsWindow(CloneSettings(currentSettings), windowsLayoutStore);
+        var window = new SettingsWindow(
+            CloneSettings(currentSettings),
+            windowsLayoutStore,
+            orchestrator?.RegisteredBrowserCatalog);
         if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
         {
             TrayScreenPlacement.PlaceWindowCentered(window);

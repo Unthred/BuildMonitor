@@ -49,6 +49,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private IReadOnlyList<BuildProgressStep> progressSteps = [];
     private BuildProgressTracker? buildProgressTracker;
     private int buildInProgress;
+    private int compileInProgress;
     private string? currentBuildTriggerId;
     private int buildTriggeredByFileChange;
     private bool pendingFileChangeRebuild;
@@ -407,7 +408,7 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     public LiveBuildLogView? GetLiveBuildLogView(BuildLogKind kind)
     {
-        var isDirectBuild = Volatile.Read(ref buildInProgress) != 0
+        var isDirectBuild = Volatile.Read(ref compileInProgress) != 0
             || state is ProjectLifecycleState.Building;
         var isWatchRebuild = watchRebuildInProgress && runProcess?.IsRunning == true;
         var isRunLive = kind == BuildLogKind.Run && runProcess?.IsRunning == true;

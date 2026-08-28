@@ -133,6 +133,7 @@ internal sealed partial class ProjectRuntime
                 buildReason,
                 Local.RunOptions.ForceCompleteWarningCounts);
             var args = BuildProjectArgs(forceFullRebuild);
+            Interlocked.Exchange(ref compileInProgress, 1);
             var result = await RunBuildAttemptAsync(args, buildToken, buildBanner);
 
             if (result.WasCancelled)
@@ -252,6 +253,9 @@ internal sealed partial class ProjectRuntime
                     result.ExitCode == 0);
             }
 
+            // Compile finished — release user-action gates before post-build tests/restart work.
+            Interlocked.Exchange(ref compileInProgress, 0);
+
             if (result.ExitCode == 0)
             {
                 progressSteps = [];
@@ -305,6 +309,7 @@ internal sealed partial class ProjectRuntime
             buildCancellationSource = null;
             currentBuildReasonInFlight = null;
             currentBuildTriggerId = null;
+            Interlocked.Exchange(ref compileInProgress, 0);
             Interlocked.Exchange(ref buildInProgress, 0);
             Interlocked.Exchange(ref buildTriggeredByFileChange, 0);
 

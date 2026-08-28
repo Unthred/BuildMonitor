@@ -38,10 +38,10 @@ public interface IAzureFailureNavigationResolver
     bool TryGetCached(AzureBuildFailureNavigationRequest request, out Uri? destination);
 }
 
-/// <summary>Opens Azure navigation URIs in the default browser (future #96 hook point).</summary>
+/// <summary>Opens Azure navigation URIs using the owning project's browser preference (#96).</summary>
 public interface IBuildSourceLinkOpener
 {
-    void OpenUri(Uri uri);
+    void OpenUri(string projectId, Uri uri);
 
     Task OpenFailureDetailsAsync(
         AzureBuildFailureNavigationRequest request,

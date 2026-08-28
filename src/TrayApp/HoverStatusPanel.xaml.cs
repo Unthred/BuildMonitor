@@ -27,6 +27,8 @@ public partial class HoverStatusPanel : Window
     private StatusPanelPresentation? lastRenderedPresentation;
     private bool deferCardRebuildUntilMouseLeave;
     private DateTimeOffset? panelDismissAtUtc;
+    private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, TextBlock> ageTextBlocks = new();
+    private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, StatusPanelVisuals.BuildSourceStatusCellHandle> localStatusCells = new();
     private Rectangle? lastTrayIconBounds;
     private IntPtr lastTrayIconWindowHandle;
     private Rectangle? lastPlacementBounds;
@@ -160,7 +162,50 @@ public partial class HoverStatusPanel : Window
         ApplySideRail(presentation.SideRail, palette);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);
+        RefreshVolatileBuildSourceCells(presentation);
         SyncCountdownTimer(snapshots);
+    }
+
+    private void RefreshVolatileBuildSourceCells(StatusPanelPresentation? presentation = null)
+    {
+        if (ageTextBlocks.Count == 0 && localStatusCells.Count == 0)
+        {
+            return;
+        }
+
+        presentation ??= StatusPanelPresentationBuilder.Build(
+            lastSnapshots,
+            panelDismissAtUtc,
+            DateTimeOffset.UtcNow);
+        var palette = ThemeService.GetPalette(currentTheme);
+        foreach (var (key, row) in StatusPanelBuildSourceVolatileRefresher.CollectVolatileRows(presentation))
+        {
+            if (ageTextBlocks.TryGetValue(key, out var ageBlock)
+                && !string.Equals(ageBlock.Text, row.AgeDisplay, StringComparison.Ordinal))
+            {
+                ageBlock.Text = row.AgeDisplay;
+            }
+
+            if (!localStatusCells.TryGetValue(key, out var statusHandle))
+            {
+                continue;
+            }
+
+            statusHandle.Apply(
+                new BuildSourcePresentationRow(
+                    Source: key.Source,
+                    StatusGlyph: row.StatusGlyph,
+                    StatusText: row.StatusText,
+                    BranchDisplay: "—",
+                    RunDisplay: "—",
+                    BuildNumberDisplay: "—",
+                    PullRequestDisplay: "—",
+                    AgeDisplay: row.AgeDisplay,
+                    IssuesDisplay: "—",
+                    AzureNavigation: null,
+                    Emphasis: row.Emphasis),
+                palette);
+        }
     }
 
     private void RebuildProjectCards(
@@ -168,6 +213,13 @@ public partial class HoverStatusPanel : Window
         StatusPanelSideRailPresentation sideRail,
         ThemePalette palette)
     {
+        ageTextBlocks.Clear();
+        localStatusCells.Clear();
+        StatusPanelVisuals.RegisterBuildSourceAgeCell = (projectId, source, block) =>
+            ageTextBlocks[new StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey(projectId, source)] = block;
+        StatusPanelVisuals.RegisterBuildSourceStatusCell = (projectId, source, handle) =>
+            localStatusCells[new StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey(projectId, source)] = handle;
+
         ProjectCards.Items.Clear();
 
         foreach (var cardModel in cards)
@@ -194,7 +246,7 @@ public partial class HoverStatusPanel : Window
             if (cardModel.BuildSourceRows is { Count: > 0 })
             {
                 panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("BUILDS", palette));
-                panel.Children.Add(StatusPanelVisuals.BuildBuildsTable(cardModel.BuildSourceRows, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildBuildsTable(cardModel.BuildSourceRows, cardModel.ProjectId, palette));
             }
 
             if (cardModel.StatusRows.Count > 0)
@@ -206,7 +258,7 @@ public partial class HoverStatusPanel : Window
             if (cardModel.BuildSourceRows is not { Count: > 0 }
                 && cardModel.Azure is { ShowSection: true })
             {
-                panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, cardModel.ProjectId, palette));
             }
 
             if (!string.IsNullOrWhiteSpace(cardModel.CurrentActionText))
@@ -225,7 +277,7 @@ public partial class HoverStatusPanel : Window
 
             if (cardModel.ShowSiteReady && cardModel.ListenUrl is not null)
             {
-                panel.Children.Add(StatusPanelVisuals.BuildSiteReadyBlock(cardModel.ListenUrl, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildSiteReadyBlock(cardModel.ListenUrl, cardModel.ProjectId, palette));
             }
             else if (cardModel.ShowSiteAwaiting && cardModel.ListenUrl is not null)
             {
@@ -308,8 +360,8 @@ public partial class HoverStatusPanel : Window
 
                 var rebuildRestart = new WpfButton
                 {
-                    Content = "Rebuild",
-                    ToolTip = "Full build, then start run/watch",
+                    Content = StatusPanelActionLabels.RebuildAndRestart,
+                    ToolTip = StatusPanelActionLabels.RebuildAndRestartToolTip,
                     Padding = new Thickness(6, 2, 6, 2),
                     FontSize = 10,
                     Margin = new Thickness(0, 0, 4, 0),
@@ -344,6 +396,7 @@ public partial class HoverStatusPanel : Window
             actionRow.Children.Add(overall);
 
             panel.Children.Add(actionRow);
+            System.Windows.Controls.Panel.SetZIndex(actionRow, 10);
 
             card.Child = panel;
             ProjectCards.Items.Add(card);
@@ -357,15 +410,16 @@ public partial class HoverStatusPanel : Window
                 TextWrapping = TextWrapping.Wrap
             });
         }
+
+        StatusPanelVisuals.RegisterBuildSourceAgeCell = null;
+        StatusPanelVisuals.RegisterBuildSourceStatusCell = null;
     }
 
     private static void WireActionButton(WpfButton button, Action invoke)
     {
-        button.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            invoke();
-            e.Handled = true;
-        };
+        // Use Click (not PreviewMouseLeftButtonDown) so Button chrome receives the
+        // routed event reliably; hyperlinks keep PreviewMouse for #97 stability.
+        button.Click += (_, _) => invoke();
     }
 
     private void ApplyHeaderCountdownText(string text)
@@ -412,17 +466,13 @@ public partial class HoverStatusPanel : Window
             DateTimeOffset.UtcNow);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);
-
-        var needsCountdown = HasActiveRebuildCountdown(lastSnapshots) || panelDismissAtUtc is not null;
-        if (!needsCountdown)
-        {
-            countdownTimer.Stop();
-        }
+        RefreshVolatileBuildSourceCells(presentation);
     }
 
     private void SyncCountdownTimer(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
-        if (IsVisible && (HasActiveRebuildCountdown(snapshots) || panelDismissAtUtc is not null))
+        _ = snapshots;
+        if (IsVisible)
         {
             if (!countdownTimer.IsEnabled)
             {

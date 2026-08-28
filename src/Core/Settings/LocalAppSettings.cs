@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using BuildMonitor.Core.Models;
@@ -6,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 21;
+    public int SchemaVersion { get; set; } = 22;
     /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
     public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
     public List<MonitoredProjectSettings> Projects { get; set; } = [];
@@ -57,6 +58,13 @@ public sealed class MonitoredProjectSettings : INotifyPropertyChanged
     public LocalProjectAttachment? Local { get; set; }
 
     public AzureDevOpsProjectAttachment? Azure { get; set; }
+
+    /// <summary>
+    /// Windows StartMenuInternet ProgId for link navigation; null/empty = system default.
+    /// Omitted from settings.json when unset (no migration materialization).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LinkBrowserRegisteredId { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

@@ -9,6 +9,9 @@ namespace BuildMonitor.Infrastructure.Services;
 
 internal sealed partial class ProjectRuntime
 {
+    internal bool IsManualTestRunBlocked =>
+        Volatile.Read(ref testInProgress) != 0 || Volatile.Read(ref compileInProgress) != 0;
+
     public async Task TestAsync(CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref testInProgress, 1, 0) != 0)
@@ -22,7 +25,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (Volatile.Read(ref buildInProgress) != 0)
+        if (Volatile.Read(ref compileInProgress) != 0)
         {
             Interlocked.Exchange(ref testInProgress, 0);
             notifyUser?.Invoke(

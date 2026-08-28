@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -7,7 +6,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
-using BuildMonitor.Infrastructure.AzureDevOps;
+using BuildMonitor.Core.Rules;
 using WpfColor = System.Windows.Media.Color;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfOrientation = System.Windows.Controls.Orientation;
@@ -19,7 +18,52 @@ internal static class StatusPanelVisuals
 {
     internal static IBuildSourceLinkOpener? LinkOpener { get; set; }
 
+    internal static Action<StatusPanelProjectLogRequest>? OpenProjectLog { get; set; }
+
+    internal static Action<string, string, TextBlock>? RegisterBuildSourceAgeCell { get; set; }
+
+    internal static Action<string, string, BuildSourceStatusCellHandle>? RegisterBuildSourceStatusCell { get; set; }
+
+    internal sealed class BuildSourceStatusCellHandle(TextBlock block, string projectId)
+    {
+        internal void Apply(BuildSourcePresentationRow row, ThemePalette palette)
+        {
+            var statusText = $"{row.StatusGlyph} {row.StatusText}";
+            block.FontWeight = FontWeights.SemiBold;
+            block.Foreground = EmphasisBrush(row.Emphasis, palette);
+            block.Inlines.Clear();
+            block.Text = null;
+
+            var localLogAction = StatusPanelLocalStatusActionRules.Resolve(row);
+            if (localLogAction != LocalBuildStatusLogAction.None)
+            {
+                var link = new Hyperlink(new Run(statusText))
+                {
+                    ToolTip = localLogAction == LocalBuildStatusLogAction.OpenLogWithErrorsFilter
+                        ? "View build log (errors)"
+                        : "View build log (warnings)",
+                    TextDecorations = null,
+                    Foreground = LinkBrush(palette),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                link.PreviewMouseLeftButtonDown += (_, e) =>
+                {
+                    e.Handled = true;
+                    OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                        projectId,
+                        SelectErrors: localLogAction == LocalBuildStatusLogAction.OpenLogWithErrorsFilter,
+                        SelectWarnings: localLogAction == LocalBuildStatusLogAction.OpenLogWithWarningsFilter));
+                };
+                block.Inlines.Add(link);
+                return;
+            }
+
+            block.Text = statusText;
+        }
+    }
+
     private sealed record BuildSourceLinkClickTag(
+        string ProjectId,
         AzureBuildLinkTarget Target,
         AzureBuildFailureNavigationRequest? FailureRequest);
 
@@ -123,6 +167,7 @@ internal static class StatusPanelVisuals
 
     public static UIElement BuildBuildsTable(
         IReadOnlyList<BuildSourcePresentationRow> rows,
+        string projectId,
         ThemePalette palette)
     {
         var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
@@ -150,14 +195,15 @@ internal static class StatusPanelVisuals
             var row = rows[i];
             var rowIndex = i + 1;
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, runUrl: null, allowEllipsis: false, palette: palette);
-            AddBuildStatusCell(grid, rowIndex, 1, row, palette);
-            AddBuildLinkCell(grid, rowIndex, 2, row.BranchDisplay, row.AzureNavigation?.Branch, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: true);
-            AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
-            AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
-            AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, allowEllipsis: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, allowEllipsis: false, palette: palette);
+            AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, runUrl: null, projectId, allowEllipsis: false, palette: palette);
+            AddBuildStatusCell(grid, rowIndex, 1, row, projectId, palette);
+            AddBuildLinkCell(grid, rowIndex, 2, row.BranchDisplay, row.AzureNavigation?.Branch, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: true);
+            AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
+            var ageCell = AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: true, palette: palette);
+            RegisterBuildSourceAgeCell?.Invoke(projectId, row.Source, ageCell);
+            AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: false, palette: palette);
 
             if (!string.IsNullOrWhiteSpace(row.AttentionNote))
             {
@@ -187,22 +233,91 @@ internal static class StatusPanelVisuals
         int row,
         int column,
         BuildSourcePresentationRow data,
+        string projectId,
         ThemePalette palette)
     {
         var statusText = $"{data.StatusGlyph} {data.StatusText}";
-        var content = CreateBuildLinkContent(
-            statusText,
-            data.AzureNavigation?.Status,
-            data.AzureNavigation?.FailureRequest,
-            EmphasisBrush(data.Emphasis, palette),
-            fontWeight: FontWeights.SemiBold,
-            margin: new Thickness(0, 0, 6, 1),
-            allowEllipsis: true,
-            toolTip: data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
-                ? "Open failure details in Azure DevOps"
-                : "Open in Azure DevOps");
+        var localLogAction = StatusPanelLocalStatusActionRules.Resolve(data);
+        UIElement content;
+        if (localLogAction != LocalBuildStatusLogAction.None)
+        {
+            content = CreateLocalStatusLogContent(
+                statusText,
+                projectId,
+                localLogAction,
+                EmphasisBrush(data.Emphasis, palette),
+                palette);
+        }
+        else
+        {
+            content = CreateBuildLinkContent(
+                statusText,
+                data.AzureNavigation?.Status,
+                data.AzureNavigation?.FailureRequest,
+                projectId,
+                EmphasisBrush(data.Emphasis, palette),
+                fontWeight: FontWeights.SemiBold,
+                margin: new Thickness(0, 0, 6, 1),
+                allowEllipsis: true,
+                toolTip: data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
+                    ? "Open failure details in Azure DevOps"
+                    : "Open in Azure DevOps");
+        }
 
         PlaceBuildCell(grid, row, column, content);
+
+        if (string.Equals(data.Source, "Local", StringComparison.OrdinalIgnoreCase)
+            && content is Border { Child: TextBlock statusBlock })
+        {
+            RegisterBuildSourceStatusCell?.Invoke(
+                projectId,
+                data.Source,
+                new BuildSourceStatusCellHandle(statusBlock, projectId));
+        }
+    }
+
+    private static UIElement CreateLocalStatusLogContent(
+        string statusText,
+        string projectId,
+        LocalBuildStatusLogAction action,
+        SolidColorBrush foreground,
+        ThemePalette palette)
+    {
+        var block = new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = foreground,
+            Margin = new Thickness(0, 0, 6, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap
+        };
+
+        var link = new Hyperlink(new Run(statusText))
+        {
+            ToolTip = action == LocalBuildStatusLogAction.OpenLogWithErrorsFilter
+                ? "View build log (errors)"
+                : "View build log (warnings)",
+            TextDecorations = null,
+            Foreground = LinkBrush(palette),
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        link.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            e.Handled = true;
+            OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                projectId,
+                SelectErrors: action == LocalBuildStatusLogAction.OpenLogWithErrorsFilter,
+                SelectWarnings: action == LocalBuildStatusLogAction.OpenLogWithWarningsFilter));
+        };
+        block.Inlines.Add(link);
+
+        return new Border
+        {
+            Child = block,
+            ClipToBounds = true,
+            Background = System.Windows.Media.Brushes.Transparent
+        };
     }
 
     private static void AddBuildLinkCell(
@@ -212,6 +327,7 @@ internal static class StatusPanelVisuals
         string text,
         AzureBuildLinkTarget? target,
         AzureBuildFailureNavigationRequest? failureRequest,
+        string projectId,
         ThemePalette palette,
         bool allowEllipsis)
     {
@@ -220,6 +336,7 @@ internal static class StatusPanelVisuals
             text,
             target,
             failureRequest,
+            projectId,
             isClickable ? LinkBrush(palette) : new SolidColorBrush(palette.Foreground),
             fontWeight: FontWeights.Normal,
             margin: new Thickness(0, 0, 8, 1),
@@ -233,6 +350,7 @@ internal static class StatusPanelVisuals
         string text,
         AzureBuildLinkTarget? target,
         AzureBuildFailureNavigationRequest? failureRequest,
+        string projectId,
         SolidColorBrush foreground,
         FontWeight fontWeight,
         Thickness margin,
@@ -252,7 +370,7 @@ internal static class StatusPanelVisuals
         if (target is not null && IsClickableBuildLink(target, failureRequest))
         {
             block.Text = null;
-            block.Inlines.Add(CreateBuildHyperlink(text, foreground, target, failureRequest, toolTip));
+            block.Inlines.Add(CreateBuildHyperlink(text, foreground, projectId, target, failureRequest, toolTip));
         }
         else
         {
@@ -270,6 +388,7 @@ internal static class StatusPanelVisuals
     private static Hyperlink CreateBuildHyperlink(
         string text,
         SolidColorBrush foreground,
+        string projectId,
         AzureBuildLinkTarget target,
         AzureBuildFailureNavigationRequest? failureRequest,
         string? toolTip)
@@ -280,7 +399,7 @@ internal static class StatusPanelVisuals
             TextDecorations = null,
             Foreground = foreground,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Tag = new BuildSourceLinkClickTag(target, failureRequest)
+            Tag = new BuildSourceLinkClickTag(projectId, target, failureRequest)
         };
         link.PreviewMouseLeftButtonDown += OnBuildHyperlinkClick;
         return link;
@@ -301,7 +420,7 @@ internal static class StatusPanelVisuals
         }
 
         e.Handled = true;
-        NavigateBuildLink(tag.Target, tag.FailureRequest);
+        NavigateBuildLink(tag.ProjectId, tag.Target, tag.FailureRequest);
     }
 
     private static bool IsClickableBuildLink(
@@ -323,34 +442,34 @@ internal static class StatusPanelVisuals
     }
 
     private static void NavigateBuildLink(
+        string projectId,
         AzureBuildLinkTarget target,
         AzureBuildFailureNavigationRequest? failureRequest)
     {
         if (target.Kind == AzureBuildLinkKind.FailureDetails && failureRequest is not null)
         {
-            var opener = LinkOpener;
-            if (opener is not null)
-            {
-                _ = opener.OpenFailureDetailsAsync(failureRequest);
-            }
-
+            LinkOpener?.OpenFailureDetailsAsync(failureRequest);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(target.Uri)
-            || !Uri.TryCreate(target.Uri, UriKind.Absolute, out var uri))
+            || !HttpUriNavigationValidator.TryParseAllowed(target.Uri, out var uri)
+            || uri is null)
         {
             return;
         }
 
-        if (LinkOpener is not null)
+        OpenProjectUri(projectId, uri);
+    }
+
+    private static void OpenProjectUri(string projectId, Uri uri)
+    {
+        if (!HttpUriNavigationValidator.IsAllowedNavigationUri(uri))
         {
-            LinkOpener.OpenUri(uri);
+            return;
         }
-        else
-        {
-            BuildSourceLinkOpener.OpenHttpNavigationUri(uri);
-        }
+
+        LinkOpener?.OpenUri(projectId, uri);
     }
 
     private static void AddDenseLabel(Grid grid, int row, int column, string text, ThemePalette palette)
@@ -644,7 +763,7 @@ internal static class StatusPanelVisuals
         };
     }
 
-    public static UIElement BuildSiteReadyBlock(string listenUrl, ThemePalette palette)
+    public static UIElement BuildSiteReadyBlock(string listenUrl, string projectId, ThemePalette palette)
     {
         var canonicalUrl = listenUrl;
         var readyGreen = WpfColor.FromRgb(40, 167, 69);
@@ -661,11 +780,10 @@ internal static class StatusPanelVisuals
         DockPanel.SetDock(row.Children[0], Dock.Left);
 
         var linkBlock = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
-        if (Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri))
+        if (HttpUriNavigationValidator.TryParseAllowed(canonicalUrl, out var uri) && uri is not null)
         {
             var link = new Hyperlink
             {
-                NavigateUri = uri,
                 Foreground = new SolidColorBrush(palette.Accent),
                 FontWeight = FontWeights.SemiBold,
                 TextDecorations = TextDecorations.Underline,
@@ -673,18 +791,10 @@ internal static class StatusPanelVisuals
             };
             link.Inlines.Add($"Open {canonicalUrl}");
             link.Foreground = LinkBrush(palette);
-            link.RequestNavigate += (_, e) =>
+            link.PreviewMouseLeftButtonDown += (_, e) =>
             {
-                try
-                {
-                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-                }
-                catch
-                {
-                    // Best effort only.
-                }
-
                 e.Handled = true;
+                OpenProjectUri(projectId, uri);
             };
             linkBlock.Inlines.Add(link);
         }
@@ -723,7 +833,7 @@ internal static class StatusPanelVisuals
             Margin = new Thickness(0, 4, 0, 1)
         };
 
-    public static UIElement BuildAzureSection(AzureStatusPresentation azure, ThemePalette palette)
+    public static UIElement BuildAzureSection(AzureStatusPresentation azure, string projectId, ThemePalette palette)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
         panel.Children.Add(BuildSectionHeader(azure.HeaderLabel, palette));
@@ -764,7 +874,7 @@ internal static class StatusPanelVisuals
         }
         else
         {
-            panel.Children.Add(BuildAzureTable(azure.Rows, palette));
+            panel.Children.Add(BuildAzureTable(azure.Rows, projectId, palette));
         }
 
         if (!string.IsNullOrWhiteSpace(azure.AttentionLine))
@@ -783,7 +893,7 @@ internal static class StatusPanelVisuals
         return panel;
     }
 
-    private static UIElement BuildAzureTable(IReadOnlyList<AzureStatusTableRow> rows, ThemePalette palette)
+    private static UIElement BuildAzureTable(IReadOnlyList<AzureStatusTableRow> rows, string projectId, ThemePalette palette)
     {
         var grid = new Grid();
         // Pipeline/Branch flexible; Status/Run/Build No./PR hug content so the row stays dense.
@@ -808,12 +918,12 @@ internal static class StatusPanelVisuals
             var rowIndex = i + 1;
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
-            AddAzureStatusCell(grid, rowIndex, 1, row, palette);
-            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 0, row.Pipeline, palette.Foreground, bold: true, row.RunUrl, projectId, allowEllipsis: true, asIdentifierLink: true, palette: palette);
+            AddAzureStatusCell(grid, rowIndex, 1, row, projectId, palette);
+            AddAzureCell(grid, rowIndex, 2, row.Branch, palette.Foreground, bold: false, row.RunUrl, projectId, allowEllipsis: true, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.RunUrl, projectId, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.RunUrl, projectId, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.RunUrl, projectId, allowEllipsis: false, asIdentifierLink: true, palette: palette);
         }
 
         return grid;
@@ -836,7 +946,7 @@ internal static class StatusPanelVisuals
         grid.Children.Add(block);
     }
 
-    private static void AddAzureCell(
+    private static TextBlock AddAzureCell(
         Grid grid,
         int row,
         int column,
@@ -844,6 +954,7 @@ internal static class StatusPanelVisuals
         WpfColor color,
         bool bold,
         string? runUrl,
+        string projectId,
         bool allowEllipsis = true,
         bool asIdentifierLink = false,
         ThemePalette? palette = null)
@@ -858,29 +969,22 @@ internal static class StatusPanelVisuals
             TextWrapping = TextWrapping.NoWrap
         };
 
-        if (!string.IsNullOrWhiteSpace(runUrl) && Uri.TryCreate(runUrl, UriKind.Absolute, out var uri))
+        if (HttpUriNavigationValidator.TryParseAllowed(runUrl, out var uri) && uri is not null)
         {
             var linkBrush = asIdentifierLink && palette is not null
                 ? LinkBrush(palette)
                 : new SolidColorBrush(color);
             var link = new Hyperlink(new Run(text))
             {
-                NavigateUri = uri,
                 ToolTip = "Open in Azure DevOps",
                 TextDecorations = null,
-                Foreground = linkBrush
+                Foreground = linkBrush,
+                Cursor = System.Windows.Input.Cursors.Hand
             };
-            link.RequestNavigate += (_, e) =>
+            link.PreviewMouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;
-                try
-                {
-                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-                }
-                catch
-                {
-                    // ignore launch failures
-                }
+                OpenProjectUri(projectId, uri);
             };
             block.Inlines.Add(link);
         }
@@ -892,9 +996,10 @@ internal static class StatusPanelVisuals
         Grid.SetRow(block, row);
         Grid.SetColumn(block, column);
         grid.Children.Add(block);
+        return block;
     }
 
-    private static void AddAzureStatusCell(Grid grid, int row, int column, AzureStatusTableRow data, ThemePalette palette)
+    private static void AddAzureStatusCell(Grid grid, int row, int column, AzureStatusTableRow data, string projectId, ThemePalette palette)
     {
         var stack = new StackPanel { Margin = new Thickness(0, 0, 6, 1) };
         var status = new TextBlock
@@ -906,27 +1011,20 @@ internal static class StatusPanelVisuals
             TextWrapping = TextWrapping.NoWrap
         };
         var statusText = $"{data.StatusGlyph} {data.StatusText}";
-        if (!string.IsNullOrWhiteSpace(data.RunUrl) && Uri.TryCreate(data.RunUrl, UriKind.Absolute, out var uri))
+        if (HttpUriNavigationValidator.TryParseAllowed(data.RunUrl, out var uri) && uri is not null)
         {
             var statusBrush = EmphasisBrush(data.Emphasis, palette);
             var link = new Hyperlink(new Run(statusText))
             {
-                NavigateUri = uri,
                 ToolTip = "Open in Azure DevOps",
                 TextDecorations = null,
-                Foreground = statusBrush
+                Foreground = statusBrush,
+                Cursor = System.Windows.Input.Cursors.Hand
             };
-            link.RequestNavigate += (_, e) =>
+            link.PreviewMouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;
-                try
-                {
-                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-                }
-                catch
-                {
-                    // ignore
-                }
+                OpenProjectUri(projectId, uri);
             };
             status.Inlines.Add(link);
         }

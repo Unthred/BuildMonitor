@@ -8,6 +8,7 @@ using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.Diagnostics;
 using BuildMonitor.Infrastructure.Git;
 using BuildMonitor.Infrastructure.LocalBuild;
+using BuildMonitor.Infrastructure.Navigation;
 using BuildMonitor.Infrastructure.Security;
 
 namespace BuildMonitor.Infrastructure.Services;
@@ -26,7 +27,8 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
     private readonly AzureMonitoringService azureMonitoring;
-    private readonly BuildSourceLinkOpener buildSourceLinkOpener;
+    private readonly RegisteredBrowserCatalog registeredBrowserCatalog = new();
+    private readonly ProjectLinkLauncher projectLinkLauncher;
     private AppSettings settings = new();
     private Action<AppSettings>? settingsPersistRequested;
 
@@ -61,7 +63,11 @@ public sealed partial class ProjectOrchestrator : IDisposable
             new DpapiSecretProtector());
         var timelineClient = new AzureBuildTimelineClient();
         var failureResolver = new AzureFailureNavigationResolver(timelineClient, secretStore);
-        buildSourceLinkOpener = new BuildSourceLinkOpener(failureResolver);
+        projectLinkLauncher = new ProjectLinkLauncher(
+            GetSettingsSnapshot,
+            registeredBrowserCatalog,
+            new HttpUriProcessLauncher(),
+            failureResolver);
         azureMonitoring = new AzureMonitoringService(
             new AzureBuildPollClient(),
             secretStore,
@@ -78,7 +84,17 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
     public ControlPlaneSessionStore SessionStore => sessionStore;
 
-    public IBuildSourceLinkOpener BuildSourceLinkOpener => buildSourceLinkOpener;
+    public IBuildSourceLinkOpener BuildSourceLinkOpener => projectLinkLauncher;
+
+    public IRegisteredBrowserCatalog RegisteredBrowserCatalog => registeredBrowserCatalog;
+
+    private AppSettings GetSettingsSnapshot()
+    {
+        lock (sync)
+        {
+            return settings;
+        }
+    }
 
     public ControlPlaneMetricsStore MetricsStore => metricsStore;
 
@@ -406,6 +422,14 @@ public sealed partial class ProjectOrchestrator : IDisposable
                 ExceptionDetailFormatter.Format(ex),
                 UserNotificationKind.Error,
                 UserNotificationCategory.Error);
+        }
+    }
+
+    public bool IsManualTestRunBlocked(string projectId)
+    {
+        lock (sync)
+        {
+            return runtimes.TryGetValue(projectId, out var runtime) && runtime.IsManualTestRunBlocked;
         }
     }
 

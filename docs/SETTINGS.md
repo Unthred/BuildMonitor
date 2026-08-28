@@ -1,19 +1,20 @@
-# Settings schema (v21)
+# Settings schema (v22)
 
 File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
-**Current schema version is 21.** Older files migrate on load (flat projects → nested `local`).
+**Current schema version is 22.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization).
 
 A **project** is a logical software product with optional attachments:
 
 - `local` — folder + .csproj/.sln + run/watch/test options (existing behaviour)
 - `azure` — Azure DevOps repository association (**configurable**; continuous polling + status panel when Active in session and ≥1 pipeline selected)
+- `linkBrowserRegisteredId` — optional Windows StartMenuInternet ProgId for http(s) links from this project's status panel; **omit or null = system default** (existing projects keep working without JSON churn)
 
 At least one attachment is required. Top-level `connections` hold Azure DevOps organisation URLs (credentials are **not** stored in this file).
 
 ```json
 {
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "connections": [],
   "projects": [
     {
