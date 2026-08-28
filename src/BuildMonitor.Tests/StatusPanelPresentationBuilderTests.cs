@@ -388,7 +388,13 @@ public sealed class StatusPanelPresentationBuilderTests
             azureRun,
             [],
             now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: new AzureBuildNavigationContext(
+                "p1",
+                "conn",
+                "https://dev.azure.com/org",
+                "project",
+                "repo"));
 
         var local = Snapshot(
             ProjectLifecycleState.Watching,
@@ -421,7 +427,7 @@ public sealed class StatusPanelPresentationBuilderTests
         Assert.Equal("—", localRow.RunDisplay);
         Assert.Equal("—", localRow.BuildNumberDisplay);
         Assert.Equal("—", localRow.PullRequestDisplay);
-        Assert.Null(localRow.DeepLinkUrl);
+        Assert.Null(localRow.AzureNavigation);
         Assert.Equal(StatusPanelRowEmphasis.Success, localRow.Emphasis);
 
         var azureRow = card.BuildSourceRows[1];
@@ -430,7 +436,8 @@ public sealed class StatusPanelPresentationBuilderTests
         Assert.Equal("#454", azureRow.RunDisplay);
         Assert.Equal("20260825.15", azureRow.BuildNumberDisplay);
         Assert.Equal("#168", azureRow.PullRequestDisplay);
-        Assert.Equal("https://example/?buildId=454", azureRow.DeepLinkUrl);
+        Assert.Contains("buildId=454", azureRow.AzureNavigation!.Run.Uri!, StringComparison.Ordinal);
+        Assert.Equal(AzureBuildLinkKind.FailureDetails, azureRow.AzureNavigation.Status.Kind);
         Assert.Equal("—", azureRow.IssuesDisplay);
 
         Assert.Equal(MonitorHealth.Green, StatusPanelPresentationBuilder.ResolveLocalBuildHealth(merged));

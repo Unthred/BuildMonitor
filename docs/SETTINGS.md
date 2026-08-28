@@ -110,7 +110,7 @@ Pipeline selection: **0..N**. If exactly **one enabled** candidate exists, it is
 
 Local Git (`git` on PATH): current branch / detached / unavailable plus remotes are used for attach suggestions and **status-panel focus** (not health eligibility).
 
-**Continuous Azure monitoring** runs for **Active in session** projects with ≥1 pipeline and a configured connection. Auth/network loss is Amber (not CI Red). Cancelled builds are Neutral. Hover panel shows Local + Azure peer BUILDS rows; tray colour merges Local + Azure. Control-plane `GET /projects` exposes the same authoritative Azure primary run. **Notifications and stage/job timeline remain deferred.**
+**Continuous Azure monitoring** runs for **Active in session** projects with ≥1 pipeline and a configured connection. Auth/network loss is Amber (not CI Red). Cancelled builds are Neutral. Hover panel shows Local + Azure peer BUILDS rows; tray colour merges Local + Azure. Control-plane `GET /projects` exposes the same authoritative Azure primary run. **Azure BUILDS columns** use semantic navigation (Status / Run # / Build No. / PR # / Branch each open the matching Azure DevOps surface). Failed and Partially succeeded **Status** resolves failure logs lazily on click via a one-off timeline fetch (not during the 8–15s poll); results fall back to build results when timeline data is unavailable. **Notifications and full timeline UI remain deferred.**
 
 ## Azure association (project attachment)
 

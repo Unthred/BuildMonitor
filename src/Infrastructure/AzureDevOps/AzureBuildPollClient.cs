@@ -146,6 +146,7 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 : null;
             var pullRequestNumber = AzurePullRequestMetadata.TryResolveNumber(reason, branchRaw, triggerInfo);
             var branch = AzurePullRequestMetadata.ResolveDisplayBranch(branchRaw, pullRequestNumber, triggerInfo);
+            var sourceBranchRef = AzurePullRequestMetadata.ResolveSourceBranchRef(branchRaw, triggerInfo);
             var queuedAt = ParseDate(run, "queueTime") ?? DateTimeOffset.UtcNow;
             var startedAt = ParseDate(run, "startTime");
             var finishedAt = ParseDate(run, "finishTime");
@@ -172,7 +173,8 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 startedAt,
                 finishedAt,
                 runUrl,
-                pullRequestNumber));
+                pullRequestNumber,
+                sourceBranchRef));
         }
 
         return new AzureBuildPollResult(AzureBuildPollOutcome.Ok, runs);

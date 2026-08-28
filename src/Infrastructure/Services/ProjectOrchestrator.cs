@@ -1,4 +1,5 @@
 using System.Text;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
@@ -25,6 +26,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
     private readonly AzureMonitoringService azureMonitoring;
+    private readonly BuildSourceLinkOpener buildSourceLinkOpener;
     private AppSettings settings = new();
     private Action<AppSettings>? settingsPersistRequested;
 
@@ -54,11 +56,15 @@ public sealed partial class ProjectOrchestrator : IDisposable
             "Background");
         Action? notifyFacetUpdated = null;
         var localGitReader = new CachedLocalGitContextReader(new LocalGitContextReader());
+        var secretStore = new AzureConnectionSecretStore(
+            Path.Combine(dataRoot, "secrets"),
+            new DpapiSecretProtector());
+        var timelineClient = new AzureBuildTimelineClient();
+        var failureResolver = new AzureFailureNavigationResolver(timelineClient, secretStore);
+        buildSourceLinkOpener = new BuildSourceLinkOpener(failureResolver);
         azureMonitoring = new AzureMonitoringService(
             new AzureBuildPollClient(),
-            new AzureConnectionSecretStore(
-                Path.Combine(dataRoot, "secrets"),
-                new DpapiSecretProtector()),
+            secretStore,
             localGitReader,
             () => notifyFacetUpdated?.Invoke());
         healthCoalescer = new HealthCoalescer(
@@ -71,6 +77,8 @@ public sealed partial class ProjectOrchestrator : IDisposable
     }
 
     public ControlPlaneSessionStore SessionStore => sessionStore;
+
+    public IBuildSourceLinkOpener BuildSourceLinkOpener => buildSourceLinkOpener;
 
     public ControlPlaneMetricsStore MetricsStore => metricsStore;
 

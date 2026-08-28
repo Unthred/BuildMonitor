@@ -37,10 +37,10 @@ public static partial class AzurePullRequestMetadata
         int? pullRequestNumber,
         JsonElement? triggerInfo)
     {
-        var fromTrigger = TryTriggerSourceBranch(triggerInfo);
-        if (!string.IsNullOrWhiteSpace(fromTrigger))
+        var branchRef = ResolveSourceBranchRef(sourceBranch, triggerInfo);
+        if (!string.IsNullOrWhiteSpace(branchRef))
         {
-            return AzureGitBranchNormalizer.ToShortName(fromTrigger) ?? fromTrigger.Trim();
+            return AzureGitBranchNormalizer.ToShortName(branchRef) ?? branchRef.Trim();
         }
 
         if (IsPullRequestRef(sourceBranch))
@@ -52,6 +52,23 @@ public static partial class AzurePullRequestMetadata
 
         return AzureGitBranchNormalizer.ToShortName(sourceBranch)
             ?? (string.IsNullOrWhiteSpace(sourceBranch) ? "unknown" : sourceBranch.Trim());
+    }
+
+    /// <summary>Real navigable branch ref; null when only a PR merge ref is known.</summary>
+    public static string? ResolveSourceBranchRef(string? sourceBranch, JsonElement? triggerInfo)
+    {
+        var fromTrigger = TryTriggerSourceBranch(triggerInfo);
+        if (!string.IsNullOrWhiteSpace(fromTrigger) && !IsPullRequestRef(fromTrigger))
+        {
+            return fromTrigger.Trim();
+        }
+
+        if (IsPullRequestRef(sourceBranch))
+        {
+            return null;
+        }
+
+        return string.IsNullOrWhiteSpace(sourceBranch) ? null : sourceBranch.Trim();
     }
 
     public static bool IsPullRequestReason(string? reason) =>

@@ -64,12 +64,17 @@ public sealed class AzurePullRequestMetadataTests
     }
 
     [Fact]
-    public void Normal_ci_branch_short_name()
+    public void ResolveSourceBranchRef_returns_null_for_merge_ref_without_trigger()
     {
-        var display = AzurePullRequestMetadata.ResolveDisplayBranch(
-            "refs/heads/master",
-            null,
-            null);
-        Assert.Equal("master", display);
+        Assert.Null(AzurePullRequestMetadata.ResolveSourceBranchRef("refs/pull/327/merge", null));
+    }
+
+    [Fact]
+    public void ResolveSourceBranchRef_prefers_trigger_source_branch()
+    {
+        using var doc = JsonDocument.Parse("""{"pr.sourceBranch":"refs/heads/feature/foo"}""");
+        Assert.Equal(
+            "refs/heads/feature/foo",
+            AzurePullRequestMetadata.ResolveSourceBranchRef("refs/pull/327/merge", doc.RootElement));
     }
 }

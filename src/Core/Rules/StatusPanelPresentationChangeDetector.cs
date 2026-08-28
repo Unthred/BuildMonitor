@@ -128,9 +128,35 @@ public static class StatusPanelPresentationChangeDetector
         && left.BuildNumberDisplay == right.BuildNumberDisplay
         && left.PullRequestDisplay == right.PullRequestDisplay
         && left.IssuesDisplay == right.IssuesDisplay
-        && left.DeepLinkUrl == right.DeepLinkUrl
+        && NavigationEqual(left.AzureNavigation, right.AzureNavigation)
         && left.Emphasis == right.Emphasis
         && left.AttentionNote == right.AttentionNote;
+
+    private static bool NavigationEqual(
+        AzureBuildSourceNavigation? left,
+        AzureBuildSourceNavigation? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return LinkTargetEqual(left.Status, right.Status)
+            && LinkTargetEqual(left.Run, right.Run)
+            && LinkTargetEqual(left.BuildNumber, right.BuildNumber)
+            && LinkTargetEqual(left.PullRequest, right.PullRequest)
+            && LinkTargetEqual(left.Branch, right.Branch)
+            && FailureRequestEqual(left.FailureRequest, right.FailureRequest);
+    }
+
+    private static bool LinkTargetEqual(AzureBuildLinkTarget left, AzureBuildLinkTarget right) =>
+        left.Kind == right.Kind
+        && string.Equals(left.Uri, right.Uri, StringComparison.Ordinal);
+
+    private static bool FailureRequestEqual(
+        AzureBuildFailureNavigationRequest? left,
+        AzureBuildFailureNavigationRequest? right) =>
+        left == right;
 
     private static bool StatusRowsEqual(
         IReadOnlyList<StatusPanelStatusRow> left,

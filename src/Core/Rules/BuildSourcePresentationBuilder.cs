@@ -46,7 +46,7 @@ public static class BuildSourcePresentationBuilder
             PullRequestDisplay: "—",
             AgeDisplay: FormatLocalAge(snapshot, utcNow),
             IssuesDisplay: FormatIssues(snapshot.ErrorCount, snapshot.WarningCount),
-            DeepLinkUrl: null,
+            AzureNavigation: null,
             Emphasis: emphasis);
     }
 
@@ -101,18 +101,18 @@ public static class BuildSourcePresentationBuilder
                         ? "—"
                         : azureUi.MessageSecondary!,
                     IssuesDisplay: "—",
-                    DeepLinkUrl: null,
+                    AzureNavigation: null,
                     Emphasis: azureUi.Emphasis)
             ];
         }
 
         var primary = azureUi.Rows[0];
-        // Previous-failure attention stays on the facet for future notifications; do not
-        // surface it under the current BUILDS row (at-a-glance current state only).
-
         var age = string.IsNullOrWhiteSpace(primary.TimingText)
             ? FormatAzureCompletedAge(facet?.PrimaryRun, utcNow)
             : CompactTiming(primary.TimingText!);
+        var navigation = facet?.PrimaryRun is not null && facet.NavigationContext is not null
+            ? AzureBuildSourceNavigationBuilder.Build(facet.PrimaryRun, facet.NavigationContext)
+            : null;
 
         return
         [
@@ -126,7 +126,7 @@ public static class BuildSourcePresentationBuilder
                 PullRequestDisplay: primary.PullRequestDisplay,
                 AgeDisplay: age,
                 IssuesDisplay: "—",
-                DeepLinkUrl: primary.RunUrl,
+                AzureNavigation: navigation,
                 Emphasis: primary.Emphasis,
                 AttentionNote: null)
         ];

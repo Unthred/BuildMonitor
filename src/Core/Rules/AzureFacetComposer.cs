@@ -44,7 +44,8 @@ public static class AzureFacetComposer
         string? focusBranch,
         DateTimeOffset polledAtUtc,
         IReadOnlyList<AzurePipelineRunInfo>? healthRepresentatives = null,
-        IReadOnlyList<AzurePipelineRunInfo>? extraAttention = null)
+        IReadOnlyList<AzurePipelineRunInfo>? extraAttention = null,
+        AzureBuildNavigationContext? navigationContext = null)
     {
         _ = azure;
         var (primary, attentionFromReps) = AzureRunSelector.SelectPrimaryAndAttention(
@@ -79,6 +80,7 @@ public static class AzureFacetComposer
             primary,
             attention,
             polledAtUtc,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: navigationContext);
     }
 }

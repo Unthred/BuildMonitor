@@ -13,7 +13,9 @@ public sealed record AzurePipelineRunInfo(
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? FinishedAtUtc,
     string? RunUrl,
-    int? PullRequestNumber = null);
+    int? PullRequestNumber = null,
+    /// <summary>Real source branch ref for navigation; never a PR merge ref when avoidable.</summary>
+    string? SourceBranchRef = null);
 
 /// <summary>Project-level Azure health facet merged into <see cref="ProjectHealthSnapshot"/>.</summary>
 public sealed record ProjectAzureHealthFacet(
@@ -24,7 +26,8 @@ public sealed record ProjectAzureHealthFacet(
     IReadOnlyList<AzurePipelineRunInfo> AttentionRuns,
     DateTimeOffset PolledAtUtc,
     string? StatusMessage = null,
-    bool HasSelectedPipelines = true);
+    bool HasSelectedPipelines = true,
+    AzureBuildNavigationContext? NavigationContext = null);
 
 /// <summary>One compact Azure table row in the hover status panel.</summary>
 public sealed record AzureStatusTableRow(

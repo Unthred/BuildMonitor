@@ -4,7 +4,9 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
+using BuildMonitor.Infrastructure.AzureDevOps;
 using WpfColor = System.Windows.Media.Color;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfOrientation = System.Windows.Controls.Orientation;
@@ -14,6 +16,8 @@ namespace BuildMonitor.TrayApp.Services;
 
 internal static class StatusPanelVisuals
 {
+    internal static IBuildSourceLinkOpener? LinkOpener { get; set; }
+
     public static UIElement BuildStepProgressChart(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
     {
         var container = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
@@ -143,10 +147,10 @@ internal static class StatusPanelVisuals
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, runUrl: null, allowEllipsis: false, palette: palette);
             AddBuildStatusCell(grid, rowIndex, 1, row, palette);
-            AddAzureCell(grid, rowIndex, 2, row.BranchDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: true, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 3, row.RunDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 4, row.BuildNumberDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
-            AddAzureCell(grid, rowIndex, 5, row.PullRequestDisplay, palette.Foreground, bold: false, row.DeepLinkUrl, allowEllipsis: false, asIdentifierLink: true, palette: palette);
+            AddBuildLinkCell(grid, rowIndex, 2, row.BranchDisplay, row.AzureNavigation?.Branch, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: true);
+            AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, palette, allowEllipsis: false);
             AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, allowEllipsis: true, palette: palette);
             AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, allowEllipsis: false, palette: palette);
 
@@ -190,28 +194,23 @@ internal static class StatusPanelVisuals
             TextWrapping = TextWrapping.NoWrap,
             Text = $"{data.StatusGlyph} {data.StatusText}"
         };
-        if (!string.IsNullOrWhiteSpace(data.DeepLinkUrl) && Uri.TryCreate(data.DeepLinkUrl, UriKind.Absolute, out var uri))
+        if (TryGetNavigationUri(data.AzureNavigation?.Status, data.AzureNavigation?.FailureRequest, out var uri))
         {
             block.Text = null;
             var statusBrush = EmphasisBrush(data.Emphasis, palette);
             var link = new Hyperlink(new Run($"{data.StatusGlyph} {data.StatusText}"))
             {
-                NavigateUri = uri,
-                ToolTip = "Open in Azure DevOps",
+                NavigateUri = uri ?? new Uri("about:blank"),
+                ToolTip = data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
+                    ? "Open failure details in Azure DevOps"
+                    : "Open in Azure DevOps",
                 TextDecorations = null,
                 Foreground = statusBrush
             };
             link.RequestNavigate += (_, e) =>
             {
                 e.Handled = true;
-                try
-                {
-                    Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-                }
-                catch
-                {
-                    // ignore
-                }
+                NavigateBuildLink(data.AzureNavigation!.Status, data.AzureNavigation.FailureRequest);
             };
             block.Inlines.Add(link);
         }
@@ -219,6 +218,110 @@ internal static class StatusPanelVisuals
         Grid.SetRow(block, row);
         Grid.SetColumn(block, column);
         grid.Children.Add(block);
+    }
+
+    private static void AddBuildLinkCell(
+        Grid grid,
+        int row,
+        int column,
+        string text,
+        AzureBuildLinkTarget? target,
+        AzureBuildFailureNavigationRequest? failureRequest,
+        ThemePalette palette,
+        bool allowEllipsis)
+    {
+        var block = new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = FontWeights.Normal,
+            Foreground = new SolidColorBrush(palette.Foreground),
+            Margin = new Thickness(0, 0, 8, 1),
+            TextTrimming = allowEllipsis ? TextTrimming.CharacterEllipsis : TextTrimming.None,
+            TextWrapping = TextWrapping.NoWrap
+        };
+
+        if (target is not null
+            && TryGetNavigationUri(target, failureRequest, out var uri))
+        {
+            var link = new Hyperlink(new Run(text))
+            {
+                NavigateUri = uri ?? new Uri("about:blank"),
+                ToolTip = "Open in Azure DevOps",
+                TextDecorations = null,
+                Foreground = LinkBrush(palette)
+            };
+            link.RequestNavigate += (_, e) =>
+            {
+                e.Handled = true;
+                NavigateBuildLink(target, failureRequest);
+            };
+            block.Inlines.Add(link);
+        }
+        else
+        {
+            block.Text = text;
+        }
+
+        Grid.SetRow(block, row);
+        Grid.SetColumn(block, column);
+        grid.Children.Add(block);
+    }
+
+    private static bool TryGetNavigationUri(
+        AzureBuildLinkTarget? target,
+        AzureBuildFailureNavigationRequest? failureRequest,
+        out Uri? uri)
+    {
+        uri = null;
+        if (target is null || target.Kind == AzureBuildLinkKind.None)
+        {
+            return false;
+        }
+
+        if (target.Kind == AzureBuildLinkKind.FailureDetails)
+        {
+            return failureRequest is not null;
+        }
+
+        if (string.IsNullOrWhiteSpace(target.Uri)
+            || !Uri.TryCreate(target.Uri, UriKind.Absolute, out var parsed))
+        {
+            return false;
+        }
+
+        uri = parsed;
+        return true;
+    }
+
+    private static void NavigateBuildLink(
+        AzureBuildLinkTarget target,
+        AzureBuildFailureNavigationRequest? failureRequest)
+    {
+        if (target.Kind == AzureBuildLinkKind.FailureDetails && failureRequest is not null)
+        {
+            var opener = LinkOpener;
+            if (opener is not null)
+            {
+                _ = opener.OpenFailureDetailsAsync(failureRequest);
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(target.Uri)
+            || !Uri.TryCreate(target.Uri, UriKind.Absolute, out var uri))
+        {
+            return;
+        }
+
+        if (LinkOpener is not null)
+        {
+            LinkOpener.OpenUri(uri);
+        }
+        else
+        {
+            BuildSourceLinkOpener.OpenHttpNavigationUri(uri);
+        }
     }
 
     private static void AddDenseLabel(Grid grid, int row, int column, string text, ThemePalette palette)
