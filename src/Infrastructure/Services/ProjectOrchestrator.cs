@@ -285,6 +285,49 @@ public sealed partial class ProjectOrchestrator : IDisposable
         }
     }
 
+    /// <summary>
+    /// Hard Settings Save remount: apply per-project remount kinds without compiling.
+    /// Call after <see cref="ApplySettings"/> so definitions are current.
+    /// </summary>
+    public async Task RemountLocalProjectsWithoutBuildAsync(
+        IReadOnlyList<LocalProjectRemountPlan> remounts,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(remounts);
+        foreach (var plan in remounts)
+        {
+            if (plan.Kind == LocalRemountKind.StopOnly)
+            {
+                continue; // ApplySettings already disposed inactive runtimes.
+            }
+
+            ProjectRuntime? runtime;
+            lock (sync)
+            {
+                runtimes.TryGetValue(plan.ProjectId, out runtime);
+            }
+
+            if (runtime is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await runtime.RemountWithoutBuildAsync(plan.Kind, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RaiseUserNotification(
+                    runtime.ProjectId,
+                    $"Failed to remount {runtime.DisplayName}",
+                    ExceptionDetailFormatter.Format(ex),
+                    UserNotificationKind.Error,
+                    UserNotificationCategory.Error);
+            }
+        }
+    }
+
     private bool ShouldStartOnLaunch(string projectId)
     {
         var project = settings.Projects.FirstOrDefault(p => p.Id == projectId);

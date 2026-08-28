@@ -20,14 +20,14 @@ public enum SettingsApplyImpact
 
     /// <summary>
     /// Monitor, connections, Azure, display names, Local policy/UI prefs (tests, restart flags,
-    /// build-control mode, etc.) — refresh orchestrator/Azure without StopAll + StartActive.
+    /// build-control mode, etc.) — refresh orchestrator/Azure without remounting Local process/watcher.
     /// </summary>
     SoftRuntime = 2,
 
     /// <summary>
     /// Local process/watcher identity (paths, launch/args, RunMode, watch excludes) or Local
-    /// active-session membership — stop/restart Local runtimes (may build via StartAsync when
-    /// StartOnLaunch is enabled). There is no restart-without-build apply path yet.
+    /// active-session membership — remount affected Local runtimes without compiling.
+    /// Cold start (<c>before == null</c>) still uses startup build when StartOnLaunch is enabled.
     /// </summary>
     HardRestart = 3
 }
@@ -35,10 +35,26 @@ public enum SettingsApplyImpact
 /// <summary>Actions derived from <see cref="SettingsApplyImpact"/> for the tray apply path.</summary>
 public sealed record SettingsApplyPlan(
     SettingsApplyImpact Impact,
-    bool StopAllAndRestartActiveProjects,
     bool ApplyOrchestratorSettings,
     bool ResetHealthTransitionState,
-    bool ShowProjectsStartingToast);
+    bool ShowProjectsStartingToast,
+    /// <summary>
+    /// Cold BuildMonitor/session start: StopAll + StartActive with startup build when StartOnLaunch.
+    /// </summary>
+    bool ColdStartActiveProjectsWithBuild,
+    /// <summary>
+    /// Hard Settings Save: remount only <see cref="LocalRemounts"/> — never BuildAsync.
+    /// </summary>
+    bool RemountAffectedLocalProjectsWithoutBuild,
+    IReadOnlyList<LocalProjectRemountPlan> LocalRemounts)
+{
+    /// <summary>
+    /// Legacy name used by older tests/docs: true when either cold-start-with-build or
+    /// remount-without-build will touch Local runtimes.
+    /// </summary>
+    public bool TouchesLocalRuntimes =>
+        ColdStartActiveProjectsWithBuild || RemountAffectedLocalProjectsWithoutBuild;
+}
 
 /// <summary>
 /// Classifies Settings Save diffs so presentation/Azure/monitor updates are not treated as launch.
@@ -91,28 +107,44 @@ public static class SettingsApplyImpactClassifier
         {
             SettingsApplyImpact.None => new SettingsApplyPlan(
                 Impact: impact,
-                StopAllAndRestartActiveProjects: false,
                 ApplyOrchestratorSettings: false,
                 ResetHealthTransitionState: false,
-                ShowProjectsStartingToast: false),
+                ShowProjectsStartingToast: false,
+                ColdStartActiveProjectsWithBuild: false,
+                RemountAffectedLocalProjectsWithoutBuild: false,
+                LocalRemounts: []),
             SettingsApplyImpact.Presentation => new SettingsApplyPlan(
                 Impact: impact,
-                StopAllAndRestartActiveProjects: false,
                 ApplyOrchestratorSettings: false,
                 ResetHealthTransitionState: false,
-                ShowProjectsStartingToast: false),
+                ShowProjectsStartingToast: false,
+                ColdStartActiveProjectsWithBuild: false,
+                RemountAffectedLocalProjectsWithoutBuild: false,
+                LocalRemounts: []),
             SettingsApplyImpact.SoftRuntime => new SettingsApplyPlan(
                 Impact: impact,
-                StopAllAndRestartActiveProjects: false,
                 ApplyOrchestratorSettings: true,
                 ResetHealthTransitionState: false,
-                ShowProjectsStartingToast: false),
-            _ => new SettingsApplyPlan(
+                ShowProjectsStartingToast: false,
+                ColdStartActiveProjectsWithBuild: false,
+                RemountAffectedLocalProjectsWithoutBuild: false,
+                LocalRemounts: []),
+            _ when before is null => new SettingsApplyPlan(
                 Impact: SettingsApplyImpact.HardRestart,
-                StopAllAndRestartActiveProjects: true,
                 ApplyOrchestratorSettings: true,
                 ResetHealthTransitionState: true,
-                ShowProjectsStartingToast: true)
+                ShowProjectsStartingToast: true,
+                ColdStartActiveProjectsWithBuild: true,
+                RemountAffectedLocalProjectsWithoutBuild: false,
+                LocalRemounts: []),
+            _ => new SettingsApplyPlan(
+                Impact: SettingsApplyImpact.HardRestart,
+                ApplyOrchestratorSettings: true,
+                ResetHealthTransitionState: true,
+                ShowProjectsStartingToast: false,
+                ColdStartActiveProjectsWithBuild: false,
+                RemountAffectedLocalProjectsWithoutBuild: true,
+                LocalRemounts: SettingsLocalRemountPlanner.Plan(before!, after))
         };
     }
 

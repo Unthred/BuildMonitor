@@ -24,6 +24,7 @@ internal sealed partial class ProjectRuntime
                 fileChangeDebounceMs,
                 GetEffectiveWatchIgnoreSegments());
             fileWatcher.Changed += OnFileWatcherChanged;
+            Interlocked.Increment(ref watcherCreateCount);
         }
         catch (Exception ex)
         {
@@ -57,6 +58,7 @@ internal sealed partial class ProjectRuntime
 
     public async Task BuildAsync(CancellationToken cancellationToken)
     {
+        Interlocked.Increment(ref buildAsyncInvocationCount);
         if (Interlocked.CompareExchange(ref buildInProgress, 1, 0) != 0)
         {
             // Rejected rebuild: force a user-visible refresh now so the status panel

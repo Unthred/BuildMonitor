@@ -44,7 +44,7 @@ public sealed class SettingsApplyImpactClassifierTests
         var settings = SampleSettings();
         var plan = SettingsApplyImpactClassifier.CreatePlan(settings, Clone(settings));
         Assert.Equal(SettingsApplyImpact.None, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
         Assert.False(plan.ApplyOrchestratorSettings);
         Assert.False(plan.ShowProjectsStartingToast);
     }
@@ -58,7 +58,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.Presentation, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
         Assert.False(plan.ApplyOrchestratorSettings);
         Assert.False(plan.ResetHealthTransitionState);
         Assert.False(plan.ShowProjectsStartingToast);
@@ -92,7 +92,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
         Assert.True(plan.ApplyOrchestratorSettings);
         Assert.False(plan.ShowProjectsStartingToast);
     }
@@ -132,7 +132,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
     }
 
     [Fact]
@@ -144,9 +144,9 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.HardRestart, plan.Impact);
-        Assert.True(plan.StopAllAndRestartActiveProjects);
+        Assert.True(plan.TouchesLocalRuntimes);
         Assert.True(plan.ApplyOrchestratorSettings);
-        Assert.True(plan.ShowProjectsStartingToast);
+        Assert.False(plan.ShowProjectsStartingToast); Assert.True(plan.RemountAffectedLocalProjectsWithoutBuild);
     }
 
     [Fact]
@@ -209,7 +209,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
         Assert.True(plan.ApplyOrchestratorSettings);
     }
 
@@ -240,7 +240,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
     }
 
     [Fact]
@@ -254,7 +254,10 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.HardRestart, plan.Impact);
-        Assert.True(plan.StopAllAndRestartActiveProjects);
+        Assert.True(plan.TouchesLocalRuntimes);
+        Assert.True(plan.RemountAffectedLocalProjectsWithoutBuild);
+        Assert.False(plan.ColdStartActiveProjectsWithBuild);
+        Assert.False(plan.ShowProjectsStartingToast);
     }
 
     [Fact]
@@ -270,11 +273,14 @@ public sealed class SettingsApplyImpactClassifierTests
     }
 
     [Fact]
-    public void Null_before_is_hard_restart_like_cold_start()
+    public void Null_before_cold_start_plan_uses_startup_build_not_remount()
     {
-        Assert.Equal(
-            SettingsApplyImpact.HardRestart,
-            SettingsApplyImpactClassifier.Classify(null, SampleSettings()));
+        var plan = SettingsApplyImpactClassifier.CreatePlan(null, SampleSettings());
+        Assert.Equal(SettingsApplyImpact.HardRestart, plan.Impact);
+        Assert.True(plan.ColdStartActiveProjectsWithBuild);
+        Assert.False(plan.RemountAffectedLocalProjectsWithoutBuild);
+        Assert.True(plan.ShowProjectsStartingToast);
+        Assert.Empty(plan.LocalRemounts);
     }
 
     [Fact]
@@ -286,7 +292,7 @@ public sealed class SettingsApplyImpactClassifierTests
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
         Assert.Equal(SettingsApplyImpact.SoftRuntime, plan.Impact);
-        Assert.False(plan.StopAllAndRestartActiveProjects);
+        Assert.False(plan.TouchesLocalRuntimes);
     }
 
     [Fact]
@@ -312,7 +318,7 @@ public sealed class SettingsApplyImpactClassifierTests
                 continue;
             }
 
-            // SchemaVersion alone → None (catalog Impact None)
+            // SchemaVersion alone â†’ None (catalog Impact None)
             data.Add(entry.Path, entry.Impact);
         }
 
@@ -497,3 +503,4 @@ internal static class SettingsPathMutator
         prop.SetValue(target, next);
     }
 }
+

@@ -76,7 +76,7 @@ public static class StatusPanelPresentationChangeDetector
                 || prev.ShowProgressChart != card.ShowProgressChart
                 || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps)
                 || prev.Azure != card.Azure
-                || !BuildSourceRowsEqual(prev.BuildSourceRows, card.BuildSourceRows))
+                || !BuildSourceRowsUrgentEqual(prev.BuildSourceRows, card.BuildSourceRows))
             {
                 return true;
             }
@@ -85,7 +85,11 @@ public static class StatusPanelPresentationChangeDetector
         return previous.Cards.Count != current.Cards.Count;
     }
 
-    private static bool BuildSourceRowsEqual(
+    /// <summary>
+    /// Urgent BUILDS rebuild when identity, status, or navigation metadata changes — not when only Age ticks.
+    /// Age-only updates defer while the pointer is over the panel so Azure hyperlinks stay clickable.
+    /// </summary>
+    private static bool BuildSourceRowsUrgentEqual(
         IReadOnlyList<BuildSourcePresentationRow>? left,
         IReadOnlyList<BuildSourcePresentationRow>? right)
     {
@@ -106,7 +110,7 @@ public static class StatusPanelPresentationChangeDetector
 
         for (var i = 0; i < left.Count; i++)
         {
-            if (left[i] != right[i])
+            if (!BuildSourceRowUrgentEqual(left[i], right[i]))
             {
                 return false;
             }
@@ -114,6 +118,19 @@ public static class StatusPanelPresentationChangeDetector
 
         return true;
     }
+
+    private static bool BuildSourceRowUrgentEqual(BuildSourcePresentationRow left, BuildSourcePresentationRow right) =>
+        left.Source == right.Source
+        && left.StatusGlyph == right.StatusGlyph
+        && left.StatusText == right.StatusText
+        && left.BranchDisplay == right.BranchDisplay
+        && left.RunDisplay == right.RunDisplay
+        && left.BuildNumberDisplay == right.BuildNumberDisplay
+        && left.PullRequestDisplay == right.PullRequestDisplay
+        && left.IssuesDisplay == right.IssuesDisplay
+        && left.DeepLinkUrl == right.DeepLinkUrl
+        && left.Emphasis == right.Emphasis
+        && left.AttentionNote == right.AttentionNote;
 
     private static bool StatusRowsEqual(
         IReadOnlyList<StatusPanelStatusRow> left,
