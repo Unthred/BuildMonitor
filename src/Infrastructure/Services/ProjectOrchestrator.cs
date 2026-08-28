@@ -425,6 +425,14 @@ public sealed partial class ProjectOrchestrator : IDisposable
         }
     }
 
+    public bool IsManualTestRunBlocked(string projectId)
+    {
+        lock (sync)
+        {
+            return runtimes.TryGetValue(projectId, out var runtime) && runtime.IsManualTestRunBlocked;
+        }
+    }
+
     public StillEditingClickResult HandleStillEditingClick(string projectId)
     {
         lock (sync)

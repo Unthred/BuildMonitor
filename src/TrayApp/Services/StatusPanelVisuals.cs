@@ -20,6 +20,8 @@ internal static class StatusPanelVisuals
 
     internal static Action<StatusPanelProjectLogRequest>? OpenProjectLog { get; set; }
 
+    internal static Action<string, string, TextBlock>? RegisterBuildSourceAgeCell { get; set; }
+
     private sealed record BuildSourceLinkClickTag(
         string ProjectId,
         AzureBuildLinkTarget Target,
@@ -159,7 +161,8 @@ internal static class StatusPanelVisuals
             AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
             AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
             AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
-            AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: true, palette: palette);
+            var ageCell = AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: true, palette: palette);
+            RegisterBuildSourceAgeCell?.Invoke(projectId, row.Source, ageCell);
             AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: false, palette: palette);
 
             if (!string.IsNullOrWhiteSpace(row.AttentionNote))
@@ -894,7 +897,7 @@ internal static class StatusPanelVisuals
         grid.Children.Add(block);
     }
 
-    private static void AddAzureCell(
+    private static TextBlock AddAzureCell(
         Grid grid,
         int row,
         int column,
@@ -944,6 +947,7 @@ internal static class StatusPanelVisuals
         Grid.SetRow(block, row);
         Grid.SetColumn(block, column);
         grid.Children.Add(block);
+        return block;
     }
 
     private static void AddAzureStatusCell(Grid grid, int row, int column, AzureStatusTableRow data, string projectId, ThemePalette palette)

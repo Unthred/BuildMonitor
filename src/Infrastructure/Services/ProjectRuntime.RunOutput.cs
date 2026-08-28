@@ -260,7 +260,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        if (Volatile.Read(ref buildInProgress) != 0)
+        if (Volatile.Read(ref compileInProgress) != 0)
         {
             notifyUser?.Invoke(
                 projectSettings.Id,
@@ -269,6 +269,11 @@ internal sealed partial class ProjectRuntime
                 UserNotificationKind.Warning,
                 UserNotificationCategory.Warning);
             return;
+        }
+
+        if (Volatile.Read(ref buildInProgress) != 0)
+        {
+            await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
         }
 
         isRestarting = true;

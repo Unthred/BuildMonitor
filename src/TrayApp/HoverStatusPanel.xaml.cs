@@ -27,6 +27,7 @@ public partial class HoverStatusPanel : Window
     private StatusPanelPresentation? lastRenderedPresentation;
     private bool deferCardRebuildUntilMouseLeave;
     private DateTimeOffset? panelDismissAtUtc;
+    private readonly Dictionary<StatusPanelAgeDisplayRefresher.AgeDisplayCellKey, TextBlock> ageTextBlocks = new();
     private Rectangle? lastTrayIconBounds;
     private IntPtr lastTrayIconWindowHandle;
     private Rectangle? lastPlacementBounds;
@@ -160,7 +161,28 @@ public partial class HoverStatusPanel : Window
         ApplySideRail(presentation.SideRail, palette);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);
+        RefreshAgeDisplays(presentation);
         SyncCountdownTimer(snapshots);
+    }
+
+    private void RefreshAgeDisplays(StatusPanelPresentation? presentation = null)
+    {
+        if (ageTextBlocks.Count == 0)
+        {
+            return;
+        }
+
+        presentation ??= StatusPanelPresentationBuilder.Build(
+            lastSnapshots,
+            panelDismissAtUtc,
+            DateTimeOffset.UtcNow);
+        foreach (var (key, text) in StatusPanelAgeDisplayRefresher.CollectAgeDisplays(presentation))
+        {
+            if (ageTextBlocks.TryGetValue(key, out var block) && !string.Equals(block.Text, text, StringComparison.Ordinal))
+            {
+                block.Text = text;
+            }
+        }
     }
 
     private void RebuildProjectCards(
@@ -168,6 +190,10 @@ public partial class HoverStatusPanel : Window
         StatusPanelSideRailPresentation sideRail,
         ThemePalette palette)
     {
+        ageTextBlocks.Clear();
+        StatusPanelVisuals.RegisterBuildSourceAgeCell = (projectId, source, block) =>
+            ageTextBlocks[new StatusPanelAgeDisplayRefresher.AgeDisplayCellKey(projectId, source)] = block;
+
         ProjectCards.Items.Clear();
 
         foreach (var cardModel in cards)
@@ -358,6 +384,8 @@ public partial class HoverStatusPanel : Window
                 TextWrapping = TextWrapping.Wrap
             });
         }
+
+        StatusPanelVisuals.RegisterBuildSourceAgeCell = null;
     }
 
     private static void WireActionButton(WpfButton button, Action invoke)
@@ -411,17 +439,13 @@ public partial class HoverStatusPanel : Window
             DateTimeOffset.UtcNow);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);
-
-        var needsCountdown = HasActiveRebuildCountdown(lastSnapshots) || panelDismissAtUtc is not null;
-        if (!needsCountdown)
-        {
-            countdownTimer.Stop();
-        }
+        RefreshAgeDisplays(presentation);
     }
 
     private void SyncCountdownTimer(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
-        if (IsVisible && (HasActiveRebuildCountdown(snapshots) || panelDismissAtUtc is not null))
+        _ = snapshots;
+        if (IsVisible)
         {
             if (!countdownTimer.IsEnabled)
             {

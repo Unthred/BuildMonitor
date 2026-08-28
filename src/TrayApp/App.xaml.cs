@@ -1096,12 +1096,18 @@ public partial class App : System.Windows.Application
         hoverPanel.RunTestsRequested += projectId =>
         {
             var name = currentSettings.Projects.FirstOrDefault(p => p.Id == projectId)?.DisplayName ?? projectId;
-            OpenLogViewer(projectId, name, BuildLogKind.Test);
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await orchestrator!.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                    if (orchestrator!.IsManualTestRunBlocked(projectId))
+                    {
+                        await orchestrator.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                        return;
+                    }
+
+                    await Dispatcher.InvokeAsync(() => OpenLogViewer(projectId, name, BuildLogKind.Test));
+                    await orchestrator.RunTestsAsync(projectId, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
