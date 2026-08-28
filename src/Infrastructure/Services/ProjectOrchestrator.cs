@@ -63,11 +63,13 @@ public sealed partial class ProjectOrchestrator : IDisposable
             new DpapiSecretProtector());
         var timelineClient = new AzureBuildTimelineClient();
         var failureResolver = new AzureFailureNavigationResolver(timelineClient, secretStore);
+        var branchResolver = new AzureBranchNavigationResolver(new AzureGitRefClient(), secretStore);
         projectLinkLauncher = new ProjectLinkLauncher(
             GetSettingsSnapshot,
             registeredBrowserCatalog,
             new HttpUriProcessLauncher(),
-            failureResolver);
+            failureResolver,
+            branchResolver);
         azureMonitoring = new AzureMonitoringService(
             new AzureBuildPollClient(),
             secretStore,

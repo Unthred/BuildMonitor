@@ -12,7 +12,8 @@ public sealed class AzureBuildSourceNavigationBuilderTests
         "conn-1",
         "https://dev.azure.com/org",
         "My Project",
-        "MyRepo");
+        "MyRepo",
+        "repo-id-1");
 
     [Fact]
     public void Succeeded_status_uses_run_results_not_failure_resolution()
@@ -97,7 +98,10 @@ public sealed class AzureBuildSourceNavigationBuilderTests
         var nav = AzureBuildSourceNavigationBuilder.Build(run, Context);
 
         Assert.Equal(AzureBuildLinkKind.Branch, nav.Branch.Kind);
-        Assert.Contains("version=GBfeature%2Ffoo", nav.Branch.Uri!, StringComparison.Ordinal);
+        Assert.Null(nav.Branch.Uri);
+        Assert.NotNull(nav.BranchRequest);
+        Assert.Contains("version=GBfeature%2Ffoo", nav.BranchRequest!.BranchUrlFallback, StringComparison.Ordinal);
+        Assert.Equal("refs/heads/feature/foo", nav.BranchRequest.SourceBranchRef);
     }
 
     [Fact]
@@ -126,10 +130,13 @@ public sealed class AzureBuildSourceNavigationBuilderTests
         var nav = AzureBuildSourceNavigationBuilder.Build(run, Context);
 
         Assert.Equal(AzureBuildLinkKind.Branch, nav.Branch.Kind);
+        Assert.Null(nav.Branch.Uri);
+        Assert.NotNull(nav.BranchRequest);
         Assert.Contains(
             "version=GBfeature%2FAB-408-dataset-xml-security",
-            nav.Branch.Uri!,
+            nav.BranchRequest!.BranchUrlFallback,
             StringComparison.Ordinal);
+        Assert.Equal(188, nav.BranchRequest.PullRequestNumber);
         Assert.Equal(AzureBuildLinkKind.PullRequest, nav.PullRequest.Kind);
         Assert.Contains("/pullrequest/188", nav.PullRequest.Uri!, StringComparison.Ordinal);
     }
@@ -139,7 +146,8 @@ public sealed class AzureBuildSourceNavigationBuilderTests
         PipelineRunResult result,
         string branch = "master",
         string? sourceBranchRef = "refs/heads/master",
-        int? pullRequestNumber = null) =>
+        int? pullRequestNumber = null,
+        string? sourceVersion = null) =>
         new(
             8,
             "Pipe",
@@ -153,7 +161,8 @@ public sealed class AzureBuildSourceNavigationBuilderTests
             DateTimeOffset.UtcNow.AddMinutes(-1),
             "https://dev.azure.com/org/project/_build/results?buildId=491&view=results",
             pullRequestNumber,
-            sourceBranchRef);
+            sourceBranchRef,
+            sourceVersion);
 }
 
 public sealed class AzureBuildTimelineFailureSelectorTests
@@ -220,6 +229,21 @@ public sealed class AzureDevOpsDeepLinkBuilderTests
 
         Assert.Equal(
             "https://dev.azure.com/myorg/myspace/_build/results?buildId=1234&view=logs&j=899c4bff-9ac3-12de-4775-50e701812cb4&t=bc949ec8-c945-5220-1d40-d8ea7dab4bda",
+            url);
+    }
+
+    [Fact]
+    public void Commit_url_uses_git_commit_path()
+    {
+        const string sha = "691538acd954126677fabf666d8af886ad094a27";
+        var url = AzureDevOpsDeepLinkBuilder.BuildCommitUrl(
+            "https://dev.azure.com/witherbyDev",
+            "8b784aaf-7e28-4aeb-9b34-9734af8ca06b",
+            "WitherbyConnect",
+            sha);
+
+        Assert.Equal(
+            $"https://dev.azure.com/witherbyDev/8b784aaf-7e28-4aeb-9b34-9734af8ca06b/_git/WitherbyConnect/commit/{sha}",
             url);
     }
 }
@@ -354,5 +378,20 @@ public sealed class AzureMonitoringTimelinePollIsolationTests
                 .SelectMany(m => m.GetParameters().Select(p => p.Name ?? string.Empty))
                 .Concat(typeof(AzureMonitoringService).GetMethods().Select(m => m.Name)),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Poll_client_does_not_use_git_ref_client()
+    {
+        var pollTypes = typeof(AzureBuildPollClient)
+            .GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .Select(p => p.ParameterType)
+            .Concat(
+                typeof(AzureBuildPollClient)
+                    .GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .Select(f => f.FieldType));
+
+        Assert.DoesNotContain(typeof(IAzureGitRefClient), pollTypes);
     }
 }

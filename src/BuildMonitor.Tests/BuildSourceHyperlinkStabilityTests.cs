@@ -12,7 +12,8 @@ public sealed class BuildSourceHyperlinkStabilityTests
         "conn",
         "https://dev.azure.com/org",
         "project",
-        "repo");
+        "repo",
+        "repo-id");
 
     [Fact]
     public void Urgent_rebuild_false_when_only_age_and_hidden_azure_timing_change()

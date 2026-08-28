@@ -38,7 +38,7 @@ public static class AzureBuildSourceNavigationBuilder
                     pr))
             : AzureBuildLinkTarget.None;
 
-        var branchTarget = TryBuildBranchTarget(primaryRun, context);
+        var (branchTarget, branchRequest) = TryBuildBranchNavigation(primaryRun, context, runResultsUri);
 
         return new AzureBuildSourceNavigation(
             statusTarget,
@@ -46,30 +46,46 @@ public static class AzureBuildSourceNavigationBuilder
             runTarget,
             pullRequestTarget,
             branchTarget,
-            failureRequest);
+            failureRequest,
+            branchRequest);
     }
 
     private static bool NeedsFailureResolution(AzurePipelineRunInfo run) =>
         run.State == PipelineRunState.Completed
         && run.Result is PipelineRunResult.Failed or PipelineRunResult.PartiallySucceeded;
 
-    private static AzureBuildLinkTarget TryBuildBranchTarget(
+    private static (AzureBuildLinkTarget Target, AzureBuildBranchNavigationRequest? Request) TryBuildBranchNavigation(
         AzurePipelineRunInfo run,
-        AzureBuildNavigationContext context)
+        AzureBuildNavigationContext context,
+        string runResultsUri)
     {
         var shortName = AzureGitBranchNormalizer.ToShortName(run.SourceBranchRef);
         if (string.IsNullOrWhiteSpace(shortName)
             || AzurePullRequestMetadata.IsPullRequestRef(run.SourceBranchRef))
         {
-            return AzureBuildLinkTarget.None;
+            return (AzureBuildLinkTarget.None, null);
         }
 
-        return AzureBuildLinkTarget.Static(
-            AzureBuildLinkKind.Branch,
-            AzureDevOpsDeepLinkBuilder.BuildBranchUrl(
-                context.OrganizationUrl,
-                context.AdoProjectIdOrName,
-                context.RepositoryName,
-                shortName));
+        var branchUrl = AzureDevOpsDeepLinkBuilder.BuildBranchUrl(
+            context.OrganizationUrl,
+            context.AdoProjectIdOrName,
+            context.RepositoryName,
+            shortName);
+
+        int? trustworthyPr = run.PullRequestNumber is int pr && pr > 0 ? pr : null;
+        var request = new AzureBuildBranchNavigationRequest(
+            context.ProjectId,
+            context.ConnectionId,
+            context.OrganizationUrl,
+            context.AdoProjectIdOrName,
+            context.RepositoryId,
+            context.RepositoryName,
+            run.RunId,
+            run.SourceBranchRef!.Trim(),
+            AzureGitCommitIdValidator.Normalize(run.SourceVersion),
+            trustworthyPr,
+            branchUrl);
+
+        return (AzureBuildLinkTarget.ResilientBranch(), request);
     }
 }

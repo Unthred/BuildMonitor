@@ -161,6 +161,9 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
             var queuedAt = ParseDate(run, "queueTime") ?? DateTimeOffset.UtcNow;
             var startedAt = ParseDate(run, "startTime");
             var finishedAt = ParseDate(run, "finishTime");
+            var sourceVersion = run.TryGetProperty("sourceVersion", out var svEl) && svEl.ValueKind == JsonValueKind.String
+                ? svEl.GetString()
+                : null;
             var name = pipelineDisplayName;
             if (run.TryGetProperty("definition", out var def) && def.TryGetProperty("name", out var defName))
             {
@@ -185,7 +188,8 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 finishedAt,
                 runUrl,
                 pullRequestNumber,
-                sourceBranchRef));
+                sourceBranchRef,
+                sourceVersion));
         }
 
         return new AzureBuildPollResult(AzureBuildPollOutcome.Ok, runs);

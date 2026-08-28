@@ -65,7 +65,8 @@ internal static class StatusPanelVisuals
     private sealed record BuildSourceLinkClickTag(
         string ProjectId,
         AzureBuildLinkTarget Target,
-        AzureBuildFailureNavigationRequest? FailureRequest);
+        AzureBuildFailureNavigationRequest? FailureRequest,
+        AzureBuildBranchNavigationRequest? BranchRequest);
 
     public static UIElement BuildStepProgressChart(IReadOnlyList<BuildProgressStep> steps, ThemePalette palette)
     {
@@ -197,10 +198,10 @@ internal static class StatusPanelVisuals
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             AddAzureCell(grid, rowIndex, 0, row.Source, palette.Foreground, bold: true, runUrl: null, projectId, allowEllipsis: false, palette: palette);
             AddBuildStatusCell(grid, rowIndex, 1, row, projectId, palette);
-            AddBuildLinkCell(grid, rowIndex, 2, row.BranchDisplay, row.AzureNavigation?.Branch, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: true);
-            AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
-            AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
-            AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, projectId, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 2, row.BranchDisplay, row.AzureNavigation?.Branch, row.AzureNavigation?.FailureRequest, row.AzureNavigation?.BranchRequest, projectId, palette, allowEllipsis: true);
+            AddBuildLinkCell(grid, rowIndex, 3, row.RunDisplay, row.AzureNavigation?.Run, row.AzureNavigation?.FailureRequest, null, projectId, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 4, row.BuildNumberDisplay, row.AzureNavigation?.BuildNumber, row.AzureNavigation?.FailureRequest, null, projectId, palette, allowEllipsis: false);
+            AddBuildLinkCell(grid, rowIndex, 5, row.PullRequestDisplay, row.AzureNavigation?.PullRequest, row.AzureNavigation?.FailureRequest, null, projectId, palette, allowEllipsis: false);
             var ageCell = AddAzureCell(grid, rowIndex, 6, row.AgeDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: true, palette: palette);
             RegisterBuildSourceAgeCell?.Invoke(projectId, row.Source, ageCell);
             AddAzureCell(grid, rowIndex, 7, row.IssuesDisplay, palette.Foreground, bold: false, null, projectId, allowEllipsis: false, palette: palette);
@@ -254,6 +255,7 @@ internal static class StatusPanelVisuals
                 statusText,
                 data.AzureNavigation?.Status,
                 data.AzureNavigation?.FailureRequest,
+                null,
                 projectId,
                 EmphasisBrush(data.Emphasis, palette),
                 fontWeight: FontWeights.SemiBold,
@@ -327,15 +329,17 @@ internal static class StatusPanelVisuals
         string text,
         AzureBuildLinkTarget? target,
         AzureBuildFailureNavigationRequest? failureRequest,
+        AzureBuildBranchNavigationRequest? branchRequest,
         string projectId,
         ThemePalette palette,
         bool allowEllipsis)
     {
-        var isClickable = target is not null && IsClickableBuildLink(target, failureRequest);
+        var isClickable = target is not null && IsClickableBuildLink(target, failureRequest, branchRequest);
         var content = CreateBuildLinkContent(
             text,
             target,
             failureRequest,
+            branchRequest,
             projectId,
             isClickable ? LinkBrush(palette) : new SolidColorBrush(palette.Foreground),
             fontWeight: FontWeights.Normal,
@@ -350,6 +354,7 @@ internal static class StatusPanelVisuals
         string text,
         AzureBuildLinkTarget? target,
         AzureBuildFailureNavigationRequest? failureRequest,
+        AzureBuildBranchNavigationRequest? branchRequest,
         string projectId,
         SolidColorBrush foreground,
         FontWeight fontWeight,
@@ -367,10 +372,10 @@ internal static class StatusPanelVisuals
             TextWrapping = TextWrapping.NoWrap
         };
 
-        if (target is not null && IsClickableBuildLink(target, failureRequest))
+        if (target is not null && IsClickableBuildLink(target, failureRequest, branchRequest))
         {
             block.Text = null;
-            block.Inlines.Add(CreateBuildHyperlink(text, foreground, projectId, target, failureRequest, toolTip));
+            block.Inlines.Add(CreateBuildHyperlink(text, foreground, projectId, target, failureRequest, branchRequest, toolTip));
         }
         else
         {
@@ -391,6 +396,7 @@ internal static class StatusPanelVisuals
         string projectId,
         AzureBuildLinkTarget target,
         AzureBuildFailureNavigationRequest? failureRequest,
+        AzureBuildBranchNavigationRequest? branchRequest,
         string? toolTip)
     {
         var link = new Hyperlink(new Run(text))
@@ -399,7 +405,7 @@ internal static class StatusPanelVisuals
             TextDecorations = null,
             Foreground = foreground,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Tag = new BuildSourceLinkClickTag(projectId, target, failureRequest)
+            Tag = new BuildSourceLinkClickTag(projectId, target, failureRequest, branchRequest)
         };
         link.PreviewMouseLeftButtonDown += OnBuildHyperlinkClick;
         return link;
@@ -420,12 +426,13 @@ internal static class StatusPanelVisuals
         }
 
         e.Handled = true;
-        NavigateBuildLink(tag.ProjectId, tag.Target, tag.FailureRequest);
+        NavigateBuildLink(tag.ProjectId, tag.Target, tag.FailureRequest, tag.BranchRequest);
     }
 
     private static bool IsClickableBuildLink(
         AzureBuildLinkTarget target,
-        AzureBuildFailureNavigationRequest? failureRequest)
+        AzureBuildFailureNavigationRequest? failureRequest,
+        AzureBuildBranchNavigationRequest? branchRequest)
     {
         if (target.Kind == AzureBuildLinkKind.None)
         {
@@ -437,6 +444,11 @@ internal static class StatusPanelVisuals
             return failureRequest is not null;
         }
 
+        if (target.Kind == AzureBuildLinkKind.Branch)
+        {
+            return branchRequest is not null;
+        }
+
         return !string.IsNullOrWhiteSpace(target.Uri)
             && Uri.TryCreate(target.Uri, UriKind.Absolute, out _);
     }
@@ -444,11 +456,18 @@ internal static class StatusPanelVisuals
     private static void NavigateBuildLink(
         string projectId,
         AzureBuildLinkTarget target,
-        AzureBuildFailureNavigationRequest? failureRequest)
+        AzureBuildFailureNavigationRequest? failureRequest,
+        AzureBuildBranchNavigationRequest? branchRequest)
     {
         if (target.Kind == AzureBuildLinkKind.FailureDetails && failureRequest is not null)
         {
             LinkOpener?.OpenFailureDetailsAsync(failureRequest);
+            return;
+        }
+
+        if (target.Kind == AzureBuildLinkKind.Branch && branchRequest is not null)
+        {
+            LinkOpener?.OpenBranchAsync(branchRequest);
             return;
         }
 

@@ -394,7 +394,8 @@ public sealed class StatusPanelPresentationBuilderTests
                 "conn",
                 "https://dev.azure.com/org",
                 "project",
-                "repo"));
+                "repo",
+                "repo-id"));
 
         var local = Snapshot(
             ProjectLifecycleState.Watching,

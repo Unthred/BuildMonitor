@@ -38,7 +38,8 @@ public sealed class ProjectLinkNavigationRegressionTests
             () => settings,
             new FakeBrowserCatalog(new RegisteredBrowserDescriptor("MSEdgeHTM", "Edge", @"C:\Edge\msedge.exe")),
             launcher,
-            new FixedFailureResolver(destination));
+            new FixedFailureResolver(destination),
+            new NoOpBranchResolver());
 
         var request = new AzureBuildFailureNavigationRequest(
             ProjectId: "project-a",
@@ -59,7 +60,8 @@ public sealed class ProjectLinkNavigationRegressionTests
             () => settings,
             new FakeBrowserCatalog(new RegisteredBrowserDescriptor("ChromeHTML", "Chrome", @"C:\Chrome\chrome.exe")),
             launcher,
-            new FixedFailureResolver(new Uri("https://dev.azure.com/unused")));
+            new FixedFailureResolver(new Uri("https://dev.azure.com/unused")),
+            new NoOpBranchResolver());
 
     private static AppSettings SettingsWithBrowser(string projectId, string browserId) =>
         new()
@@ -118,6 +120,20 @@ public sealed class ProjectLinkNavigationRegressionTests
         public bool TryGetCached(AzureBuildFailureNavigationRequest request, out Uri? cached)
         {
             cached = null;
+            return false;
+        }
+    }
+
+    private sealed class NoOpBranchResolver : IAzureBranchNavigationResolver
+    {
+        public Task<Uri> ResolveAsync(
+            AzureBuildBranchNavigationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new Uri(request.BranchUrlFallback));
+
+        public bool TryGetCached(AzureBuildBranchNavigationRequest request, out Uri? destination)
+        {
+            destination = null;
             return false;
         }
     }

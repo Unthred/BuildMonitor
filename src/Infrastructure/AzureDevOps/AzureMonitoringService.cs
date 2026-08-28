@@ -363,7 +363,8 @@ public sealed class AzureMonitoringService : IDisposable
                 azure.ConnectionId,
                 connection.OrganizationUrl,
                 adoProject,
-                azure.RepositoryName));
+                azure.RepositoryName,
+                azure.RepositoryId));
     }
 
     public static IReadOnlyList<MonitoredProjectSettings> GetEligibleProjects(AppSettings settings) =>
