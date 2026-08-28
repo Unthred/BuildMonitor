@@ -19,7 +19,7 @@ internal static class StatusPanelVisuals
 {
     internal static IBuildSourceLinkOpener? LinkOpener { get; set; }
 
-    private sealed class BuildSourceLinkClickTag(
+    private sealed record BuildSourceLinkClickTag(
         AzureBuildLinkTarget Target,
         AzureBuildFailureNavigationRequest? FailureRequest);
 
@@ -262,7 +262,7 @@ internal static class StatusPanelVisuals
         {
             Child = block,
             ClipToBounds = true,
-            Background = Brushes.Transparent
+            Background = System.Windows.Media.Brushes.Transparent
         };
     }
 
@@ -278,7 +278,7 @@ internal static class StatusPanelVisuals
             ToolTip = toolTip,
             TextDecorations = null,
             Foreground = foreground,
-            Cursor = Cursors.Hand,
+            Cursor = System.Windows.Input.Cursors.Hand,
             Tag = new BuildSourceLinkClickTag(target, failureRequest)
         };
         link.PreviewMouseLeftButtonDown += OnBuildHyperlinkClick;
