@@ -114,6 +114,26 @@ public sealed class AzureBuildSourceNavigationBuilderTests
         Assert.Equal(AzureBuildLinkKind.None, nav.Branch.Kind);
     }
 
+    [Fact]
+    public void Parameters_resolved_source_branch_has_branch_link_with_encoded_slash()
+    {
+        var run = Run(
+            PipelineRunState.InProgress,
+            PipelineRunResult.Unknown,
+            branch: "feature/AB-408-dataset-xml-security",
+            sourceBranchRef: "refs/heads/feature/AB-408-dataset-xml-security",
+            pullRequestNumber: 188);
+        var nav = AzureBuildSourceNavigationBuilder.Build(run, Context);
+
+        Assert.Equal(AzureBuildLinkKind.Branch, nav.Branch.Kind);
+        Assert.Contains(
+            "version=GBfeature%2FAB-408-dataset-xml-security",
+            nav.Branch.Uri!,
+            StringComparison.Ordinal);
+        Assert.Equal(AzureBuildLinkKind.PullRequest, nav.PullRequest.Kind);
+        Assert.Contains("/pullrequest/188", nav.PullRequest.Uri!, StringComparison.Ordinal);
+    }
+
     private static AzurePipelineRunInfo Run(
         PipelineRunState state,
         PipelineRunResult result,

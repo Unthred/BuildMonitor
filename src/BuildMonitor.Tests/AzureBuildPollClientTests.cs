@@ -99,7 +99,136 @@ public sealed class AzureBuildPollClientTests
         var pr = Assert.Single(result.Runs, r => r.RunId == 453);
         Assert.Equal(327, pr.PullRequestNumber);
         Assert.Equal("feature/foo", pr.Branch);
+        Assert.Equal("refs/heads/feature/foo", pr.SourceBranchRef);
         Assert.Equal("20260825.14", pr.BuildNumber);
+    }
+
+    [Fact]
+    public async Task Pr_merge_ref_resolves_source_branch_from_parameters_when_trigger_omits_it()
+    {
+        const string json = """
+            {
+              "value": [
+                {
+                  "id": 498,
+                  "buildNumber": "20260828.10",
+                  "status": "completed",
+                  "result": "succeeded",
+                  "reason": "pullRequest",
+                  "sourceBranch": "refs/pull/188/merge",
+                  "triggerInfo": {
+                    "pr.number": "188",
+                    "pr.isFork": "False"
+                  },
+                  "parameters": "{\"system.pullRequest.sourceBranch\":\"refs/heads/feature/AB-408-dataset-xml-security\",\"system.pullRequest.pullRequestId\":\"188\"}",
+                  "queueTime": "2026-08-28T08:56:37Z",
+                  "definition": { "name": "WitherbyConnect" }
+                }
+              ]
+            }
+            """;
+
+        using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })));
+
+        var result = await client.ListRecentBuildsAsync(
+            "https://dev.azure.com/org",
+            "proj",
+            8,
+            "CI",
+            "secret-pat",
+            CancellationToken.None);
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(188, run.PullRequestNumber);
+        Assert.Equal("feature/AB-408-dataset-xml-security", run.Branch);
+        Assert.Equal("refs/heads/feature/AB-408-dataset-xml-security", run.SourceBranchRef);
+    }
+
+    [Fact]
+    public async Task Malformed_parameters_json_does_not_break_poll()
+    {
+        const string json = """
+            {
+              "value": [
+                {
+                  "id": 501,
+                  "buildNumber": "20260828.11",
+                  "status": "completed",
+                  "result": "succeeded",
+                  "reason": "pullRequest",
+                  "sourceBranch": "refs/pull/185/merge",
+                  "triggerInfo": { "pr.number": "185" },
+                  "parameters": "{not-json",
+                  "queueTime": "2026-08-28T09:00:00Z",
+                  "definition": { "name": "CI" }
+                }
+              ]
+            }
+            """;
+
+        using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })));
+
+        var result = await client.ListRecentBuildsAsync(
+            "https://dev.azure.com/org",
+            "proj",
+            8,
+            "CI",
+            "pat",
+            CancellationToken.None);
+
+        Assert.Equal(AzureBuildPollOutcome.Ok, result.Outcome);
+        var run = Assert.Single(result.Runs);
+        Assert.Equal("PR #185", run.Branch);
+        Assert.Null(run.SourceBranchRef);
+    }
+
+    [Fact]
+    public async Task Parameters_merge_ref_is_rejected()
+    {
+        const string json = """
+            {
+              "value": [
+                {
+                  "id": 502,
+                  "buildNumber": "20260828.12",
+                  "status": "completed",
+                  "result": "succeeded",
+                  "reason": "pullRequest",
+                  "sourceBranch": "refs/pull/185/merge",
+                  "triggerInfo": { "pr.number": "185" },
+                  "parameters": "{\"system.pullRequest.sourceBranch\":\"refs/pull/185/merge\"}",
+                  "queueTime": "2026-08-28T09:00:00Z",
+                  "definition": { "name": "CI" }
+                }
+              ]
+            }
+            """;
+
+        using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })));
+
+        var result = await client.ListRecentBuildsAsync(
+            "https://dev.azure.com/org",
+            "proj",
+            8,
+            "CI",
+            "pat",
+            CancellationToken.None);
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal("PR #185", run.Branch);
+        Assert.Null(run.SourceBranchRef);
     }
 
     [Fact]

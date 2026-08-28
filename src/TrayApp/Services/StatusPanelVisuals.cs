@@ -215,11 +215,12 @@ internal static class StatusPanelVisuals
         ThemePalette palette,
         bool allowEllipsis)
     {
+        var isClickable = target is not null && IsClickableBuildLink(target, failureRequest);
         var content = CreateBuildLinkContent(
             text,
             target,
             failureRequest,
-            LinkBrush(palette),
+            isClickable ? LinkBrush(palette) : new SolidColorBrush(palette.Foreground),
             fontWeight: FontWeights.Normal,
             margin: new Thickness(0, 0, 8, 1),
             allowEllipsis: allowEllipsis,
