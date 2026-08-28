@@ -73,6 +73,7 @@ public static class StatusPanelPresentationBuilder
                 hasSelectedPipelines: snapshot.Azure.HasSelectedPipelines,
                 utcNow);
         var buildSourceRows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, utcNow);
+        var overallLabel = StatusPanelOverallFormatter.FormatLabel(snapshot.Health, [snapshot]);
 
         return new StatusPanelCardPresentation(
             ProjectId: snapshot.ProjectId,
@@ -96,6 +97,8 @@ public static class StatusPanelPresentationBuilder
             ShowRunTestsButton: true,
             ShowStillEditingButton: false,
             StillEditingToolTip: null,
+            OverallHealth: snapshot.Health,
+            OverallLabel: overallLabel,
             ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
             Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
             BuildSourceRows: buildSourceRows);

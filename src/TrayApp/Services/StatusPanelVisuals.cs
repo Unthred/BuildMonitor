@@ -518,17 +518,12 @@ internal static class StatusPanelVisuals
     }
 
     public static UIElement BuildOverallFooterSummary(
-        StatusPanelSideRailPresentation sideRail,
+        MonitorHealth overallHealth,
+        string overallLabel,
         ThemePalette palette)
     {
-        // Composite Overall uses IdleHealth/IdleLabel (Healthy / Building / Needs fix / Attention).
-        // Accent ActivityLabel remains available for DETAIL activity copy, not the footer.
-        var health = sideRail.IdleHealth != MonitorHealth.Unknown
-            ? sideRail.IdleHealth
-            : sideRail.AccentHealth;
-        var label = !string.IsNullOrWhiteSpace(sideRail.IdleLabel)
-            ? sideRail.IdleLabel
-            : sideRail.ActivityLabel;
+        var health = overallHealth;
+        var label = overallLabel;
         var glyph = health switch
         {
             MonitorHealth.Red => "●",

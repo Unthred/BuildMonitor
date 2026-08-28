@@ -147,7 +147,7 @@ public partial class HoverStatusPanel : Window
 
         if (rebuildCards)
         {
-            RebuildProjectCards(presentation.Cards, presentation.SideRail, palette);
+            RebuildProjectCards(presentation.Cards, palette);
             lastRenderedPresentation = presentation;
             ScheduleFitPanelToContent(repositionAfter: true);
         }
@@ -210,7 +210,6 @@ public partial class HoverStatusPanel : Window
 
     private void RebuildProjectCards(
         IReadOnlyList<StatusPanelCardPresentation> cards,
-        StatusPanelSideRailPresentation sideRail,
         ThemePalette palette)
     {
         ageTextBlocks.Clear();
@@ -391,7 +390,10 @@ public partial class HoverStatusPanel : Window
             Grid.SetColumn(actions, 0);
             actionRow.Children.Add(actions);
 
-            var overall = StatusPanelVisuals.BuildOverallFooterSummary(sideRail, palette);
+            var overall = StatusPanelVisuals.BuildOverallFooterSummary(
+                cardModel.OverallHealth,
+                cardModel.OverallLabel,
+                palette);
             Grid.SetColumn(overall, 1);
             actionRow.Children.Add(overall);
 

@@ -69,6 +69,8 @@ public static class StatusPanelPresentationChangeDetector
 
             if (prev.ShowStillEditingButton != card.ShowStillEditingButton
                 || prev.ActivityState != card.ActivityState
+                || prev.OverallHealth != card.OverallHealth
+                || !string.Equals(prev.OverallLabel, card.OverallLabel, StringComparison.Ordinal)
                 || !StatusRowsEqual(prev.StatusRows, card.StatusRows)
                 || !string.Equals(prev.CurrentActionText, card.CurrentActionText, StringComparison.Ordinal)
                 || prev.ShowControlPlaneSection != card.ShowControlPlaneSection
@@ -111,6 +113,8 @@ public static class StatusPanelPresentationChangeDetector
         && left.ShowRunTestsButton == right.ShowRunTestsButton
         && left.ShowStillEditingButton == right.ShowStillEditingButton
         && left.StillEditingToolTip == right.StillEditingToolTip
+        && left.OverallHealth == right.OverallHealth
+        && string.Equals(left.OverallLabel, right.OverallLabel, StringComparison.Ordinal)
         && left.ShowControlPlaneSection == right.ShowControlPlaneSection
         && StatusRowsEqual(left.StatusRows, right.StatusRows)
         && string.Equals(left.CurrentActionText, right.CurrentActionText, StringComparison.Ordinal)
