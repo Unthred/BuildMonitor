@@ -77,6 +77,100 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
         Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
     }
 
+    [Fact]
+    public void RequiresUrgentCardRebuild_false_when_only_build_source_age_ticks()
+    {
+        var now = new DateTimeOffset(2026, 8, 28, 6, 0, 0, TimeSpan.Zero);
+        var completed = AzureRunAt(
+            now.AddMinutes(-5),
+            runId: 491,
+            buildNumber: "20260828.3",
+            state: PipelineRunState.Completed,
+            result: PipelineRunResult.Succeeded,
+            finishedAtUtc: now.AddMinutes(-1));
+        var previous = StatusPanelPresentationBuilder.Build(
+            [SnapshotWithAzure(completed, now)],
+            null,
+            now);
+        var azureRow = Assert.Single(previous.Cards[0].BuildSourceRows!);
+        var agedRow = azureRow with { AgeDisplay = "42m · 5m0s" };
+        var agedCard = previous.Cards[0] with { BuildSourceRows = new[] { agedRow } };
+        var current = previous with { Cards = new[] { agedCard } };
+
+        Assert.Equal("42m · 5m0s", agedRow.AgeDisplay);
+        Assert.Equal(azureRow.DeepLinkUrl, agedRow.DeepLinkUrl);
+        Assert.False(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
+    }
+
+    [Fact]
+    public void RequiresUrgentCardRebuild_when_build_source_run_id_changes()
+    {
+        var now = new DateTimeOffset(2026, 8, 28, 6, 0, 0, TimeSpan.Zero);
+        var started = now.AddMinutes(-4);
+        var previous = StatusPanelPresentationBuilder.Build(
+            [SnapshotWithAzure(AzureRunAt(started, runId: 491, buildNumber: "20260828.3"), now)],
+            null,
+            now);
+        var current = StatusPanelPresentationBuilder.Build(
+            [SnapshotWithAzure(AzureRunAt(started, runId: 492, buildNumber: "20260828.4"), now)],
+            null,
+            now);
+
+        Assert.True(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
+    }
+
+    private static AzurePipelineRunInfo AzureRunAt(
+        DateTimeOffset startedUtc,
+        long runId = 491,
+        string buildNumber = "20260828.3",
+        PipelineRunState state = PipelineRunState.InProgress,
+        PipelineRunResult result = PipelineRunResult.Unknown,
+        DateTimeOffset? finishedAtUtc = null) =>
+        new(
+            DefinitionId: 8,
+            PipelineDisplayName: "WitherbyConnect",
+            RunId: runId,
+            BuildNumber: buildNumber,
+            State: state,
+            Result: result,
+            Branch: "PR #185",
+            QueuedAtUtc: startedUtc.AddMinutes(-1),
+            StartedAtUtc: startedUtc,
+            FinishedAtUtc: finishedAtUtc,
+            RunUrl: $"https://dev.azure.com/org/project/_build/results?buildId={runId}&view=results",
+            PullRequestNumber: 185);
+
+    private static AzurePipelineRunInfo AzureRun(
+        long runId = 491,
+        string buildNumber = "20260828.3",
+        PipelineRunState state = PipelineRunState.InProgress) =>
+        AzureRunAt(DateTimeOffset.UtcNow.AddMinutes(-4), runId, buildNumber, state);
+
+    private static ProjectHealthSnapshot SnapshotWithAzure(AzurePipelineRunInfo primary, DateTimeOffset utcNow) =>
+        new(
+            ProjectId: "p1",
+            DisplayName: "Demo",
+            Health: MonitorHealth.Amber,
+            HealthLabel: "Building",
+            State: ProjectLifecycleState.Idle,
+            LastExitCode: 0,
+            LastDuration: null,
+            LastErrorPreview: null,
+            ErrorCount: 0,
+            WarningCount: 0,
+            LastChangedUtc: utcNow,
+            LastBuildFinishedAtUtc: null,
+            IsActive: true,
+            ProgressSteps: [],
+            Azure: new ProjectAzureHealthFacet(
+                AzureMonitoringAvailability.Available,
+                AzureCiMonitoringState.Activity,
+                "master",
+                primary,
+                [],
+                utcNow,
+                HasSelectedPipelines: true));
+
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,
         DateTimeOffset? rebuildQuietUntilUtc = null,
