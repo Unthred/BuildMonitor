@@ -344,7 +344,7 @@ public partial class HoverStatusPanel : Window
             actionRow.Children.Add(overall);
 
             panel.Children.Add(actionRow);
-            Panel.SetZIndex(actionRow, 10);
+            System.Windows.Controls.Panel.SetZIndex(actionRow, 10);
 
             card.Child = panel;
             ProjectCards.Items.Add(card);
