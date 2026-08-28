@@ -344,6 +344,7 @@ public partial class HoverStatusPanel : Window
             actionRow.Children.Add(overall);
 
             panel.Children.Add(actionRow);
+            Panel.SetZIndex(actionRow, 10);
 
             card.Child = panel;
             ProjectCards.Items.Add(card);
@@ -361,11 +362,9 @@ public partial class HoverStatusPanel : Window
 
     private static void WireActionButton(WpfButton button, Action invoke)
     {
-        button.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            invoke();
-            e.Handled = true;
-        };
+        // Use Click (not PreviewMouseLeftButtonDown) so Button chrome receives the
+        // routed event reliably; hyperlinks keep PreviewMouse for #97 stability.
+        button.Click += (_, _) => invoke();
     }
 
     private void ApplyHeaderCountdownText(string text)

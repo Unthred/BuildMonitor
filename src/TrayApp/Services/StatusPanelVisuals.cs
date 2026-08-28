@@ -18,6 +18,8 @@ internal static class StatusPanelVisuals
 {
     internal static IBuildSourceLinkOpener? LinkOpener { get; set; }
 
+    internal static Action<StatusPanelProjectLogRequest>? OpenProjectLog { get; set; }
+
     private sealed record BuildSourceLinkClickTag(
         string ProjectId,
         AzureBuildLinkTarget Target,
@@ -192,20 +194,78 @@ internal static class StatusPanelVisuals
         ThemePalette palette)
     {
         var statusText = $"{data.StatusGlyph} {data.StatusText}";
-        var content = CreateBuildLinkContent(
-            statusText,
-            data.AzureNavigation?.Status,
-            data.AzureNavigation?.FailureRequest,
-            projectId,
-            EmphasisBrush(data.Emphasis, palette),
-            fontWeight: FontWeights.SemiBold,
-            margin: new Thickness(0, 0, 6, 1),
-            allowEllipsis: true,
-            toolTip: data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
-                ? "Open failure details in Azure DevOps"
-                : "Open in Azure DevOps");
+        var localLogAction = StatusPanelLocalStatusActionRules.Resolve(data);
+        UIElement content;
+        if (localLogAction != LocalBuildStatusLogAction.None)
+        {
+            content = CreateLocalStatusLogContent(
+                statusText,
+                projectId,
+                localLogAction,
+                EmphasisBrush(data.Emphasis, palette),
+                palette);
+        }
+        else
+        {
+            content = CreateBuildLinkContent(
+                statusText,
+                data.AzureNavigation?.Status,
+                data.AzureNavigation?.FailureRequest,
+                projectId,
+                EmphasisBrush(data.Emphasis, palette),
+                fontWeight: FontWeights.SemiBold,
+                margin: new Thickness(0, 0, 6, 1),
+                allowEllipsis: true,
+                toolTip: data.AzureNavigation?.Status.Kind == AzureBuildLinkKind.FailureDetails
+                    ? "Open failure details in Azure DevOps"
+                    : "Open in Azure DevOps");
+        }
 
         PlaceBuildCell(grid, row, column, content);
+    }
+
+    private static UIElement CreateLocalStatusLogContent(
+        string statusText,
+        string projectId,
+        LocalBuildStatusLogAction action,
+        SolidColorBrush foreground,
+        ThemePalette palette)
+    {
+        var block = new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = foreground,
+            Margin = new Thickness(0, 0, 6, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap
+        };
+
+        var link = new Hyperlink(new Run(statusText))
+        {
+            ToolTip = action == LocalBuildStatusLogAction.OpenLogWithErrorsFilter
+                ? "View build log (errors)"
+                : "View build log (warnings)",
+            TextDecorations = null,
+            Foreground = LinkBrush(palette),
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        link.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            e.Handled = true;
+            OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                projectId,
+                SelectErrors: action == LocalBuildStatusLogAction.OpenLogWithErrorsFilter,
+                SelectWarnings: action == LocalBuildStatusLogAction.OpenLogWithWarningsFilter));
+        };
+        block.Inlines.Add(link);
+
+        return new Border
+        {
+            Child = block,
+            ClipToBounds = true,
+            Background = System.Windows.Media.Brushes.Transparent
+        };
     }
 
     private static void AddBuildLinkCell(

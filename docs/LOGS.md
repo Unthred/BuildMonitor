@@ -12,6 +12,7 @@
 ## Viewing
 
 - Hover / status panel → **Log** on a project card (opens the local BuildMonitor log viewer)
+- **Local BUILDS Status** when amber (**Warnings**) or red (**Failed** / **Build failed** / etc.) — opens/reuses that project's log viewer with the matching issue filter when available
 - Tray context menu → **View log**
   - **By project** layout: under each Local project's submenu (after Stop; before Clean build output)
   - **By operation** layout: **View log** → project name

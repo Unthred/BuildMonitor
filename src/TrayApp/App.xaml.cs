@@ -102,6 +102,10 @@ public partial class App : System.Windows.Application
 
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
         StatusPanelVisuals.LinkOpener = orchestrator.BuildSourceLinkOpener;
+        StatusPanelVisuals.OpenProjectLog = request => OpenLogViewer(
+            request.ProjectId,
+            selectErrorsFilter: request.SelectErrors,
+            selectWarningsFilter: request.SelectWarnings);
         orchestrator.SetSettingsPersistHandler(settings =>
         {
             if (settingsStore is null)
