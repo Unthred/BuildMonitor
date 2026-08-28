@@ -101,6 +101,7 @@ public partial class App : System.Windows.Application
         }
 
         orchestrator = new ProjectOrchestrator(logsPath, appDataDirectory);
+        StatusPanelVisuals.LinkOpener = orchestrator.BuildSourceLinkOpener;
         orchestrator.SetSettingsPersistHandler(settings =>
         {
             if (settingsStore is null)

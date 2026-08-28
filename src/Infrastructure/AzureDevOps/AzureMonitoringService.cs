@@ -357,7 +357,13 @@ public sealed class AzureMonitoringService : IDisposable
             focusBranch,
             DateTimeOffset.UtcNow,
             healthRepresentatives,
-            extraAttention);
+            extraAttention,
+            new AzureBuildNavigationContext(
+                project.Id,
+                azure.ConnectionId,
+                connection.OrganizationUrl,
+                adoProject,
+                azure.RepositoryName));
     }
 
     public static IReadOnlyList<MonitoredProjectSettings> GetEligibleProjects(AppSettings settings) =>

@@ -8,6 +8,12 @@ namespace BuildMonitor.Tests;
 public sealed class BuildSourcePresentationBuilderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 25, 12, 0, 0, TimeSpan.Zero);
+    private static readonly AzureBuildNavigationContext NavContext = new(
+        "p1",
+        "conn",
+        "https://dev.azure.com/org",
+        "project",
+        "repo");
 
     [Fact]
     public void Local_and_azure_share_row_shape_and_local_then_azure_order()
@@ -32,7 +38,8 @@ public sealed class BuildSourcePresentationBuilderTests
             azureRun,
             [],
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
         var snapshot = BaseSnapshot() with
         {
             LastBuildExitCode = 0,
@@ -56,7 +63,7 @@ public sealed class BuildSourcePresentationBuilderTests
         Assert.Equal("—", local.BuildNumberDisplay);
         Assert.Equal("—", local.PullRequestDisplay);
         Assert.Equal("0E · 0W", local.IssuesDisplay);
-        Assert.Null(local.DeepLinkUrl);
+        Assert.Null(local.AzureNavigation);
         Assert.Contains("·", local.AgeDisplay, StringComparison.Ordinal);
 
         var azure = rows[1];
@@ -67,7 +74,7 @@ public sealed class BuildSourcePresentationBuilderTests
         Assert.Equal("20260825.15", azure.BuildNumberDisplay);
         Assert.Equal("#168", azure.PullRequestDisplay);
         Assert.Equal("—", azure.IssuesDisplay);
-        Assert.Equal("https://example/?buildId=454", azure.DeepLinkUrl);
+        Assert.Contains("buildId=454", azure.AzureNavigation!.Run.Uri!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -185,7 +192,8 @@ public sealed class BuildSourcePresentationBuilderTests
             azureRun,
             [],
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
 
         var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
         Assert.Equal("PR #168", azure.BranchDisplay);
@@ -256,13 +264,14 @@ public sealed class BuildSourcePresentationBuilderTests
             building,
             [failed, previous],
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
 
         var rows = BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now);
         var azure = Assert.Single(rows);
         Assert.Equal("#466", azure.RunDisplay);
         Assert.Equal("20260826.10", azure.BuildNumberDisplay);
-        Assert.Equal("https://example/?buildId=466", azure.DeepLinkUrl);
+        Assert.Contains("buildId=466", azure.AzureNavigation!.Run.Uri!, StringComparison.Ordinal);
         Assert.Null(azure.AttentionNote);
         Assert.Equal(StatusPanelRowEmphasis.Busy, azure.Emphasis);
         Assert.Equal("Building", azure.StatusText);
@@ -290,7 +299,8 @@ public sealed class BuildSourcePresentationBuilderTests
             run,
             [],
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
 
         var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
         Assert.Equal(StatusPanelRowEmphasis.Success, azure.Emphasis);
@@ -321,7 +331,8 @@ public sealed class BuildSourcePresentationBuilderTests
             run,
             [],
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
 
         var azure = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
         Assert.Equal(StatusPanelRowEmphasis.Error, azure.Emphasis);

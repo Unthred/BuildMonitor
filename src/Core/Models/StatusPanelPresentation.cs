@@ -39,7 +39,7 @@ public sealed record BuildSourcePresentationRow(
     string PullRequestDisplay,
     string AgeDisplay,
     string IssuesDisplay,
-    string? DeepLinkUrl,
+    AzureBuildSourceNavigation? AzureNavigation,
     StatusPanelRowEmphasis Emphasis,
     string? AttentionNote = null);
 

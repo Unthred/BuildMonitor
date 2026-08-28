@@ -1,26 +1,34 @@
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
-using BuildMonitor.Infrastructure.AzureDevOps;
 
 namespace BuildMonitor.Tests;
 
-/// <summary>Azure BUILDS row deep-link and column semantics (presentation layer).</summary>
+/// <summary>Azure BUILDS row semantic navigation (presentation layer).</summary>
 public sealed class BuildSourcePresentationNavigationTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 28, 6, 0, 0, TimeSpan.Zero);
     private const string RunUrl = "https://dev.azure.com/org/project/_build/results?buildId=491&view=results";
 
+    private static readonly AzureBuildNavigationContext NavContext = new(
+        "p1",
+        "conn",
+        "https://dev.azure.com/org",
+        "project",
+        "repo");
+
     [Fact]
-    public void Azure_primary_row_deep_link_targets_PrimaryRun_build_results()
+    public void Azure_primary_row_run_column_targets_PrimaryRun_build_results()
     {
         var primary = AzureRun(runId: 491, buildNumber: "20260828.3", pullRequestNumber: 185);
         var facet = Facet(primary);
         var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
+        var nav = row.AzureNavigation;
+        Assert.NotNull(nav);
 
         Assert.Equal("#491", row.RunDisplay);
         Assert.Equal("20260828.3", row.BuildNumberDisplay);
         Assert.Equal("#185", row.PullRequestDisplay);
-        Assert.Equal(RunUrl, row.DeepLinkUrl);
+        Assert.Contains("buildId=491", nav.Run.Uri!, StringComparison.Ordinal);
         Assert.NotEqual(row.RunDisplay, row.BuildNumberDisplay);
     }
 
@@ -38,23 +46,79 @@ public sealed class BuildSourcePresentationNavigationTests
         var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
 
         Assert.Equal("#491", row.RunDisplay);
-        Assert.Equal(RunUrl, row.DeepLinkUrl);
-        Assert.DoesNotContain("488", row.DeepLinkUrl, StringComparison.Ordinal);
+        Assert.Contains("buildId=491", row.AzureNavigation!.Run.Uri!, StringComparison.Ordinal);
+        Assert.DoesNotContain("488", row.AzureNavigation.Run.Uri!, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Azure_non_pr_run_has_dash_pull_request_display_and_same_run_deep_link()
+    public void Failed_status_invokes_lazy_failure_resolution()
     {
-        var primary = AzureRun(runId: 452, buildNumber: "20260825.13", pullRequestNumber: null, branch: "master");
+        var primary = AzureRun(
+            runId: 491,
+            buildNumber: "20260828.3",
+            pullRequestNumber: 185,
+            state: PipelineRunState.Completed,
+            result: PipelineRunResult.Failed);
+        var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(Facet(primary), true, true, Now));
+
+        Assert.Equal(AzureBuildLinkKind.FailureDetails, row.AzureNavigation!.Status.Kind);
+        Assert.NotNull(row.AzureNavigation.FailureRequest);
+        Assert.Equal(491, row.AzureNavigation.FailureRequest!.RunId);
+    }
+
+    [Fact]
+    public void Partial_status_invokes_lazy_failure_resolution()
+    {
+        var primary = AzureRun(
+            runId: 491,
+            buildNumber: "20260828.3",
+            pullRequestNumber: null,
+            state: PipelineRunState.Completed,
+            result: PipelineRunResult.PartiallySucceeded);
+        var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(Facet(primary), true, true, Now));
+
+        Assert.Equal(AzureBuildLinkKind.FailureDetails, row.AzureNavigation!.Status.Kind);
+    }
+
+    [Fact]
+    public void Succeeded_and_building_do_not_request_timeline_at_presentation_layer()
+    {
+        var succeeded = AzureRun(
+            runId: 491,
+            buildNumber: "20260828.3",
+            pullRequestNumber: null,
+            state: PipelineRunState.Completed,
+            result: PipelineRunResult.Succeeded);
+        var building = AzureRun(
+            runId: 492,
+            buildNumber: "20260828.4",
+            pullRequestNumber: null,
+            state: PipelineRunState.InProgress,
+            result: PipelineRunResult.Unknown);
+
+        var succeededNav = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(Facet(succeeded), true, true, Now)).AzureNavigation!;
+        var buildingNav = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(Facet(building), true, true, Now)).AzureNavigation!;
+
+        Assert.Equal(AzureBuildLinkKind.RunResults, succeededNav.Status.Kind);
+        Assert.Null(succeededNav.FailureRequest);
+        Assert.Equal(AzureBuildLinkKind.RunResults, buildingNav.Status.Kind);
+        Assert.Null(buildingNav.FailureRequest);
+    }
+
+    [Fact]
+    public void Azure_non_pr_run_has_dash_pull_request_display_and_run_results_link()
+    {
+        var primary = AzureRun(runId: 452, buildNumber: "20260825.13", pullRequestNumber: null, branch: "master", sourceBranchRef: "refs/heads/master");
         var facet = Facet(primary);
         var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
 
         Assert.Equal("—", row.PullRequestDisplay);
-        Assert.Contains("buildId=452", row.DeepLinkUrl!, StringComparison.Ordinal);
+        Assert.Contains("buildId=452", row.AzureNavigation!.Run.Uri!, StringComparison.Ordinal);
+        Assert.Equal(AzureBuildLinkKind.None, row.AzureNavigation.PullRequest.Kind);
     }
 
     [Fact]
-    public void Azure_message_mode_has_no_fabricated_deep_link()
+    public void Azure_message_mode_has_no_fabricated_navigation()
     {
         var facet = new ProjectAzureHealthFacet(
             AzureMonitoringAvailability.AuthRequired,
@@ -68,13 +132,13 @@ public sealed class BuildSourcePresentationNavigationTests
 
         var row = Assert.Single(BuildSourcePresentationBuilder.BuildAzureRows(facet, true, true, Now));
 
-        Assert.Null(row.DeepLinkUrl);
+        Assert.Null(row.AzureNavigation);
         Assert.Equal("—", row.RunDisplay);
         Assert.Equal("—", row.PullRequestDisplay);
     }
 
     [Fact]
-    public void Local_row_has_no_azure_deep_link()
+    public void Local_row_has_no_azure_navigation()
     {
         var snapshot = new ProjectHealthSnapshot(
             ProjectId: "p1",
@@ -97,7 +161,7 @@ public sealed class BuildSourcePresentationNavigationTests
         var local = BuildSourcePresentationBuilder.TryBuildLocal(snapshot, controlPlane, Now);
 
         Assert.NotNull(local);
-        Assert.Null(local!.DeepLinkUrl);
+        Assert.Null(local!.AzureNavigation);
         Assert.Equal("—", local.RunDisplay);
         Assert.Equal("—", local.PullRequestDisplay);
     }
@@ -130,6 +194,7 @@ public sealed class BuildSourcePresentationNavigationTests
         string buildNumber,
         int? pullRequestNumber,
         string branch = "PR #185",
+        string? sourceBranchRef = null,
         PipelineRunState state = PipelineRunState.InProgress,
         PipelineRunResult? result = null) =>
         new(
@@ -144,7 +209,8 @@ public sealed class BuildSourcePresentationNavigationTests
             StartedAtUtc: Now.AddMinutes(-4),
             FinishedAtUtc: null,
             RunUrl: $"https://dev.azure.com/org/project/_build/results?buildId={runId}&view=results",
-            PullRequestNumber: pullRequestNumber);
+            PullRequestNumber: pullRequestNumber,
+            SourceBranchRef: sourceBranchRef);
 
     private static ProjectAzureHealthFacet Facet(
         AzurePipelineRunInfo primary,
@@ -156,5 +222,6 @@ public sealed class BuildSourcePresentationNavigationTests
             primary,
             attention,
             Now,
-            HasSelectedPipelines: true);
+            HasSelectedPipelines: true,
+            NavigationContext: NavContext);
 }

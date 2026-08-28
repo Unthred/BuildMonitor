@@ -144,8 +144,20 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
             JsonElement? triggerInfo = run.TryGetProperty("triggerInfo", out var ti) && ti.ValueKind == JsonValueKind.Object
                 ? ti
                 : null;
+            var buildParameters = run.TryGetProperty("parameters", out var paramsEl)
+                                  && paramsEl.ValueKind == JsonValueKind.String
+                ? paramsEl.GetString()
+                : null;
             var pullRequestNumber = AzurePullRequestMetadata.TryResolveNumber(reason, branchRaw, triggerInfo);
-            var branch = AzurePullRequestMetadata.ResolveDisplayBranch(branchRaw, pullRequestNumber, triggerInfo);
+            var branch = AzurePullRequestMetadata.ResolveDisplayBranch(
+                branchRaw,
+                pullRequestNumber,
+                triggerInfo,
+                buildParameters);
+            var sourceBranchRef = AzurePullRequestMetadata.ResolveSourceBranchRef(
+                branchRaw,
+                triggerInfo,
+                buildParameters);
             var queuedAt = ParseDate(run, "queueTime") ?? DateTimeOffset.UtcNow;
             var startedAt = ParseDate(run, "startTime");
             var finishedAt = ParseDate(run, "finishTime");
@@ -172,7 +184,8 @@ public sealed class AzureBuildPollClient : IAzureBuildPollClient, IDisposable
                 startedAt,
                 finishedAt,
                 runUrl,
-                pullRequestNumber));
+                pullRequestNumber,
+                sourceBranchRef));
         }
 
         return new AzureBuildPollResult(AzureBuildPollOutcome.Ok, runs);

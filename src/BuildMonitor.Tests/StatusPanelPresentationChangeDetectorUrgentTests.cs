@@ -98,7 +98,7 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
         var current = previous with { Cards = new[] { agedCard } };
 
         Assert.Equal("42m · 5m0s", agedRow.AgeDisplay);
-        Assert.Equal(azureRow.DeepLinkUrl, agedRow.DeepLinkUrl);
+        Assert.Equal(azureRow.AzureNavigation?.Run.Uri, agedRow.AzureNavigation?.Run.Uri);
         Assert.False(StatusPanelPresentationChangeDetector.RequiresUrgentCardRebuild(previous, current));
     }
 
@@ -169,7 +169,13 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
                 primary,
                 [],
                 utcNow,
-                HasSelectedPipelines: true));
+                HasSelectedPipelines: true,
+                NavigationContext: new AzureBuildNavigationContext(
+                    "p1",
+                    "conn",
+                    "https://dev.azure.com/org",
+                    "project",
+                    "repo")));
 
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,
