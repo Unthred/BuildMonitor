@@ -66,6 +66,8 @@ public sealed record StatusPanelCardPresentation(
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
     string? StillEditingToolTip,
+    MonitorHealth OverallHealth,
+    string OverallLabel,
     bool ShowControlPlaneSection = false,
     AzureStatusPresentation? Azure = null,
     IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null);
