@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
@@ -31,11 +32,16 @@ public partial class SettingsWindow : Window
     private readonly AzureConnectionSecretStore azureSecretStore;
     private readonly LocalGitContextReader localGitContextReader = new();
     private readonly SettingsAzureAssociationService azureAssociationService;
+    private readonly IRegisteredBrowserCatalog? registeredBrowserCatalog;
 
     public AppSettings Settings { get; }
 
-    public SettingsWindow(AppSettings settings, AppWindowsLayoutStore windowsLayoutStore)
+    public SettingsWindow(
+        AppSettings settings,
+        AppWindowsLayoutStore windowsLayoutStore,
+        IRegisteredBrowserCatalog? registeredBrowserCatalog = null)
     {
+        this.registeredBrowserCatalog = registeredBrowserCatalog;
         this.windowsLayoutStore = windowsLayoutStore;
         InitializeComponent();
         Settings = settings;
@@ -218,6 +224,7 @@ public partial class SettingsWindow : Window
         CommitEditorToSelected();
         selectedProject = ProjectsList.SelectedItem as MonitoredProjectSettings;
         EditorPanel.IsEnabled = selectedProject is not null;
+        LinkBrowserCombo.IsEnabled = selectedProject is not null;
         if (selectedProject is null)
         {
             AgentSkillStatusSummary.Text = "No project selected";
@@ -237,6 +244,7 @@ public partial class SettingsWindow : Window
         {
             DisplayNameText.Text = project.DisplayName;
             UpdateAzureAttachmentUi(project);
+            ReloadLinkBrowserComboForProject(project);
 
             var local = project.Local;
             var hasLocal = local is not null;
@@ -288,6 +296,8 @@ public partial class SettingsWindow : Window
                 InstallAgentSkillButton.IsEnabled = false;
                 ApplyCapabilityPresentation(project);
             }
+
+            SelectLinkBrowserForProject(project);
         }
         finally
         {
@@ -409,6 +419,87 @@ public partial class SettingsWindow : Window
         ForceCompleteWarningCountsCheck.IsEnabled = enabled;
         AutoRepairCorruptedOutputCheck.IsEnabled = enabled;
         TestProjectCombo.IsEnabled = enabled;
+    }
+
+    private void ReloadLinkBrowserComboForProject(MonitoredProjectSettings project)
+    {
+        LinkBrowserCombo.Items.Clear();
+        LinkBrowserCombo.Items.Add(new ComboBoxItem
+        {
+            Content = "System default",
+            Tag = string.Empty
+        });
+
+        var persistedId = ProjectLinkBrowserPreferenceRules.ResolveRegisteredBrowserId(project);
+        var seenPersisted = false;
+        if (registeredBrowserCatalog is not null)
+        {
+            registeredBrowserCatalog.Refresh();
+            foreach (var browser in registeredBrowserCatalog.GetBrowsers())
+            {
+                LinkBrowserCombo.Items.Add(new ComboBoxItem
+                {
+                    Content = browser.DisplayName,
+                    Tag = browser.RegisteredBrowserId
+                });
+                if (!string.IsNullOrWhiteSpace(persistedId)
+                    && string.Equals(browser.RegisteredBrowserId, persistedId, StringComparison.OrdinalIgnoreCase))
+                {
+                    seenPersisted = true;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(persistedId) && !seenPersisted)
+        {
+            LinkBrowserCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"{persistedId} (not installed)",
+                Tag = persistedId
+            });
+        }
+    }
+
+    private void SelectLinkBrowserForProject(MonitoredProjectSettings project)
+    {
+        var persistedId = ProjectLinkBrowserPreferenceRules.ResolveRegisteredBrowserId(project);
+        if (string.IsNullOrWhiteSpace(persistedId))
+        {
+            LinkBrowserCombo.SelectedIndex = 0;
+            return;
+        }
+
+        foreach (ComboBoxItem item in LinkBrowserCombo.Items)
+        {
+            if (item.Tag is string tag
+                && string.Equals(tag, persistedId, StringComparison.OrdinalIgnoreCase))
+            {
+                LinkBrowserCombo.SelectedItem = item;
+                return;
+            }
+        }
+
+        LinkBrowserCombo.SelectedIndex = 0;
+    }
+
+    private string? ResolveLinkBrowserRegisteredId()
+    {
+        if (LinkBrowserCombo.SelectedItem is ComboBoxItem { Tag: string tag })
+        {
+            return string.IsNullOrWhiteSpace(tag) ? null : tag;
+        }
+
+        return null;
+    }
+
+    private void LinkBrowserComboSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (isLoadingEditor || selectedProject is null)
+        {
+            return;
+        }
+
+        selectedProject.LinkBrowserRegisteredId = ResolveLinkBrowserRegisteredId();
     }
 
     private void UpdateAzureAttachmentUi(MonitoredProjectSettings project)
@@ -629,6 +720,7 @@ public partial class SettingsWindow : Window
         }
 
         selectedProject.DisplayName = DisplayNameText.Text.Trim();
+        selectedProject.LinkBrowserRegisteredId = ResolveLinkBrowserRegisteredId();
         if (selectedProject.Local is null)
         {
             return;

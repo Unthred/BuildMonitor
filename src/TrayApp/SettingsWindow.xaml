@@ -209,11 +209,12 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <Border Grid.Row="0" Grid.RowSpan="9" Grid.Column="0"
+                            <Border Grid.Row="0" Grid.RowSpan="10" Grid.Column="0"
                                     Style="{StaticResource SettingsSectionCardChrome}" />
-                            <Border Grid.Row="0" Grid.RowSpan="9" Grid.Column="2"
+                            <Border Grid.Row="0" Grid.RowSpan="10" Grid.Column="2"
                                     Style="{StaticResource SettingsSectionCardChrome}" />
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Margin="12,12,12,0"
@@ -307,6 +308,16 @@
                                       x:Name="PreferredSiteUrlCombo"
                                       Style="{StaticResource SettingsPeerFieldComboBox}" />
 
+                            <StackPanel Grid.Row="6" Grid.Column="2" Margin="12,10,12,0">
+                                <TextBlock Text="Open links with"
+                                           Style="{StaticResource SettingsFieldLabel}"
+                                           ToolTip="Browser used for Azure links, site URL, and other http(s) navigation from this project's status panel." />
+                                <ComboBox x:Name="LinkBrowserCombo"
+                                          Margin="0,4,0,0"
+                                          Style="{StaticResource SettingsPeerFieldComboBox}"
+                                          SelectionChanged="LinkBrowserComboSelectionChanged" />
+                            </StackPanel>
+
                             <!-- Project-only: Cursor agent -->
                             <StackPanel Grid.Row="6" Grid.Column="0" Margin="12,10,12,0">
                                 <TextBlock Text="Cursor agent integration" FontWeight="SemiBold" Margin="0,0,0,4" />
@@ -336,7 +347,7 @@
 
                             <!-- Build CLI context: between Preferred site URL and Extra dotnet args -->
                             <StackPanel x:Name="BuildCliDetectionPanel"
-                                        Grid.Row="6" Grid.Column="2" Margin="12,10,12,0"
+                                        Grid.Row="7" Grid.Column="2" Margin="12,10,12,0"
                                         VerticalAlignment="Top">
                                 <TextBlock x:Name="BuildCliDetectionTitle"
                                            Style="{StaticResource SettingsContextMetaHeading}"
@@ -347,21 +358,21 @@
                             </StackPanel>
 
                             <!-- Peer 3: Project file ↔ Extra dotnet args -->
-                            <TextBlock Grid.Row="7" Grid.Column="0" Margin="12,10,12,0"
+                            <TextBlock Grid.Row="8" Grid.Column="0" Margin="12,10,12,0"
                                        Text="Project file (.csproj / .sln)" Style="{StaticResource SettingsFieldLabel}" />
-                            <TextBlock Grid.Row="7" Grid.Column="2" Margin="12,10,12,0"
+                            <TextBlock Grid.Row="8" Grid.Column="2" Margin="12,10,12,0"
                                        Text="Extra dotnet args"
                                        Style="{StaticResource SettingsFieldLabel}"
                                        ToolTip="Applied to run commands; also inspected for risky base-output paths during builds." />
 
-                            <DockPanel Grid.Row="8" Grid.Column="0" Margin="12,4,12,12" LastChildFill="True">
+                            <DockPanel Grid.Row="9" Grid.Column="0" Margin="12,4,12,12" LastChildFill="True">
                                 <Button DockPanel.Dock="Right" Content="Browse" Width="70" Margin="6,0,0,0"
                                         Click="BrowseProjectFileClicked" />
                                 <TextBox x:Name="ProjectFileText"
                                          Style="{StaticResource SettingsPeerFieldTextBox}"
                                          LostFocus="ProjectFileTextLostFocus" />
                             </DockPanel>
-                            <TextBox Grid.Row="8" Grid.Column="2" Margin="12,4,12,12"
+                            <TextBox Grid.Row="9" Grid.Column="2" Margin="12,4,12,12"
                                      x:Name="ExtraArgsText"
                                      Style="{StaticResource SettingsPeerFieldTextBox}" />
                         </Grid>

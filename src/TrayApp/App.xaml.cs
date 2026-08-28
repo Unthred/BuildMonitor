@@ -1441,7 +1441,10 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var window = new SettingsWindow(CloneSettings(currentSettings), windowsLayoutStore);
+        var window = new SettingsWindow(
+            CloneSettings(currentSettings),
+            windowsLayoutStore,
+            orchestrator?.RegisteredBrowserCatalog);
         if (double.IsNaN(windowsLayoutStore.Layout.Settings.Left))
         {
             TrayScreenPlacement.PlaceWindowCentered(window);

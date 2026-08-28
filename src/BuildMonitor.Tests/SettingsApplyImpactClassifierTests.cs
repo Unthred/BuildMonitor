@@ -77,6 +77,40 @@ public sealed class SettingsApplyImpactClassifierTests
     }
 
     [Fact]
+    public void LinkBrowserRegisteredId_only_is_presentation_with_zero_restarts()
+    {
+        var before = SampleSettings();
+        var after = Clone(before);
+        after.Projects[0].LinkBrowserRegisteredId = "MSEdgeHTM";
+
+        var plan = SettingsApplyImpactClassifier.CreatePlan(before, after);
+        Assert.Equal(SettingsApplyImpact.Presentation, plan.Impact);
+        Assert.False(plan.TouchesLocalRuntimes);
+        Assert.False(plan.ApplyOrchestratorSettings);
+        Assert.False(plan.ResetHealthTransitionState);
+        Assert.False(plan.ShowProjectsStartingToast);
+    }
+
+    [Fact]
+    public void LinkBrowserRegisteredId_isolated_per_project()
+    {
+        var before = SampleSettings();
+        before.Projects.Add(new MonitoredProjectSettings
+        {
+            Id = "project-b",
+            DisplayName = "Project B",
+            LinkBrowserRegisteredId = "ChromeHTML"
+        });
+        var after = Clone(before);
+        after.Projects[0].LinkBrowserRegisteredId = "MSEdgeHTM";
+
+        Assert.Equal("ChromeHTML", after.Projects[1].LinkBrowserRegisteredId);
+        Assert.Equal(
+            SettingsApplyImpact.Presentation,
+            SettingsApplyImpactClassifier.Classify(before, after));
+    }
+
+    [Fact]
     public void Azure_attachment_only_is_soft_runtime_without_local_restart()
     {
         var before = SampleSettings();

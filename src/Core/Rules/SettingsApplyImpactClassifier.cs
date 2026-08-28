@@ -90,9 +90,12 @@ public static class SettingsApplyImpactClassifier
             return SettingsApplyImpact.SoftRuntime;
         }
 
+        var beforePresentation = SerializeProjectPresentationFingerprint(before);
+        var afterPresentation = SerializeProjectPresentationFingerprint(after);
         var beforeUi = Serialize(before.AppBehavior);
         var afterUi = Serialize(after.AppBehavior);
-        if (!string.Equals(beforeUi, afterUi, StringComparison.Ordinal))
+        if (!string.Equals(beforePresentation, afterPresentation, StringComparison.Ordinal)
+            || !string.Equals(beforeUi, afterUi, StringComparison.Ordinal))
         {
             return SettingsApplyImpact.Presentation;
         }
@@ -201,6 +204,14 @@ public static class SettingsApplyImpactClassifier
             local.RunOptions.WatchExcludeSegments
         }
     };
+
+    private static string SerializeProjectPresentationFingerprint(AppSettings settings)
+    {
+        var rows = settings.Projects
+            .OrderBy(p => p.Id, StringComparer.Ordinal)
+            .Select(p => new { p.Id, p.LinkBrowserRegisteredId });
+        return Serialize(rows);
+    }
 
     private static object SliceLocalSoft(LocalProjectAttachment local) => new
     {

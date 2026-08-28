@@ -194,7 +194,7 @@ public partial class HoverStatusPanel : Window
             if (cardModel.BuildSourceRows is { Count: > 0 })
             {
                 panel.Children.Add(StatusPanelVisuals.BuildSectionHeader("BUILDS", palette));
-                panel.Children.Add(StatusPanelVisuals.BuildBuildsTable(cardModel.BuildSourceRows, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildBuildsTable(cardModel.BuildSourceRows, cardModel.ProjectId, palette));
             }
 
             if (cardModel.StatusRows.Count > 0)
@@ -206,7 +206,7 @@ public partial class HoverStatusPanel : Window
             if (cardModel.BuildSourceRows is not { Count: > 0 }
                 && cardModel.Azure is { ShowSection: true })
             {
-                panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildAzureSection(cardModel.Azure, cardModel.ProjectId, palette));
             }
 
             if (!string.IsNullOrWhiteSpace(cardModel.CurrentActionText))
@@ -225,7 +225,7 @@ public partial class HoverStatusPanel : Window
 
             if (cardModel.ShowSiteReady && cardModel.ListenUrl is not null)
             {
-                panel.Children.Add(StatusPanelVisuals.BuildSiteReadyBlock(cardModel.ListenUrl, palette));
+                panel.Children.Add(StatusPanelVisuals.BuildSiteReadyBlock(cardModel.ListenUrl, cardModel.ProjectId, palette));
             }
             else if (cardModel.ShowSiteAwaiting && cardModel.ListenUrl is not null)
             {
