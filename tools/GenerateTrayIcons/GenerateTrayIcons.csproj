@@ -6,4 +6,7 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="BuilderDuckRenderer.cs" />
+  </ItemGroup>
 </Project>

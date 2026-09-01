@@ -1,17 +1,28 @@
-# GenerateTrayIcons — REJECTED for production (#95)
+# GenerateTrayIcons — production asset packager (#95)
 
-This offline tool produced programmatic builder-duck tray ICOs via `BuilderDuckRenderer.cs`.
+Offline tool that turns the **externally supplied** production master sheet into committed tray ICO/PNG assets.
 
-**Manual tray QA failed.** Generated output does not preserve approved mascot identity at 16–20 px and must not ship.
+**Source authority:** `docs/assets/tray-icon-production-masters.png` — do not redraw, trace, or procedurally recreate the mascot.
 
-## Do not use for production
+`BuilderDuckRenderer.cs` is **rejected** and unused; retained for history only.
 
-- Do not run this tool to refresh deployed tray icons.
-- Do not treat "close to concept" programmatic draws as sufficient.
-- Do not tweak radii/colours in `BuilderDuckRenderer` expecting tray approval.
+## Usage
 
-## Future asset pipeline
+Inspect layout and extraction bounds:
 
-Externally supplied transparent PNG masters (five states × 16/20/24/32 px) will be committed under `src/TrayApp/Assets/tray/` and converted to multi-resolution ICOs. Cursor wires those into TrayApp; **do not redraw the mascot in code.**
+```powershell
+dotnet run --project tools/GenerateTrayIcons/GenerateTrayIcons.csproj -- --inspect
+```
 
-Retained for reference only until removed or repurposed as a PNG→ICO packager for supplied artwork.
+Generate tray PNG previews (16/20/24/32) and multi-size ICOs:
+
+```powershell
+dotnet run --project tools/GenerateTrayIcons/GenerateTrayIcons.csproj --
+```
+
+Output:
+
+- `src/TrayApp/Assets/tray/png/tray-{state}-{size}.png`
+- `src/TrayApp/Assets/tray/runtime/tray-{state}.ico`
+
+Rebuild TrayApp after regenerating so embedded resources refresh.
