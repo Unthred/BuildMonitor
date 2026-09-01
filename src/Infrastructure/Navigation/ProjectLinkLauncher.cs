@@ -15,17 +15,20 @@ public sealed class ProjectLinkLauncher : IProjectLinkLauncher, IBuildSourceLink
     private readonly IRegisteredBrowserCatalog browserCatalog;
     private readonly IHttpUriLauncher httpUriLauncher;
     private readonly IAzureFailureNavigationResolver failureResolver;
+    private readonly IAzureBranchNavigationResolver branchResolver;
 
     public ProjectLinkLauncher(
         Func<AppSettings> getSettings,
         IRegisteredBrowserCatalog browserCatalog,
         IHttpUriLauncher httpUriLauncher,
-        IAzureFailureNavigationResolver failureResolver)
+        IAzureFailureNavigationResolver failureResolver,
+        IAzureBranchNavigationResolver branchResolver)
     {
         this.getSettings = getSettings;
         this.browserCatalog = browserCatalog;
         this.httpUriLauncher = httpUriLauncher;
         this.failureResolver = failureResolver;
+        this.branchResolver = branchResolver;
     }
 
     public void OpenHttpUri(string projectId, Uri uri) => LaunchForProject(projectId, uri);
@@ -37,6 +40,14 @@ public sealed class ProjectLinkLauncher : IProjectLinkLauncher, IBuildSourceLink
         CancellationToken cancellationToken = default)
     {
         var destination = await failureResolver.ResolveAsync(request, cancellationToken).ConfigureAwait(false);
+        LaunchForProject(request.ProjectId, destination);
+    }
+
+    public async Task OpenBranchAsync(
+        AzureBuildBranchNavigationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var destination = await branchResolver.ResolveAsync(request, cancellationToken).ConfigureAwait(false);
         LaunchForProject(request.ProjectId, destination);
     }
 

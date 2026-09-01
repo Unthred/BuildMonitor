@@ -38,6 +38,41 @@ public interface IAzureFailureNavigationResolver
     bool TryGetCached(AzureBuildFailureNavigationRequest request, out Uri? destination);
 }
 
+public enum AzureGitRefOutcome
+{
+    Ok = 0,
+    PatMissing = 1,
+    AuthRequired = 2,
+    Unavailable = 3
+}
+
+public sealed record AzureGitRefLookupResult(
+    AzureGitRefOutcome Outcome,
+    bool Exists,
+    string? Message = null);
+
+/// <summary>On-demand Git ref lookup for lazy branch navigation only (#100).</summary>
+public interface IAzureGitRefClient
+{
+    Task<AzureGitRefLookupResult> BranchRefExistsAsync(
+        string organizationUrl,
+        string adoProjectIdOrName,
+        string repositoryId,
+        string branchShortName,
+        string? pat,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>Lazy resilient Branch resolver with in-memory cache (navigation-driven only).</summary>
+public interface IAzureBranchNavigationResolver
+{
+    Task<Uri> ResolveAsync(
+        AzureBuildBranchNavigationRequest request,
+        CancellationToken cancellationToken);
+
+    bool TryGetCached(AzureBuildBranchNavigationRequest request, out Uri? destination);
+}
+
 /// <summary>Opens Azure navigation URIs using the owning project's browser preference (#96).</summary>
 public interface IBuildSourceLinkOpener
 {
@@ -45,5 +80,9 @@ public interface IBuildSourceLinkOpener
 
     Task OpenFailureDetailsAsync(
         AzureBuildFailureNavigationRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task OpenBranchAsync(
+        AzureBuildBranchNavigationRequest request,
         CancellationToken cancellationToken = default);
 }

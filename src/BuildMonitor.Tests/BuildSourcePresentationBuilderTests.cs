@@ -13,7 +13,8 @@ public sealed class BuildSourcePresentationBuilderTests
         "conn",
         "https://dev.azure.com/org",
         "project",
-        "repo");
+        "repo",
+        "repo-id");
 
     [Fact]
     public void Local_and_azure_share_row_shape_and_local_then_azure_order()

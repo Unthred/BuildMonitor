@@ -15,7 +15,9 @@ public sealed record AzurePipelineRunInfo(
     string? RunUrl,
     int? PullRequestNumber = null,
     /// <summary>Real source branch ref for navigation; never a PR merge ref when avoidable.</summary>
-    string? SourceBranchRef = null);
+    string? SourceBranchRef = null,
+    /// <summary>Azure Builds <c>sourceVersion</c> commit id when present and trustworthy.</summary>
+    string? SourceVersion = null);
 
 /// <summary>Project-level Azure health facet merged into <see cref="ProjectHealthSnapshot"/>.</summary>
 public sealed record ProjectAzureHealthFacet(

@@ -37,6 +37,14 @@ public static class AzureDevOpsDeepLinkBuilder
         string branchShortName) =>
         $"{NormalizeOrg(organizationUrl)}/{EscapeProject(adoProjectIdOrName)}/_git/{EscapePathSegment(repositoryName)}?version=GB{Uri.EscapeDataString(branchShortName)}";
 
+    /// <summary>Commit browser view using <c>_git/{repo}/commit/{sha}</c>.</summary>
+    public static string BuildCommitUrl(
+        string organizationUrl,
+        string adoProjectIdOrName,
+        string repositoryName,
+        string commitId) =>
+        $"{NormalizeOrg(organizationUrl)}/{EscapeProject(adoProjectIdOrName)}/_git/{EscapePathSegment(repositoryName)}/commit/{Uri.EscapeDataString(commitId.Trim())}";
+
     private static string NormalizeOrg(string organizationUrl) => organizationUrl.TrimEnd('/');
 
     private static string EscapeProject(string adoProjectIdOrName) =>

@@ -12,8 +12,7 @@ public enum AzureBuildLinkKind
 
 /// <summary>
 /// One navigation target. Static kinds carry a precomputed absolute HTTPS URI.
-/// <see cref="AzureBuildLinkKind.FailureDetails"/> resolves lazily on click using
-/// <see cref="AzureBuildFailureNavigationRequest"/>.
+/// <see cref="AzureBuildLinkKind.FailureDetails"/> and Branch resolve lazily on click.
 /// </summary>
 public sealed record AzureBuildLinkTarget(
     AzureBuildLinkKind Kind,
@@ -26,6 +25,10 @@ public sealed record AzureBuildLinkTarget(
 
     public static AzureBuildLinkTarget FailureDetails() =>
         new(AzureBuildLinkKind.FailureDetails);
+
+    /// <summary>Lazy branch navigation (#100) — resolved on click via <see cref="AzureBuildBranchNavigationRequest"/>.</summary>
+    public static AzureBuildLinkTarget ResilientBranch() =>
+        new(AzureBuildLinkKind.Branch);
 }
 
 /// <summary>Per-column navigation for one Azure BUILDS row (PrimaryRun authority).</summary>
@@ -35,7 +38,8 @@ public sealed record AzureBuildSourceNavigation(
     AzureBuildLinkTarget BuildNumber,
     AzureBuildLinkTarget PullRequest,
     AzureBuildLinkTarget Branch,
-    AzureBuildFailureNavigationRequest? FailureRequest = null);
+    AzureBuildFailureNavigationRequest? FailureRequest = null,
+    AzureBuildBranchNavigationRequest? BranchRequest = null);
 
 /// <summary>Identity for lazy failure-detail resolution (navigation-only timeline fetch).</summary>
 public sealed record AzureBuildFailureNavigationRequest(
@@ -45,13 +49,28 @@ public sealed record AzureBuildFailureNavigationRequest(
     string AdoProjectIdOrName,
     long RunId);
 
+/// <summary>Identity for lazy resilient Branch navigation (#100).</summary>
+public sealed record AzureBuildBranchNavigationRequest(
+    string ProjectId,
+    string ConnectionId,
+    string OrganizationUrl,
+    string AdoProjectIdOrName,
+    string RepositoryId,
+    string RepositoryName,
+    long RunId,
+    string SourceBranchRef,
+    string? SourceVersion,
+    int? PullRequestNumber,
+    string BranchUrlFallback);
+
 /// <summary>Settings-derived context attached to an Azure health facet for URL building.</summary>
 public sealed record AzureBuildNavigationContext(
     string ProjectId,
     string ConnectionId,
     string OrganizationUrl,
     string AdoProjectIdOrName,
-    string RepositoryName);
+    string RepositoryName,
+    string RepositoryId);
 
 /// <summary>One timeline record used to pick a failed job/task deep link.</summary>
 public sealed record AzureBuildTimelineRecord(

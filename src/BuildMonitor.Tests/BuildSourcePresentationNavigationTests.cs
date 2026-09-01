@@ -14,7 +14,8 @@ public sealed class BuildSourcePresentationNavigationTests
         "conn",
         "https://dev.azure.com/org",
         "project",
-        "repo");
+        "repo",
+        "repo-id");
 
     [Fact]
     public void Azure_primary_row_run_column_targets_PrimaryRun_build_results()

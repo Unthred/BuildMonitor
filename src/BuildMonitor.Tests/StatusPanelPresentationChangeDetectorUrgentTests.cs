@@ -175,7 +175,8 @@ public sealed class StatusPanelPresentationChangeDetectorUrgentTests
                     "conn",
                     "https://dev.azure.com/org",
                     "project",
-                    "repo")));
+                    "repo",
+                    "repo-id")));
 
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,

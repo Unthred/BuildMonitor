@@ -52,6 +52,7 @@ public sealed class AzureBuildPollClientTests
                   "result": "succeeded",
                   "reason": "individualCI",
                   "sourceBranch": "refs/heads/master",
+                  "sourceVersion": "691538acd954126677fabf666d8af886ad094a27",
                   "queueTime": "2026-08-25T09:24:15Z",
                   "startTime": "2026-08-25T09:24:25Z",
                   "finishTime": "2026-08-25T09:32:09Z",
@@ -94,6 +95,7 @@ public sealed class AzureBuildPollClientTests
         Assert.Equal("20260825.13", ci.BuildNumber);
         Assert.Null(ci.PullRequestNumber);
         Assert.Equal("master", ci.Branch);
+        Assert.Equal("691538acd954126677fabf666d8af886ad094a27", ci.SourceVersion);
         Assert.Contains("buildId=452", ci.RunUrl, StringComparison.Ordinal);
 
         var pr = Assert.Single(result.Runs, r => r.RunId == 453);
@@ -266,6 +268,45 @@ public sealed class AzureBuildPollClientTests
         var run = Assert.Single(result.Runs);
         Assert.Equal(99, run.RunId);
         Assert.Null(run.BuildNumber);
+    }
+
+    [Fact]
+    public async Task SourceVersion_parsed_from_build_api()
+    {
+        const string sha = "691538acd954126677fabf666d8af886ad094a27";
+        const string json = $$"""
+            {
+              "value": [
+                {
+                  "id": 505,
+                  "buildNumber": "20260828.17",
+                  "status": "completed",
+                  "result": "succeeded",
+                  "sourceBranch": "refs/heads/feature/deleted",
+                  "sourceVersion": "{{sha}}",
+                  "queueTime": "2026-08-28T12:00:00Z",
+                  "definition": { "name": "CI" }
+                }
+              ]
+            }
+            """;
+
+        using var client = new AzureBuildPollClient(new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })));
+
+        var result = await client.ListRecentBuildsAsync(
+            "https://dev.azure.com/org",
+            "proj",
+            8,
+            "CI",
+            "pat",
+            CancellationToken.None);
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(sha, run.SourceVersion);
     }
 
     [Fact]

@@ -89,7 +89,8 @@ public sealed class ProjectLinkLauncherTests
             () => settings,
             catalog,
             httpLauncher,
-            new NoOpFailureResolver());
+            new NoOpFailureResolver(),
+            new NoOpBranchResolver());
     }
 
     private static AppSettings SampleSettings(string? projectA, string? projectB, string? projectC) =>
@@ -159,6 +160,20 @@ public sealed class ProjectLinkLauncherTests
             Task.FromResult(new Uri("https://dev.azure.com/failure"));
 
         public bool TryGetCached(AzureBuildFailureNavigationRequest request, out Uri? destination)
+        {
+            destination = null;
+            return false;
+        }
+    }
+
+    private sealed class NoOpBranchResolver : IAzureBranchNavigationResolver
+    {
+        public Task<Uri> ResolveAsync(
+            AzureBuildBranchNavigationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new Uri(request.BranchUrlFallback));
+
+        public bool TryGetCached(AzureBuildBranchNavigationRequest request, out Uri? destination)
         {
             destination = null;
             return false;
