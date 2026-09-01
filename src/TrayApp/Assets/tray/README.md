@@ -1,43 +1,36 @@
 # BuildMonitor tray icons (#95)
 
-## Visual authority
+## Status
+
+**Production tray visual:** `TrafficLightIconFactory` (active on deployed builds until external mascot artwork lands).
+
+**Semantic layer (preserved on branch):** `TrayIconPresentationMapper` + `TrayIconPresentationState` in Core — precedence Failed > Building > Attention > Healthy > Neutral, including Local + Azure build activity → Building. Wired to tray icons when supplied PNG/ICO assets are ready.
+
+**Rejected for production:** programmatic `BuilderDuckRenderer` output and generated `runtime/*.ico` / `png/*` previews (failed manual tray QA). Do not merge mascot artwork from the generator.
+
+## Visual authority (future)
 
 Approved concept: [`docs/assets/tray-icon-concept.jpg`](../../../docs/assets/tray-icon-concept.jpg)
 
 Builder duck + yellow hard hat. Status badge **bottom-left**. Static icons; no globe overlay in v1.
 
-## Runtime assets (`runtime/`)
+## Expected supplied assets
 
-| File | State |
-|------|--------|
-| `tray-neutral.ico` | Neutral / monitoring |
-| `tray-healthy.ico` | Healthy |
-| `tray-building.ico` | Local or Azure build activity |
-| `tray-attention.ico` | Amber attention (warnings, auth, degraded) |
-| `tray-failed.ico` | Failed |
+Five states: Neutral, Healthy, Building, Attention, Failed.
 
-Each ICO embeds **16, 20, 24, 32** px PNG frames.
+Expect transparent PNG masters and/or explicit micro-size variants at **16, 20, 24, 32** px. Do not assume one large master will be blindly downscaled.
 
-`../AppIcon.ico` — badge-less builder duck for the Windows application icon (16–256 px).
+Cursor will build multi-resolution ICO resources from supplied artwork and wire them into a factory (replacing traffic-light at runtime only after visual sign-off). **Do not redraw the mascot in code.**
 
-## PNG previews (`png/`)
+## Folders (placeholder)
 
-Lossless previews at each size for visual review and diffing. Not loaded at runtime.
-
-## Regeneration
-
-Assets are produced by the offline generator (not at app runtime):
-
-```powershell
-dotnet run --project tools/GenerateTrayIcons/GenerateTrayIcons.csproj -- C:\src\BuildMonitor
-```
-
-Source logic: `tools/GenerateTrayIcons/BuilderDuckRenderer.cs` — programmatic draw tuned for 16/20 px badge legibility. **Do not crop the JPEG concept sheet.**
-
-After regenerating, rebuild TrayApp so embedded resources refresh.
+| Folder | Purpose |
+|--------|---------|
+| `runtime/` | Committed multi-size ICOs per state (empty until external artwork) |
+| `png/` | Optional lossless previews for review/diff (not loaded at runtime) |
 
 ## Code
 
-- `TrayIconPresentationMapper` (Core) — state precedence
-- `TrayIconFactory` (TrayApp) — loads embedded ICOs
-- `TrafficLightIconFactory` — legacy, unused; remove after visual sign-off
+- `TrayIconPresentationMapper` (Core) — state precedence (keep)
+- `TrafficLightIconFactory` (TrayApp) — active production tray visual
+- `tools/GenerateTrayIcons/` — **rejected** programmatic generator; retained for reference only

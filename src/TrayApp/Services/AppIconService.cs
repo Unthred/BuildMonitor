@@ -13,8 +13,7 @@ public static class AppIconService
     private static ImageSource? windowIconSource;
 
     public static System.Drawing.Icon TrayIcon =>
-        appIcon ??= LoadIconFromResource()
-        ?? throw new InvalidOperationException("Application icon Assets/AppIcon.ico is missing.");
+        appIcon ??= LoadIconFromResource() ?? TrafficLightIconFactory.GetShowcaseIcon();
 
     public static ImageSource WindowIcon =>
         windowIconSource ??= Imaging.CreateBitmapSourceFromHIcon(
@@ -38,4 +37,7 @@ public static class AppIconService
         using var stream = assembly.GetManifestResourceStream(resourceName);
         return stream is null ? null : new System.Drawing.Icon(stream);
     }
+
+    public static System.Drawing.Icon CreateTrafficLightAppIcon() =>
+        TrafficLightIconFactory.GetShowcaseIcon();
 }

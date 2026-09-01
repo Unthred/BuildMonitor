@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -8,10 +7,9 @@ using BuildMonitor.Core.Models;
 namespace BuildMonitor.TrayApp.Services;
 
 /// <summary>
-/// Legacy programmatic traffic-light tray icons. Superseded by <see cref="TrayIconFactory"/> (#95).
-/// Retained for one release; remove after mascot icons are visually accepted.
+/// Legacy programmatic traffic-light tray icons. Active production tray visual until
+/// externally supplied mascot artwork lands for #95.
 /// </summary>
-[Obsolete("Replaced by TrayIconFactory and committed builder-duck assets (#95).")]
 public static class TrafficLightIconFactory
 {
     private const int DesignSize = 32;
