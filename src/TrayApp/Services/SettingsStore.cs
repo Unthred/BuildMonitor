@@ -41,9 +41,10 @@ public sealed class SettingsStore(string settingsPath)
         }
 
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? BuildDefaults();
-        if (settings.SchemaVersion < SettingsSchemaV22.Version)
+        if (settings.SchemaVersion < SettingsSchemaV23.Version)
         {
-            settings.SchemaVersion = SettingsSchemaV22.Version;
+            ApplyV23Migration(settings);
+            settings.SchemaVersion = SettingsSchemaV23.Version;
         }
 
         return settings;
@@ -51,7 +52,7 @@ public sealed class SettingsStore(string settingsPath)
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = SettingsSchemaV22.Version;
+        settings.SchemaVersion = SettingsSchemaV23.Version;
         settings.Connections ??= [];
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
@@ -295,5 +296,13 @@ public sealed class SettingsStore(string settingsPath)
         }
     }
 
-    private static AppSettings BuildDefaults() => new() { SchemaVersion = SettingsSchemaV22.Version };
+    private static AppSettings BuildDefaults() => new() { SchemaVersion = SettingsSchemaV23.Version };
+
+    private static void ApplyV23Migration(AppSettings settings)
+    {
+        // AppBehavior.KeepStatusVisibleDuringLocalBuildActivity and
+        // AppBehavior.KeepStatusVisibleDuringAzureBuildActivity default to true when absent.
+        // Per-project RunOptions.ShowStatusPanelWhileBuilding is obsolete and ignored at runtime.
+        _ = settings;
+    }
 }

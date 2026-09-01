@@ -23,7 +23,7 @@ How BuildMonitor decides what failed and what the tray, status panel, and log vi
 | 8 | Log viewer parses Build / Run / Test tabs with matching parsers | `BuildLogViewerWindow.ParseIssuesForCurrentLog` |
 | 8b | Log viewer footer uses the same MSBuild summary counts as the tray (`BuildIssueCountResolver`) | `BuildLogViewerWindow.RefreshResolvedIssueCounts` |
 | 9 | Auto-open log per project (`Never` / `Errors` / `Warnings` / `Always`). **Errors** opens on a newly completed failed build result, including watch rebuilds that stay `Watching` | `App.AutoOpenLogsOnTransition`, `AutoOpenLogSession`, `AutoOpenLogTransitionEvaluator`, `BuildResultTransitionEvaluator` |
-| 9b | Auto-show status panel while building (per project, default **on**); panel opened for edit-gating stays open through the following build | `App.AutoShowStatusPanelWhileBuilding`, `App.AutoShowStatusPanelForEditGating`, `StatusPanelBuildVisibilityEvaluator` |
+| 9b | Auto-show status panel while Local/Azure build activity (app-level, default **on** for both); edit-gating flows respect Local toggle | `App.SyncBuildActivityStatusPanelVisibility`, `StatusPanelVisibilityPolicy`, `StatusPanelBuildVisibilityEvaluator` |
 | 9c | Build-failure toasts use the same completed-build-result transition (not `Building → BuildFailed` alone) | `BuildLifecycleToastEvaluator`, `BuildLifecycleToastNotifier` |
 | 10 | **Restart app** stops run/watch and starts with `--no-build` | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: false)` |
 | 11 | **Rebuild & restart** runs full build then starts app | `ProjectRuntime.RestartAppCoreAsync(rebuildFirst: true)` |

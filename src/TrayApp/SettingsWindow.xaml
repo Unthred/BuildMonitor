@@ -527,9 +527,6 @@
                                            ToolTip="When to open the log viewer automatically after a build or test completes." />
                                 <ComboBox x:Name="AutoOpenLogCombo"
                                           Style="{StaticResource SettingsFieldComboBox}" />
-                                <CheckBox x:Name="ShowStatusPanelWhileBuildingCheck"
-                                          Content="Show status panel while building"
-                                          ToolTip="Opens the hover status panel when a build starts and hides it when the build finishes. Also keeps the panel open from the edit quiet countdown into the build." />
                             </StackPanel>
                             <StackPanel Grid.Row="4" Grid.Column="2" Margin="12,10,12,12">
                                 <CheckBox x:Name="ReleaseOutputLocksCheck"
@@ -912,6 +909,17 @@
                                 <CheckBox x:Name="FollowBuildLogDesktopCheck"
                                           Content="Build log follows current desktop"
                                           ToolTip="When the build log opens or is brought to the front, move it onto the Windows virtual desktop you are viewing." />
+
+                                <TextBlock Text="Status panel visibility" Margin="0,12,0,4" FontWeight="SemiBold" />
+
+                                <CheckBox x:Name="KeepStatusVisibleDuringLocalBuildCheck"
+                                          Content="Keep status visible while Local build is active"
+                                          Margin="0,0,0,4"
+                                          ToolTip="Shows the hover status panel while any monitored project is building or testing locally, even when the pointer leaves the tray icon." />
+
+                                <CheckBox x:Name="KeepStatusVisibleDuringAzureBuildCheck"
+                                          Content="Keep status visible while Azure build is active"
+                                          ToolTip="Shows the hover status panel while any monitored project has active Azure CI activity (queued, in progress, or canceling)." />
 
                             </StackPanel>
 

@@ -350,7 +350,7 @@ public partial class App : System.Windows.Application
             if (Volatile.Read(ref trayMenuOpen) == 0)
             {
                 AutoOpenLogsOnTransition(snapshots);
-                AutoShowStatusPanelWhileBuilding(snapshots);
+                SyncBuildActivityStatusPanelVisibility(snapshots);
                 AutoShowStatusPanelForEditGating(snapshots);
                 buildLifecycleToastNotifier.Process(snapshots, fileChangeBuildStarts);
                 PlayBuildNotificationSounds(snapshots);
@@ -400,53 +400,52 @@ public partial class App : System.Windows.Application
             snapshots.Where(s => s.IsActive).Select(s => s.ProjectId).ToList());
     }
 
-    private void AutoShowStatusPanelWhileBuilding(IReadOnlyList<ProjectHealthSnapshot> snapshots)
+    private void SyncBuildActivityStatusPanelVisibility(IReadOnlyList<ProjectHealthSnapshot> snapshots)
     {
         var active = snapshots.Where(s => s.IsActive).ToList();
-        foreach (var snapshot in active)
+        var behavior = currentSettings.AppBehavior;
+        var hasHold = StatusPanelVisibilityPolicy.HasAnyBuildActivityHold(
+            active,
+            behavior.KeepStatusVisibleDuringLocalBuildActivity,
+            behavior.KeepStatusVisibleDuringAzureBuildActivity);
+
+        if (hasHold)
         {
-            var enabled = currentSettings.Projects
-                .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
-            if (!enabled)
-            {
-                continue;
-            }
-
-            previousProjectLifecycleState.TryGetValue(snapshot.ProjectId, out var previousState);
-            if (!StatusPanelBuildVisibilityEvaluator.ShouldAutoShow(enabled, previousState, snapshot.State))
-            {
-                continue;
-            }
-
             if (hoverPanel is not { IsVisible: true })
             {
                 ShowStatusPanel();
                 statusPanelAutoShownForBuild = true;
                 MarkStatusPanelAutoPinned();
             }
+
+            return;
         }
 
-        var visibilityProjects = active.Select(snapshot =>
+        if (statusPanelAutoShownForBuild
+            && !statusPanelAutoShownForEditGating
+            && !StatusPanelBuildVisibilityEvaluator.ShouldKeepPanelVisibleUntilSiteReady(active)
+            && !IsPointerEngagedWithStatusPanel())
         {
-            var enabled = currentSettings.Projects
-                .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
-            return (ShowWhileBuildingEnabled: enabled == true, snapshot.State);
-        });
-
-        if (StatusPanelBuildVisibilityEvaluator.ShouldAutoHide(statusPanelAutoShownForBuild, visibilityProjects))
-        {
-            if (!statusPanelAutoShownForEditGating
-                && !statusPanelPinnedAutoFlow
-                && !StatusPanelBuildVisibilityEvaluator.ShouldKeepPanelVisibleUntilSiteReady(active))
-            {
-                HideAutoStatusPanel();
-                statusPanelAutoShownForBuild = false;
-            }
+            HideAutoStatusPanel();
+            statusPanelAutoShownForBuild = false;
         }
     }
 
+    private bool HasActiveBuildVisibilityHold()
+    {
+        var active = ResolveStatusPanelSnapshots().Where(s => s.IsActive);
+        var behavior = currentSettings.AppBehavior;
+        return StatusPanelVisibilityPolicy.HasAnyBuildActivityHold(
+            active,
+            behavior.KeepStatusVisibleDuringLocalBuildActivity,
+            behavior.KeepStatusVisibleDuringAzureBuildActivity);
+    }
+
+    private bool ShouldSuppressStatusPanelAutoHide() =>
+        HasActiveBuildVisibilityHold() || statusPanelPinnedAutoFlow;
+
+    private bool KeepStatusVisibleDuringLocalBuild() =>
+        currentSettings.AppBehavior.KeepStatusVisibleDuringLocalBuildActivity;
     private void MarkStatusPanelAutoPinned() => statusPanelPinnedAutoFlow = true;
 
     private IReadOnlyList<ProjectHealthSnapshot> ResolveStatusPanelSnapshots()
@@ -622,15 +621,13 @@ public partial class App : System.Windows.Application
 
         foreach (var snapshot in active)
         {
-            var showWhileBuilding = currentSettings.Projects
-                .FirstOrDefault(p => p.Id.Equals(snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
-                ?.Local?.RunOptions.ShowStatusPanelWhileBuilding == true;
+            var keepVisibleDuringLocalBuild = KeepStatusVisibleDuringLocalBuild();
             previousEditGatingActive.TryGetValue(snapshot.ProjectId, out var wasGating);
             previousProjectLifecycleState.TryGetValue(snapshot.ProjectId, out var previousState);
             var isBusy = StatusPanelBuildVisibilityEvaluator.IsBusyWorkState(snapshot.State);
 
             if (StatusPanelBuildVisibilityEvaluator.ShouldContinueThroughBuildFromEditGating(
-                    showWhileBuilding,
+                    keepVisibleDuringLocalBuild,
                     previousState,
                     snapshot.State,
                     statusPanelAutoShownForEditGating && !statusPanelAutoShownForBuild))
@@ -659,7 +656,7 @@ public partial class App : System.Windows.Application
             }
             else if (StatusPanelBuildVisibilityEvaluator.ShouldAutoShowForBusyWork(
                     suppressionEnabled,
-                    showWhileBuilding,
+                    keepVisibleDuringLocalBuild,
                     previousState,
                     snapshot.State))
             {
@@ -893,7 +890,7 @@ public partial class App : System.Windows.Application
 
         if (!IsCursorOverTrayIcon()
             && !pointerOverStatusPanel
-            && !statusPanelPinnedAutoFlow)
+            && !ShouldSuppressStatusPanelAutoHide())
         {
             ScheduleHideStatusPanel();
             trayHoverPollTimer?.Stop();
@@ -922,7 +919,7 @@ public partial class App : System.Windows.Application
 
         if (!IsCursorOverTrayIcon()
             && !pointerOverStatusPanel
-            && !statusPanelPinnedAutoFlow)
+            && !ShouldSuppressStatusPanelAutoHide())
         {
             ScheduleHideStatusPanel();
             return;
@@ -1037,7 +1034,7 @@ public partial class App : System.Windows.Application
 
     private void ScheduleHideStatusPanel()
     {
-        if (statusPanelPinnedAutoFlow)
+        if (ShouldSuppressStatusPanelAutoHide())
         {
             return;
         }
@@ -1053,7 +1050,7 @@ public partial class App : System.Windows.Application
     private void HideStatusPanelTick(object? sender, EventArgs e)
     {
         hideStatusPanelTimer?.Stop();
-        if (statusPanelPinnedAutoFlow || IsPointerEngagedWithStatusPanel())
+        if (ShouldSuppressStatusPanelAutoHide() || IsPointerEngagedWithStatusPanel())
         {
             return;
         }
@@ -1493,6 +1490,13 @@ public partial class App : System.Windows.Application
         ApplyVirtualDesktopWindowSettings();
         ApplyThemeToUi();
         RebuildTrayMenu();
+        SyncBuildActivityStatusPanelVisibility(ResolveStatusPanelSnapshots());
+        if (hoverPanel is { IsVisible: true }
+            && !IsPointerEngagedWithStatusPanel()
+            && !ShouldSuppressStatusPanelAutoHide())
+        {
+            ScheduleHideStatusPanel();
+        }
 
         var plan = SettingsApplyImpactClassifier.CreatePlan(previousSettings, currentSettings);
         if (plan.ColdStartActiveProjectsWithBuild

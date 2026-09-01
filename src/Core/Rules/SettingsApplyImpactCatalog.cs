@@ -84,8 +84,8 @@ public static class SettingsApplyImpactCatalog
             "Watcher ignore set remounts without compile; Soft add-only refresh cannot remove segments."),
         new("Projects[].Local.RunOptions.AutoOpenLog", SettingsApplyImpact.SoftRuntime,
             "UI auto-open preference; App reads settings without restarting Local."),
-        new("Projects[].Local.RunOptions.ShowStatusPanelWhileBuilding", SettingsApplyImpact.SoftRuntime,
-            "Status panel visibility preference only."),
+        new("Projects[].Local.RunOptions.ShowStatusPanelWhileBuilding", SettingsApplyImpact.None,
+            "Obsolete schema v23; retained for load compatibility only."),
 
         // --- Azure attachment ---
         new("Projects[].Azure.ConnectionId", SettingsApplyImpact.SoftRuntime,
@@ -170,6 +170,10 @@ public static class SettingsApplyImpactCatalog
             "Status panel VD follow."),
         new("AppBehavior.FollowBuildLogToVirtualDesktop", SettingsApplyImpact.Presentation,
             "Log viewer VD follow."),
+        new("AppBehavior.KeepStatusVisibleDuringLocalBuildActivity", SettingsApplyImpact.Presentation,
+            "Status panel auto-hold during Local build/test activity only."),
+        new("AppBehavior.KeepStatusVisibleDuringAzureBuildActivity", SettingsApplyImpact.Presentation,
+            "Status panel auto-hold during Azure CI activity only."),
         new("AppBehavior.Toasts.BuildStart", SettingsApplyImpact.Presentation,
             "Toast category toggle."),
         new("AppBehavior.Toasts.BuildSuccess", SettingsApplyImpact.Presentation,
