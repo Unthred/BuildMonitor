@@ -180,7 +180,9 @@ public sealed class SettingsStore(string settingsPath)
         {
             foreach (var project in settings.Projects)
             {
+#pragma warning disable CS0618
                 project.RunOptions.ShowStatusPanelWhileBuilding = true;
+#pragma warning restore CS0618
             }
 
             settings.SchemaVersion = 17;
