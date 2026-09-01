@@ -129,6 +129,10 @@ public partial class SettingsWindow : Window
         RunOnLogonCheck.IsChecked = Settings.AppBehavior.RunOnLogon;
         FollowStatusPanelDesktopCheck.IsChecked = Settings.AppBehavior.FollowStatusPanelToVirtualDesktop;
         FollowBuildLogDesktopCheck.IsChecked = Settings.AppBehavior.FollowBuildLogToVirtualDesktop;
+        KeepStatusVisibleDuringLocalBuildCheck.IsChecked =
+            Settings.AppBehavior.KeepStatusVisibleDuringLocalBuildActivity;
+        KeepStatusVisibleDuringAzureBuildCheck.IsChecked =
+            Settings.AppBehavior.KeepStatusVisibleDuringAzureBuildActivity;
 
         foreach (var project in Settings.Projects)
         {
@@ -268,7 +272,6 @@ public partial class SettingsWindow : Window
                 RestartAppAfterRebuildCheck.IsChecked = local.RunOptions.RestartAppAfterRebuild;
                 RunTestsCombo.SelectedItem = local.RunOptions.RunTests;
                 AutoOpenLogCombo.SelectedItem = local.RunOptions.AutoOpenLog;
-                ShowStatusPanelWhileBuildingCheck.IsChecked = local.RunOptions.ShowStatusPanelWhileBuilding;
                 FileChangesCombo.SelectedItem = local.RunOptions.FileChanges;
                 WatchExcludeSegmentsText.Text = local.RunOptions.WatchExcludeSegments;
                 ReleaseOutputLocksCheck.IsChecked = local.RunOptions.ReleaseOutputLocksBeforeBuild;
@@ -412,7 +415,6 @@ public partial class SettingsWindow : Window
         RestartAppAfterRebuildCheck.IsEnabled = enabled;
         RunTestsCombo.IsEnabled = enabled;
         AutoOpenLogCombo.IsEnabled = enabled;
-        ShowStatusPanelWhileBuildingCheck.IsEnabled = enabled;
         FileChangesCombo.IsEnabled = enabled;
         WatchExcludeSegmentsText.IsEnabled = enabled;
         ReleaseOutputLocksCheck.IsEnabled = enabled;
@@ -764,7 +766,6 @@ public partial class SettingsWindow : Window
 
         local.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
         local.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
-        local.RunOptions.ShowStatusPanelWhileBuilding = ShowStatusPanelWhileBuildingCheck.IsChecked == true;
         local.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
         local.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
         local.RunOptions.ReleaseOutputLocksBeforeBuild = ReleaseOutputLocksCheck.IsChecked == true;
@@ -1042,6 +1043,10 @@ public partial class SettingsWindow : Window
         Settings.AppBehavior.RunOnLogon = RunOnLogonCheck.IsChecked == true;
         Settings.AppBehavior.FollowStatusPanelToVirtualDesktop = FollowStatusPanelDesktopCheck.IsChecked == true;
         Settings.AppBehavior.FollowBuildLogToVirtualDesktop = FollowBuildLogDesktopCheck.IsChecked == true;
+        Settings.AppBehavior.KeepStatusVisibleDuringLocalBuildActivity =
+            KeepStatusVisibleDuringLocalBuildCheck.IsChecked == true;
+        Settings.AppBehavior.KeepStatusVisibleDuringAzureBuildActivity =
+            KeepStatusVisibleDuringAzureBuildCheck.IsChecked == true;
 
         if (TrayMenuLayoutCombo.SelectedItem is TrayMenuLayout trayMenuLayout)
         {

@@ -202,6 +202,8 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 ## Virtual desktops (Windows)
 
 - **`appBehavior.followStatusPanelToVirtualDesktop`** (default **true**) — when the hover **status panel** opens, move it onto the virtual desktop you are currently viewing (foreground window / cursor).
+- **`appBehavior.keepStatusVisibleDuringLocalBuildActivity`** (default **true**) — keep the hover status panel visible while **any** active monitored project is building or testing locally, even when the pointer leaves the tray icon.
+- **`appBehavior.keepStatusVisibleDuringAzureBuildActivity`** (default **true**) — keep the hover status panel visible while **any** active monitored project has authoritative Azure CI activity (queued, in progress, or canceling). Uses the same Azure facet as BUILDS and `/projects`; does not add polling.
 - **`appBehavior.followBuildLogToVirtualDesktop`** (default **true**) — when the **build log** window opens or is activated, move it onto your current virtual desktop. Useful when auto-open log fires while you are on another desktop.
 
 Toggle both under **Settings → App → Virtual desktops**.
@@ -267,4 +269,4 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 - **Restart app after rebuild** — when run mode is Watch or Run, start (or restart) the app after a successful rebuild, including the first successful build after a prior failure.
 - **Restart app** — stop and start run/watch with `--no-build` (no full rebuild).
 - **Rebuild & restart** — full `dotnet build`, then start run/watch (shows build progress in status panel).
-- **Show status panel while building** (default **on**) — per project. Opens the hover status panel when a build starts and hides it when the build finishes. If the panel was already opened for the edit-gating countdown, it stays open through the build even when this is off. Does not auto-hide if you already had the panel open before the build started.
+- **Status panel build visibility** (App → Appearance & startup, schema v23) — two independent app-level toggles (default **on**): keep visible during Local build/test activity, and keep visible during Azure CI activity. Edit-gating countdown flows still respect the Local toggle. The obsolete per-project `runOptions.showStatusPanelWhileBuilding` field is ignored at runtime but retained for load compatibility.

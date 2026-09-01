@@ -231,7 +231,6 @@ public static class SettingsApplyImpactClassifier
             local.RunOptions.ReleaseOutputLocksBeforeBuild,
             local.RunOptions.AutoRepairCorruptedOutput,
             local.RunOptions.AutoOpenLog,
-            local.RunOptions.ShowStatusPanelWhileBuilding,
             local.RunOptions.ForceCompleteWarningCounts
         }
     };

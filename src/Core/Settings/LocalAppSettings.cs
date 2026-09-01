@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 22;
+    public int SchemaVersion { get; set; } = 23;
     /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
     public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
     public List<MonitoredProjectSettings> Projects { get; set; } = [];
@@ -204,6 +204,7 @@ public sealed class ProjectRunOptions
     public string WatchExcludeSegments { get; set; } =
         ".cursor;agent-transcripts;terminals;mcps;.specstory;plans;.idea;.vscode;docs;templates;.github";
     public AutoOpenLogMode AutoOpenLog { get; set; } = AutoOpenLogMode.Never;
+    [Obsolete("Migrated to AppBehavior.KeepStatusVisibleDuringLocalBuildActivity (schema v23).")]
     public bool ShowStatusPanelWhileBuilding { get; set; } = true;
 }
 
@@ -279,6 +280,10 @@ public sealed class AppBehaviorSettings
     public ToastNotificationSettings Toasts { get; set; } = new();
     public bool FollowStatusPanelToVirtualDesktop { get; set; } = true;
     public bool FollowBuildLogToVirtualDesktop { get; set; } = true;
+    /// <summary>Keep the hover status panel visible while any monitored project has active Local build/test work.</summary>
+    public bool KeepStatusVisibleDuringLocalBuildActivity { get; set; } = true;
+    /// <summary>Keep the hover status panel visible while any monitored project has active Azure CI activity.</summary>
+    public bool KeepStatusVisibleDuringAzureBuildActivity { get; set; } = true;
 }
 
 /// <summary>
