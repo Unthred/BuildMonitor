@@ -278,6 +278,14 @@ public sealed class StatusPanelVisibilityPolicyTests
             [],
             IsRestarting: isRestarting);
 
+    [Fact]
+    public void Azure_build_activity_hold_suppresses_auto_hide_without_site_ready_pin()
+    {
+        var snapshots = new[] { AzureSnapshot(PipelineRunState.InProgress, AzureCiMonitoringState.Activity) };
+        var reasons = StatusPanelVisibilityPolicy.EvaluateBuildActivityReasons(snapshots, false, true);
+        Assert.True(StatusPanelVisibilityPolicy.ShouldSuppressAutoHideForBuildActivity(reasons));
+    }
+
     private static ProjectHealthSnapshot AzureSnapshot(
         PipelineRunState runState,
         AzureCiMonitoringState ciState,

@@ -415,7 +415,6 @@ public partial class App : System.Windows.Application
             {
                 ShowStatusPanel();
                 statusPanelAutoShownForBuild = true;
-                MarkStatusPanelAutoPinned();
             }
 
             return;
@@ -492,6 +491,19 @@ public partial class App : System.Windows.Application
             if (panelVisible)
             {
                 HideAutoStatusPanel(suppressTrayHover: true);
+            }
+
+            return;
+        }
+
+        // Build-activity holds (Local/Azure) are not site-ready auto-dismiss flows.
+        if (HasActiveBuildVisibilityHold())
+        {
+            var hadClosingCountdown = statusPanelDismissScheduled || statusPanelDismissAtUtc is not null;
+            CancelSiteReadyDismissSchedule();
+            if (hadClosingCountdown && panelVisible)
+            {
+                UpdateStatusPanelIfVisible(snapshots);
             }
 
             return;
@@ -588,6 +600,13 @@ public partial class App : System.Windows.Application
 
         if (DateTimeOffset.UtcNow < dismissAt)
         {
+            UpdateStatusPanelIfVisible();
+            return;
+        }
+
+        if (HasActiveBuildVisibilityHold())
+        {
+            CancelSiteReadyDismissSchedule();
             UpdateStatusPanelIfVisible();
             return;
         }
