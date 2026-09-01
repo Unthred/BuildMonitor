@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Core\BuildMonitor.Core.csproj" />
     <ProjectReference Include="..\Infrastructure\BuildMonitor.Infrastructure.csproj" />
+    <ProjectReference Include="..\TrayApp\BuildMonitor.TrayApp.csproj" />
   </ItemGroup>
 
 </Project>

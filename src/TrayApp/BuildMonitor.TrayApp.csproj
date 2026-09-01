@@ -22,6 +22,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\AppIcon.ico" Link="Assets\AppIcon.ico" />
+    <EmbeddedResource Include="Assets\tray\runtime\*.ico" Link="Assets\tray\runtime\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AssemblyMetadata Include="BuildMonitor.Version" Value="$(Version)" />
     <AssemblyMetadata Include="BuildMonitor.GitCommit" Value="$(GitCommitShort)" />
     <AssemblyMetadata Include="BuildMonitor.GitBranch" Value="$(GitBranch)" />
