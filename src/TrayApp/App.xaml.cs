@@ -53,11 +53,7 @@ public partial class App : System.Windows.Application
     private readonly TrayContextMenuBuilder trayMenuBuilder = new();
     private int settingsApplyVersion;
     private readonly SemaphoreSlim settingsApplyGate = new(1, 1);
-    private DispatcherTimer? buildIconAnimationTimer;
-    private int buildIconAnimationFrame;
-    private MonitorHealth currentTrayHealth = MonitorHealth.Unknown;
-    private bool currentTrayBuilding;
-    private bool currentTrayWebReady;
+    private TrayIconPresentationState currentTrayPresentationState = TrayIconPresentationState.Neutral;
     private ProjectHealthSnapshot? currentTrayHeadline;
     private int exitRequested;
     private readonly object pendingHealthUiSync = new();
@@ -333,10 +329,7 @@ public partial class App : System.Windows.Application
         {
             var activeOnly = snapshots.Where(s => s.IsActive).ToList();
             currentTrayHeadline = LocalTrayIconRollupEvaluator.ChooseHeadline(activeOnly);
-            UpdateTrayIcon(
-                LocalTrayIconRollupEvaluator.Rollup(activeOnly),
-                LocalTrayIconRollupEvaluator.IsBuilding(activeOnly),
-                LocalTrayIconRollupEvaluator.IsWebReady(currentTrayHeadline));
+            UpdateTrayIcon(activeOnly);
 
             if (hoverPanel is { IsVisible: true })
             {
@@ -781,8 +774,6 @@ public partial class App : System.Windows.Application
     {
         displayChangeWatcher?.Dispose();
         displayChangeWatcher = null;
-        buildIconAnimationTimer?.Stop();
-        buildIconAnimationTimer = null;
         dispatcherHealthProbe?.Dispose();
         dispatcherHealthProbe = null;
         controlPlaneHost?.Dispose();
@@ -808,7 +799,7 @@ public partial class App : System.Windows.Application
         var icon = new Forms.NotifyIcon
         {
             Text = string.Empty,
-            Icon = TrafficLightIconFactory.GetIcon(MonitorHealth.Unknown)
+            Icon = TrayIconFactory.GetIcon(TrayIconPresentationState.Neutral)
         };
 
         trayContextMenu = new Forms.ContextMenuStrip();
@@ -1661,8 +1652,6 @@ public partial class App : System.Windows.Application
             }
 
             ThemeService.ThemeChanged -= OnThemeChanged;
-            buildIconAnimationTimer?.Stop();
-            buildIconAnimationTimer = null;
 
             ToastNotificationService.CloseAll();
 
@@ -1980,72 +1969,32 @@ public partial class App : System.Windows.Application
         ThemeService.ApplyChrome(buildMonitorHealthWindow, theme == ResolvedTheme.Dark);
     }
 
-    private void UpdateTrayIcon(MonitorHealth health, bool isBuilding, bool webReady)
+    private void UpdateTrayIcon(IReadOnlyList<ProjectHealthSnapshot> activeSnapshots)
     {
         if (notifyIcon is null)
         {
             return;
         }
 
-        currentTrayHealth = health;
-        currentTrayBuilding = isBuilding;
-        currentTrayWebReady = webReady;
-
-        if (isBuilding)
-        {
-            EnsureBuildIconAnimationTimer();
-        }
-        else
-        {
-            StopBuildIconAnimationTimer();
-        }
-
-        ApplyTrayIconFrame();
+        currentTrayPresentationState = TrayIconPresentationMapper.Resolve(activeSnapshots);
+        ApplyTrayIcon();
     }
 
-    private void EnsureBuildIconAnimationTimer()
-    {
-        buildIconAnimationTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
-        buildIconAnimationTimer.Tick -= BuildIconAnimationTick;
-        buildIconAnimationTimer.Tick += BuildIconAnimationTick;
-
-        if (!buildIconAnimationTimer.IsEnabled)
-        {
-            buildIconAnimationFrame = 0;
-            buildIconAnimationTimer.Start();
-        }
-    }
-
-    private void StopBuildIconAnimationTimer()
-    {
-        if (buildIconAnimationTimer is null)
-        {
-            return;
-        }
-
-        buildIconAnimationTimer.Stop();
-        buildIconAnimationTimer.Tick -= BuildIconAnimationTick;
-        buildIconAnimationFrame = 0;
-    }
-
-    private void BuildIconAnimationTick(object? sender, EventArgs e)
-    {
-        buildIconAnimationFrame = (buildIconAnimationFrame + 1) % 4;
-        ApplyTrayIconFrame();
-    }
-
-    private void ApplyTrayIconFrame()
+    private void ApplyTrayIcon()
     {
         if (notifyIcon is null)
         {
             return;
         }
 
-        notifyIcon.Icon = TrafficLightIconFactory.GetIcon(
-            currentTrayHealth,
-            currentTrayBuilding,
-            buildIconAnimationFrame,
-            currentTrayWebReady);
+        if (!TrayIconFactory.TryGetIcon(currentTrayPresentationState, out var icon) || icon is null)
+        {
+#pragma warning disable CS0618
+            icon = TrafficLightIconFactory.GetIcon(MonitorHealth.Unknown);
+#pragma warning restore CS0618
+        }
+
+        notifyIcon.Icon = icon;
         notifyIcon.Text = string.Empty;
 
         if (hoverPanel is { IsVisible: true })

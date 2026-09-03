@@ -22,6 +22,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="BuildMonitor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\tray\runtime\*.ico" Link="Assets\tray\runtime\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AssemblyMetadata Include="BuildMonitor.Version" Value="$(Version)" />
     <AssemblyMetadata Include="BuildMonitor.GitCommit" Value="$(GitCommitShort)" />
     <AssemblyMetadata Include="BuildMonitor.GitBranch" Value="$(GitBranch)" />

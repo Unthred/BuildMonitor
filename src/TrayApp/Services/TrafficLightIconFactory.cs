@@ -6,6 +6,11 @@ using BuildMonitor.Core.Models;
 
 namespace BuildMonitor.TrayApp.Services;
 
+/// <summary>
+/// Legacy programmatic traffic-light tray icons (#95 rollback fallback).
+/// Obsolete — committed mascot ICOs via <see cref="TrayIconFactory"/> are preferred.
+/// </summary>
+[Obsolete("Traffic-light tray icons are legacy fallback only. Use TrayIconFactory with committed mascot assets.")]
 public static class TrafficLightIconFactory
 {
     private const int DesignSize = 32;

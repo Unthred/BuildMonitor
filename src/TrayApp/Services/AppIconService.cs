@@ -13,7 +13,9 @@ public static class AppIconService
     private static ImageSource? windowIconSource;
 
     public static System.Drawing.Icon TrayIcon =>
+#pragma warning disable CS0618
         appIcon ??= LoadIconFromResource() ?? TrafficLightIconFactory.GetShowcaseIcon();
+#pragma warning restore CS0618
 
     public static ImageSource WindowIcon =>
         windowIconSource ??= Imaging.CreateBitmapSourceFromHIcon(
@@ -39,5 +41,7 @@ public static class AppIconService
     }
 
     public static System.Drawing.Icon CreateTrafficLightAppIcon() =>
+#pragma warning disable CS0618
         TrafficLightIconFactory.GetShowcaseIcon();
+#pragma warning restore CS0618
 }
