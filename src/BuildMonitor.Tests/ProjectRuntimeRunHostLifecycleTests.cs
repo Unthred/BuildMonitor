@@ -105,6 +105,30 @@ public sealed class ProjectRuntimeRunHostLifecycleTests
     }
 
     [Fact]
+    public async Task Explicit_stop_then_watch_resume_does_not_change_desired_or_start_host()
+    {
+        // /watch/resume is operational resume only — not an explicit Run after /run/stop.
+        using var env = CreateRuntime(ProjectRunMode.Run, startOnLaunch: true);
+        SetPrivate(env.Runtime, "desiredRunHostState", DesiredRunHostState.Running);
+        SetPrivate(env.Runtime, "lastBuildExitCode", 0);
+        env.Runtime.EnsureRunProcessStartedAfterBuild();
+        var started = env.Runtime.ProcessStartCount;
+
+        await env.Runtime.StopRunAsync(CancellationToken.None);
+        Assert.Equal(DesiredRunHostState.Stopped, env.Runtime.DesiredRunHostState);
+        Assert.Equal(ControlPlaneWatchState.Stopped, env.Runtime.GetWatchStatus().Watch);
+
+        // Even if pause flag were somehow set, resume must not resurrect a stopped host.
+        SetPrivate(env.Runtime, "watchPausedByControlPlane", true);
+        var status = env.Runtime.ResumeWatch();
+
+        Assert.Equal(DesiredRunHostState.Stopped, env.Runtime.DesiredRunHostState);
+        Assert.Equal(started, env.Runtime.ProcessStartCount);
+        Assert.Equal(ControlPlaneWatchState.Stopped, status.Watch);
+        Assert.False(GetPrivate<bool>(env.Runtime, "watchPausedByControlPlane"));
+    }
+
+    [Fact]
     public async Task Explicit_stop_then_test_restart_path_does_not_start_host()
     {
         using var env = CreateRuntime(ProjectRunMode.Run, startOnLaunch: true);
