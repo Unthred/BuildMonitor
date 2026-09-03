@@ -179,7 +179,7 @@ VSTest can print `Test run for <dll>` **before** it opens the file. That banner 
 
 Paths that do not resolve under the project's **Root folder** (or do not exist) are rejected on load/save so another project's relative test path cannot stick. When blank, Settings shows the effective auto-detect target as a hint.
 
-Projects Settings is capability-aware: with **Run mode = None**, launch profile / site URL / restart-app controls are hidden; **Tests** and build/watch options remain. Preferred site URL appears only when launch profiles declare `applicationUrl`. The **Build CLI** column shows muted inline **Launch behaviour** help and a **Detected application** summary (from the same capability/evidence flags as the controls) so empty space next to Azure / Cursor agent content explains why launch/site fields appear or stay hidden — presentation only; no new persisted settings.
+Projects Settings is capability-aware: with **Run mode = None**, launch profile / site URL / restart-app controls are hidden; **Tests** and build/watch options remain. Preferred site URL appears only when launch profiles declare `applicationUrl`. The **Launch & CLI** column shows muted inline **Launch behaviour** help and a **Detected application** summary together beside Azure (from the same capability/evidence flags as the controls) so launch/site visibility is explained without an orphaned context strip — presentation only; no new persisted settings.
 
 Output uses `--verbosity normal` and a detailed console logger (per-test pass/fail lines plus a summary in the finish banner).
 
