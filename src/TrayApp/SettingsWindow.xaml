@@ -192,7 +192,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Project | Build CLI — one parent Grid owns shared peer-field Y positions -->
+                        <!-- Project | Launch & CLI — one parent Grid owns shared peer-field Y positions -->
                         <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -220,7 +220,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" Margin="12,12,12,0"
                                        Text="Project" Style="{StaticResource SettingsSectionHeader}" />
                             <TextBlock Grid.Row="0" Grid.Column="2" Margin="12,12,12,0"
-                                       Text="Build CLI" Style="{StaticResource SettingsSectionHeader}" />
+                                       Text="Launch &amp; CLI" Style="{StaticResource SettingsSectionHeader}" />
 
                             <!-- Peer 1: Display name ↔ Launch profile -->
                             <TextBlock Grid.Row="1" Grid.Column="0" Margin="12,0,12,0"
@@ -277,16 +277,26 @@
                                            Visibility="Collapsed" />
                             </StackPanel>
 
-                            <!-- Build CLI context: between Launch profile and Preferred site URL -->
-                            <StackPanel x:Name="BuildCliLaunchBehaviourPanel"
-                                        Grid.Row="3" Grid.Column="2" Margin="12,10,12,0"
+                            <!-- Launch & CLI context: Launch behaviour + Detected application beside Azure (#92) -->
+                            <StackPanel Grid.Row="3" Grid.Column="2" Margin="12,10,12,0"
                                         VerticalAlignment="Top">
-                                <TextBlock x:Name="BuildCliLaunchBehaviourTitle"
-                                           Style="{StaticResource SettingsContextMetaHeading}"
-                                           Text="Launch behaviour" />
-                                <TextBlock x:Name="BuildCliLaunchBehaviourBody"
-                                           Style="{StaticResource SettingsContextMetaBody}"
-                                           Text="" />
+                                <StackPanel x:Name="BuildCliLaunchBehaviourPanel">
+                                    <TextBlock x:Name="BuildCliLaunchBehaviourTitle"
+                                               Style="{StaticResource SettingsContextMetaHeading}"
+                                               Text="Launch behaviour" />
+                                    <TextBlock x:Name="BuildCliLaunchBehaviourBody"
+                                               Style="{StaticResource SettingsContextMetaBody}"
+                                               Text="" />
+                                </StackPanel>
+                                <StackPanel x:Name="BuildCliDetectionPanel"
+                                            Margin="0,10,0,0">
+                                    <TextBlock x:Name="BuildCliDetectionTitle"
+                                               Style="{StaticResource SettingsContextMetaHeading}"
+                                               Text="Detected application" />
+                                    <TextBlock x:Name="BuildCliDetectionBody"
+                                               Style="{StaticResource SettingsContextMetaBody}"
+                                               Text="" />
+                                </StackPanel>
                             </StackPanel>
 
                             <!-- Peer 2: Root folder ↔ Preferred site URL -->
@@ -345,17 +355,7 @@
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- Build CLI context: between Preferred site URL and Extra dotnet args -->
-                            <StackPanel x:Name="BuildCliDetectionPanel"
-                                        Grid.Row="7" Grid.Column="2" Margin="12,10,12,0"
-                                        VerticalAlignment="Top">
-                                <TextBlock x:Name="BuildCliDetectionTitle"
-                                           Style="{StaticResource SettingsContextMetaHeading}"
-                                           Text="Detected application" />
-                                <TextBlock x:Name="BuildCliDetectionBody"
-                                           Style="{StaticResource SettingsContextMetaBody}"
-                                           Text="" />
-                            </StackPanel>
+                            <!-- Row 7 intentionally unused (#92): avoid orphaned context beside empty Project column -->
 
                             <!-- Peer 3: Project file ↔ Extra dotnet args -->
                             <TextBlock Grid.Row="8" Grid.Column="0" Margin="12,10,12,0"
