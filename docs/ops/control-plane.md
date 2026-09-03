@@ -38,13 +38,13 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | POST | `/session/busy` | Body: `{ "projectId": "…" }` — agent editing |
 | POST | `/session/idle` | Edit burst done — **File Watching** may auto-build; **AI Controlled** does **not** |
 | GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since", "idleCause": "none"\|"agent"\|"timeout", "lastActivity" }` |
-| POST | `/run/stop` | Stop supervised app (`dotnet run`/`watch`); watch becomes **paused** until resume/rebuild |
-| POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch |
+| POST | `/run/stop` | Explicit stop: sets **desired host state Stopped**; watch reports **stopped** (not paused). Ship-check/rebuild/tests must not auto-resume |
+| POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch **only if desired state is Running** |
 | POST | `/run/tests` | Mark idle → run tests (`filter` optional) — no full ship-check |
-| POST | `/run/ship-check` | Pause watch → build → test (if any) → resume |
+| POST | `/run/ship-check` | Pause watch → build → test (if any) → resume **only if desired state is Running** |
 | GET | `/watch?projectId=` | `{ "watch": "running"\|"paused"\|"stopped", "pid": n\|null }` |
-| POST | `/watch/pause` | Stop run/watch child (unlock DLLs) |
-| POST | `/watch/resume` | Start watch again if it was paused |
+| POST | `/watch/pause` | Temporary operational pause (desired state unchanged) |
+| POST | `/watch/resume` | Resume host only when desired state is Running |
 
 Optional ship-check body: `{ "projectId", "configuration": "Debug", "filter": null, "suppressAutoBuildTests": true }`.
 
@@ -150,8 +150,9 @@ Use this table to pick the **smallest** call that achieves the goal. Avoid redun
 | Run all unit tests | `POST /run/tests` | Omit `filter`, or use ship-check if you also need a fresh build |
 | Build + all tests (verification) | `POST /run/ship-check` | Preferred before claiming “builds and tests pass” |
 | Stop BuildMonitor tray (before deploy) | `POST /app/quit` | Graceful exit; wait until port closes, then replace binaries |
-| Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Same stop semantics as `/run/stop` (alias for agents that think in watch terms) |
-| Resume watch/run host | `POST /watch/resume` | After manual pause or external need |
+| Pause watch/run host (unlock DLLs) | `POST /watch/pause` | Temporary operational pause — **desired host state stays Running**; pair with `/watch/resume` |
+| Resume watch/run host | `POST /watch/resume` | Restores host only when desired state is Running (after pause). Does **not** override an explicit `/run/stop` |
+| Explicit stop run host | `POST /run/stop` | Sets **desired host state to Stopped**; ship-check / rebuild / tests must not auto-resume |
 | Read session state | `GET /session?projectId=` | `idleCause`: `agent` (you sent idle) vs `timeout` (120s expired) |
 | Read watch host state | `GET /watch?projectId=` | `running` / `paused` / `stopped` |
 | Discover project + port | `GET /projects` or `%LocalAppData%\BuildMonitor\control-plane.json` | Required once per chat |

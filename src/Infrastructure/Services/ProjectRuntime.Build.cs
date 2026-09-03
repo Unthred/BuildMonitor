@@ -290,6 +290,7 @@ internal sealed partial class ProjectRuntime
                 && runProcess?.IsRunning != true
                 && Volatile.Read(ref shipCheckInProgress) == 0
                 && Volatile.Read(ref agentRebuildInProgress) == 0
+                && RunHostLifecyclePolicy.MayStartOrRestartHost(desiredRunHostState)
                 && !watchPausedByControlPlane)
             {
                 if (triggeredByFileChange)

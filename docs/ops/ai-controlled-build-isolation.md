@@ -25,9 +25,20 @@ When `buildControlMode` is **AI Controlled**, source-file changes must never ini
 
 ## Watch/run host behaviour
 
+Desired run-host state (**Running** | **Stopped**) is separate from temporary operational pause:
+
+| Action | Desired state | Process |
+|--------|---------------|---------|
+| Cold `StartOnLaunch` / `StartAsync` | → Running | Startup freshness build, then start when build succeeds |
+| Explicit `/run/stop` | → Stopped | Host stopped; rebuild/ship-check/tests must not restore it |
+| Explicit Run/Restart | → Running | Starts (or rebuilds then starts) once |
+| `/watch/pause` or ship-check/rebuild pause | unchanged | Temporary unlock; resume only if desired is Running |
+| Unexpected crash | unchanged (Running) | `RestartOnCrash` / `MaxRestartRetries` may restart |
+
 - **Enter AI Controlled** while a `dotnet watch` process is running: stop it and start `dotnet run --no-build` (no compile). File watcher keeps observing.
 - **Leave AI Controlled**: if project Run mode is Watch and coalescing is off, migrate back to `dotnet watch` with `--no-build` (no surprise compile of AI edits).
 - Coalesced watch rebuilds (`CoalesceWatchRebuilds`) also stay off the watch process in AI Controlled; BuildMonitor’s watcher observes only.
+- AI Controlled source observation never changes desired host state or starts a stopped host.
 
 ## Status presentation
 
