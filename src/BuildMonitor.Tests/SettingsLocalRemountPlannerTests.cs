@@ -168,6 +168,7 @@ public sealed class ProjectRuntimeRemountWithoutBuildTests
             ProjectRunMode.Run,
             ProjectBuildControlMode.FileWatching);
         SetPrivate(scope.Runtime, "lastBuildExitCode", 0);
+        SetPrivate(scope.Runtime, "desiredRunHostState", DesiredRunHostState.Running);
 
         await scope.Runtime.RemountWithoutBuildAsync(LocalRemountKind.ProcessAndWatcher, CancellationToken.None);
 

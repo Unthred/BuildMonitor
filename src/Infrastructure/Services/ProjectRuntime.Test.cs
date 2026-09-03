@@ -189,6 +189,11 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
+        if (!RunHostLifecyclePolicy.MayStartOrRestartHost(desiredRunHostState))
+        {
+            return;
+        }
+
         StartRunProcess(skipEmbeddedBuild: true);
     }
 

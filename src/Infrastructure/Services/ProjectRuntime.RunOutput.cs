@@ -231,6 +231,11 @@ internal sealed partial class ProjectRuntime
 
     public void EnsureRunProcessStartedAfterBuild()
     {
+        if (!RunHostLifecyclePolicy.MayStartOrRestartHost(desiredRunHostState))
+        {
+            return;
+        }
+
         if (Local.RunOptions.RunMode == ProjectRunMode.None || lastBuildExitCode != 0)
         {
             return;
@@ -276,6 +281,9 @@ internal sealed partial class ProjectRuntime
             await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // Explicit Run/Restart: desired state becomes Running.
+        desiredRunHostState = DesiredRunHostState.Running;
+        watchPausedByControlPlane = false;
         isRestarting = true;
         HealthCoalesceRequested?.Invoke(true);
 

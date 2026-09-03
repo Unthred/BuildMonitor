@@ -74,6 +74,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private IReadOnlyList<string> pendingRebuildHoldSamplePaths = [];
     private int pendingRebuildTimerResetCount;
     private int runProcessGeneration;
+    private DesiredRunHostState desiredRunHostState = DesiredRunHostState.Stopped;
     private Action<string, int>? runProcessExitedHandler;
     private string? pendingListenUrl;
     private IReadOnlyList<string> candidateListenUrls = [];
@@ -101,6 +102,11 @@ internal sealed partial class ProjectRuntime : IDisposable
     public string DisplayName => projectSettings.DisplayName;
     public bool IsRunProcessActive => runProcess?.IsRunning == true;
     public bool RestartAppAfterRebuild => Local.RunOptions.RestartAppAfterRebuild;
+
+    /// <summary>
+    /// Desired supervised host state (Running vs Stopped). Separate from temporary operational pause.
+    /// </summary>
+    public DesiredRunHostState DesiredRunHostState => desiredRunHostState;
 
     /// <summary>Test probe: how many times <see cref="BuildAsync"/> was entered.</summary>
     public int BuildAsyncInvocationCount => Volatile.Read(ref buildAsyncInvocationCount);
@@ -463,6 +469,8 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // Cold StartOnLaunch path: session wants the host running after startup freshness work.
+        desiredRunHostState = DesiredRunHostState.Running;
         SetProjectCurrentAction("Starting — loading saved build state");
         await HydrateLastBuildFromStoreAsync(cancellationToken);
         TryStartAgentActivityWatcher();

@@ -161,7 +161,9 @@ internal sealed partial class ProjectRuntime
             throw new InvalidOperationException("Rebuild already running for this project.");
         }
 
-        var wasRunning = runProcess?.IsRunning == true || watchPausedByControlPlane;
+        var shouldResume = RunHostLifecyclePolicy.ShouldResumeHostAfterOperation(
+            desiredRunHostState,
+            Local.RunOptions.RunMode);
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         ControlPlaneRebuildResult? result = null;
 
@@ -190,7 +192,8 @@ internal sealed partial class ProjectRuntime
                 failures.Add(lastErrorPreview);
             }
 
-            if (buildOk && RestartAppAfterRebuild && Local.RunOptions.RunMode != ProjectRunMode.None)
+            // RestartAppAfterRebuild only restores when desired host state is Running (central gate).
+            if (buildOk && RestartAppAfterRebuild && shouldResume)
             {
                 EnsureRunProcessStartedAfterBuild();
             }
@@ -208,7 +211,7 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
 
-            if (wasRunning && Local.RunOptions.RunMode != ProjectRunMode.None)
+            if (shouldResume)
             {
                 SetAgentRebuildPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
                 ResumeWatch();
@@ -234,6 +237,11 @@ internal sealed partial class ProjectRuntime
             return new ControlPlaneWatchStatus(ControlPlaneWatchState.Running, runProcess.ProcessId);
         }
 
+        if (desiredRunHostState == DesiredRunHostState.Stopped)
+        {
+            return new ControlPlaneWatchStatus(ControlPlaneWatchState.Stopped, Pid: null);
+        }
+
         if (watchPausedByControlPlane)
         {
             return new ControlPlaneWatchStatus(ControlPlaneWatchState.Paused, Pid: null);
@@ -244,12 +252,14 @@ internal sealed partial class ProjectRuntime
 
     public async Task<ControlPlaneWatchStatus> PauseWatchAsync(CancellationToken cancellationToken)
     {
+        // Temporary operational pause — does not change desired host state.
         if (runProcess?.IsRunning == true)
         {
             watchPausedByControlPlane = true;
             await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
         }
-        else if (Local.RunOptions.RunMode != ProjectRunMode.None)
+        else if (desiredRunHostState == DesiredRunHostState.Running
+                 && Local.RunOptions.RunMode != ProjectRunMode.None)
         {
             watchPausedByControlPlane = true;
         }
@@ -259,8 +269,10 @@ internal sealed partial class ProjectRuntime
 
     public ControlPlaneWatchStatus ResumeWatch()
     {
-        if (watchPausedByControlPlane
-            && Local.RunOptions.RunMode != ProjectRunMode.None
+        if (RunHostLifecyclePolicy.ShouldResumeHostAfterOperation(
+                desiredRunHostState,
+                Local.RunOptions.RunMode)
+            && watchPausedByControlPlane
             && runProcess?.IsRunning != true)
         {
             StartRunProcess(skipEmbeddedBuild: true);
@@ -273,14 +285,21 @@ internal sealed partial class ProjectRuntime
     public async Task<ControlPlaneRunStopResult> StopRunAsync(CancellationToken cancellationToken)
     {
         var wasRunning = runProcess?.IsRunning == true;
-        var watch = await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
+        desiredRunHostState = DesiredRunHostState.Stopped;
+        watchPausedByControlPlane = false;
+        await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
+        if (Local.RunOptions.RunMode != ProjectRunMode.None)
+        {
+            SetState(ProjectLifecycleState.Idle);
+        }
+
         NotifyControlPlaneChanged(immediate: true);
 
         return new ControlPlaneRunStopResult(
             Ok: true,
             WasRunning: wasRunning,
             ExitCode: lastExitCode,
-            Watch: watch);
+            Watch: GetWatchStatus());
     }
 
     public void RequestCancelInFlightBuild() => RequestBuildCancellation();
@@ -311,7 +330,9 @@ internal sealed partial class ProjectRuntime
             throw new InvalidOperationException("Ship-check already running for this project.");
         }
 
-        var wasRunning = runProcess?.IsRunning == true || watchPausedByControlPlane;
+        var shouldResume = RunHostLifecyclePolicy.ShouldResumeHostAfterOperation(
+            desiredRunHostState,
+            Local.RunOptions.RunMode);
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         ControlPlaneShipCheckResult? result = null;
@@ -412,7 +433,7 @@ internal sealed partial class ProjectRuntime
             shipCheckConfiguration = null;
             shipCheckFilter = null;
 
-            if (wasRunning && Local.RunOptions.RunMode != ProjectRunMode.None)
+            if (shouldResume)
             {
                 SetShipCheckPhase(ControlPlaneShipCheckPhase.ResumingWatch, immediate: true);
                 ResumeWatch();

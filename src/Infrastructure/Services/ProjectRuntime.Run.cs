@@ -18,6 +18,16 @@ internal sealed partial class ProjectRuntime
 
     private void StartRunProcess(bool skipEmbeddedBuild = false)
     {
+        if (!RunHostLifecyclePolicy.MayStartOrRestartHost(desiredRunHostState))
+        {
+            return;
+        }
+
+        if (Local.RunOptions.RunMode == ProjectRunMode.None)
+        {
+            return;
+        }
+
         Interlocked.Increment(ref processStartCount);
         SetProjectCurrentAction(skipEmbeddedBuild
             ? "Starting app (dotnet run --no-build)"
@@ -127,7 +137,12 @@ internal sealed partial class ProjectRuntime
             }
         }
 
-        if (exitCode != 0 && Local.RunOptions.RestartOnCrash && restartCount < Local.RunOptions.MaxRestartRetries)
+        if (RunHostLifecyclePolicy.MayApplyCrashRecovery(
+                desiredRunHostState,
+                exitCode,
+                Local.RunOptions.RestartOnCrash,
+                restartCount,
+                Local.RunOptions.MaxRestartRetries))
         {
             restartCount++;
             SetState(ProjectLifecycleState.Crashed);
@@ -449,6 +464,8 @@ internal sealed partial class ProjectRuntime
 
     public Task StopAsync()
     {
+        desiredRunHostState = DesiredRunHostState.Stopped;
+        watchPausedByControlPlane = false;
         fileWatcher?.Dispose();
         fileWatcher = null;
         StopListenUrlPolling();
