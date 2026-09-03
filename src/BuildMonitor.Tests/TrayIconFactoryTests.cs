@@ -87,4 +87,34 @@ public sealed class TrayIconFactoryTests
         Assert.DoesNotContain("buildIconAnimationTimer", appSource, StringComparison.Ordinal);
         Assert.DoesNotContain("BuildIconAnimationTick", appSource, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [MemberData(nameof(PresentationStateResourceCases))]
+    public void Embedded_ico_contains_16_20_24_32_frames(
+        TrayIconPresentationState state,
+        string expectedFileName)
+    {
+        var assembly = typeof(TrayIconFactory).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .First(n => n.EndsWith(expectedFileName, StringComparison.OrdinalIgnoreCase));
+        using var stream = assembly.GetManifestResourceStream(resourceName)!;
+        using var reader = new BinaryReader(stream);
+        Assert.Equal(0, reader.ReadUInt16()); // reserved
+        Assert.Equal(1, reader.ReadUInt16()); // type = icon
+        var count = reader.ReadUInt16();
+        Assert.Equal(4, count);
+
+        var sizes = new HashSet<int>();
+        for (var i = 0; i < count; i++)
+        {
+            var w = reader.ReadByte();
+            var h = reader.ReadByte();
+            _ = reader.ReadBytes(14); // rest of directory entry
+            sizes.Add(w == 0 ? 256 : w);
+            Assert.Equal(w, h);
+        }
+
+        Assert.Equal(new HashSet<int> { 16, 20, 24, 32 }, sizes);
+        _ = state; // theory parameter used for resource selection
+    }
 }
