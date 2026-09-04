@@ -139,7 +139,7 @@ The script is idempotent (skips issues whose titles already exist) and ensures c
 
 | Theme | Issue title (created by sync script if missing) |
 |-------|--------------------------------------------------|
-| Tests | Run tests on file change (`OnFileChange` mode) |
+| Tests | Run tests after permitted file-triggered build (`OnFileChange`; not a watcher-side trigger) |
 | Tray UX | Open log viewer from tray context menu |
 | Tray UX | WPF tray context menu (Phase 2, if #8 insufficient) |
 | Optional module | Azure DevOps polling (shipped — see SETTINGS / ARCHITECTURE; notifications still deferred) |

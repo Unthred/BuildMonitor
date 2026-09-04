@@ -155,15 +155,21 @@ See [features/health-and-logs.md](features/health-and-logs.md) for how build vs 
 - **`controlPlaneEnabled`** (default **true**) — listen on `http://127.0.0.1:{controlPlanePort}/` for agent busy/idle and ship-check. See [ops/control-plane.md](ops/control-plane.md).
 - **`controlPlanePort`** (default **7700**) — loopback port only (1024–65535).
 - **`controlPlaneBusyTimeoutSeconds`** (default **120**) — if busy and no idle for this long, treat as idle.
-- **`suppressAutoBuildTests`** (default **true**) — skip `OnBuildSuccess` tests after auto-builds; ship-check and tray **Run tests** still run. Overridable via the control-plane API.
+- **`suppressAutoBuildTests`** (default **true**) — skip automatic post-build tests for **`OnBuildSuccess`** and **`OnFileChange`** (`After file-triggered build`) after auto-builds; ship-check and tray **Run tests** still run. Overridable via the control-plane API.
 
 Restart the project from the tray after changing this option so the run process switches between `dotnet run` and `dotnet watch`.
 
 ## Run tests
 
-- `Off`
-- `OnBuildSuccess` — run `dotnet test` automatically after a successful build
-- `OnFileChange` (planned; debounced rebuild path)
+Settings display labels (persisted enum values unchanged):
+
+- `Off` — no automatic post-build tests
+- `OnBuildSuccess` (**On build success**) — run `dotnet test` after any successful eligible build, subject to `suppressAutoBuildTests`
+- `OnFileChange` (**After file-triggered build**) — run `dotnet test` only after a successful build that originated from the **permitted file-change auto-build path**, subject to the same suppression gate
+
+`OnFileChange` is a post-build preference only. It never schedules a build or tests from a raw watcher event. AI Controlled remains observe-only (no file-triggered auto-builds), so `OnFileChange` does not run tests there. There is no separate test debounce — tests ride the existing coalesced file-build path.
+
+Manual rebuilds, startup builds, `/run/rebuild`, agent rebuilds, and ship-check builds do **not** satisfy `OnFileChange`. Ship-check keeps its own explicit test phase and does not use `RunTests`.
 
 **Tray menu → Run tests** runs tests on demand and opens the log viewer on the **Test** tab with live output while tests run. Completed output is saved to `last-test.log`.
 

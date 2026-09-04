@@ -260,12 +260,16 @@ internal sealed partial class ProjectRuntime
             {
                 progressSteps = [];
                 SetState(ProjectLifecycleState.BuildOk);
-            if (Local.RunOptions.RunTests == TestRunTrigger.OnBuildSuccess
-                && !ShouldSkipAutoBuildTests())
-            {
-                PrepareTest("build success");
-                await TestAsync(cancellationToken);
-            }
+                if (PostBuildTestTriggerPolicy.ShouldRunTestsAfterSuccessfulBuild(
+                        Local.RunOptions.RunTests,
+                        triggeredByFileChange,
+                        ShouldSkipAutoBuildTests()))
+                {
+                    PrepareTest(triggeredByFileChange
+                        ? "file-change build success"
+                        : "build success");
+                    await TestAsync(cancellationToken);
+                }
             }
             else
             {

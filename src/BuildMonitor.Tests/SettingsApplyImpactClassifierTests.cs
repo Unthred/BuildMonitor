@@ -257,6 +257,12 @@ public sealed class SettingsApplyImpactClassifierTests
             SettingsApplyImpact.SoftRuntime,
             SettingsApplyImpactClassifier.Classify(before, afterTests));
 
+        var afterOnFileChange = Clone(before);
+        afterOnFileChange.Projects[0].Local!.RunOptions.RunTests = TestRunTrigger.OnFileChange;
+        Assert.Equal(
+            SettingsApplyImpact.SoftRuntime,
+            SettingsApplyImpactClassifier.Classify(before, afterOnFileChange));
+
         var afterTarget = Clone(before);
         afterTarget.Projects[0].Local!.TestProjectFile = "Other.Tests.csproj";
         Assert.Equal(

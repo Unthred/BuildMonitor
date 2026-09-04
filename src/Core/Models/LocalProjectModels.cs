@@ -14,6 +14,22 @@ public enum TestRunTrigger
     OnFileChange = 2
 }
 
+public static class TestRunTriggerDisplay
+{
+    public static string ToLabel(TestRunTrigger trigger) =>
+        trigger switch
+        {
+            TestRunTrigger.OnBuildSuccess => "On build success",
+            TestRunTrigger.OnFileChange => "After file-triggered build",
+            _ => "Off"
+        };
+
+    public const string HelpText =
+        "Runs tests after a successful automatic rebuild caused by file changes. " +
+        "Only applies when the current workflow allows file-triggered builds; " +
+        "AI Controlled remains observe-only. Honours Suppress auto-build tests.";
+}
+
 public enum FileChangeMode
 {
     Off = 0,

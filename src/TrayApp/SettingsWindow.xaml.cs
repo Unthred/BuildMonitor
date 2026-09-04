@@ -88,7 +88,24 @@ public partial class SettingsWindow : Window
             Content = PreferredSiteUrlSchemeDisplay.ToLabel(PreferredSiteUrlScheme.Http),
             Tag = PreferredSiteUrlScheme.Http
         });
-        RunTestsCombo.ItemsSource = Enum.GetValues<TestRunTrigger>();
+        RunTestsCombo.Items.Clear();
+        RunTestsCombo.Items.Add(new ComboBoxItem
+        {
+            Content = TestRunTriggerDisplay.ToLabel(TestRunTrigger.Off),
+            Tag = TestRunTrigger.Off
+        });
+        RunTestsCombo.Items.Add(new ComboBoxItem
+        {
+            Content = TestRunTriggerDisplay.ToLabel(TestRunTrigger.OnBuildSuccess),
+            Tag = TestRunTrigger.OnBuildSuccess
+        });
+        RunTestsCombo.Items.Add(new ComboBoxItem
+        {
+            Content = TestRunTriggerDisplay.ToLabel(TestRunTrigger.OnFileChange),
+            Tag = TestRunTrigger.OnFileChange,
+            ToolTip = TestRunTriggerDisplay.HelpText
+        });
+        RunTestsCombo.ToolTip = TestRunTriggerDisplay.HelpText;
         AutoOpenLogCombo.ItemsSource = Enum.GetValues<AutoOpenLogMode>();
         FileChangesCombo.ItemsSource = Enum.GetValues<FileChangeMode>();
         ThemeCombo.ItemsSource = Enum.GetValues<AppThemePreference>();
@@ -270,7 +287,7 @@ public partial class SettingsWindow : Window
                 AutoRestartOnWatchChangesCheck.IsChecked = local.RunOptions.AutoRestartOnWatchChanges;
                 AutoRestartOnHotReloadRequestCheck.IsChecked = local.RunOptions.AutoRestartOnHotReloadRequest;
                 RestartAppAfterRebuildCheck.IsChecked = local.RunOptions.RestartAppAfterRebuild;
-                RunTestsCombo.SelectedItem = local.RunOptions.RunTests;
+                SelectRunTests(local.RunOptions.RunTests);
                 AutoOpenLogCombo.SelectedItem = local.RunOptions.AutoOpenLog;
                 FileChangesCombo.SelectedItem = local.RunOptions.FileChanges;
                 WatchExcludeSegmentsText.Text = local.RunOptions.WatchExcludeSegments;
@@ -555,6 +572,30 @@ public partial class SettingsWindow : Window
         return ProjectBuildControlMode.FileWatching;
     }
 
+    private void SelectRunTests(TestRunTrigger trigger)
+    {
+        foreach (ComboBoxItem item in RunTestsCombo.Items)
+        {
+            if (item.Tag is TestRunTrigger tag && tag == trigger)
+            {
+                RunTestsCombo.SelectedItem = item;
+                return;
+            }
+        }
+
+        RunTestsCombo.SelectedIndex = 0;
+    }
+
+    private TestRunTrigger ResolveRunTests()
+    {
+        if (RunTestsCombo.SelectedItem is ComboBoxItem { Tag: TestRunTrigger trigger })
+        {
+            return trigger;
+        }
+
+        return TestRunTrigger.Off;
+    }
+
     private void SelectPreferredSiteUrlScheme(PreferredSiteUrlScheme scheme)
     {
         foreach (ComboBoxItem item in PreferredSiteUrlCombo.Items)
@@ -764,7 +805,7 @@ public partial class SettingsWindow : Window
             }
         }
 
-        local.RunOptions.RunTests = (TestRunTrigger)(RunTestsCombo.SelectedItem ?? TestRunTrigger.Off);
+        local.RunOptions.RunTests = ResolveRunTests();
         local.RunOptions.AutoOpenLog = (AutoOpenLogMode)(AutoOpenLogCombo.SelectedItem ?? AutoOpenLogMode.Never);
         local.RunOptions.FileChanges = (FileChangeMode)(FileChangesCombo.SelectedItem ?? FileChangeMode.WatchOnly);
         local.RunOptions.WatchExcludeSegments = WatchExcludeSegmentsText.Text.Trim();
