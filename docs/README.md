@@ -17,6 +17,7 @@
 | Feature | Doc |
 |---------|-----|
 | Health, logs, restart | [features/health-and-logs.md](features/health-and-logs.md) |
+| Operational history | [features/operational-history.md](features/operational-history.md) |
 
 ## ADRs
 
