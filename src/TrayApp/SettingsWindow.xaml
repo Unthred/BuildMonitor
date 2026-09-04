@@ -438,7 +438,8 @@
                                        Style="{StaticResource SettingsFieldLabel}"
                                        ToolTip="File Watching — automatic rebuilds on change. AI Controlled — observe only; agent/manual rebuild required." />
                             <TextBlock Grid.Row="4" Grid.Column="2" Margin="12,10,12,0"
-                                       Text="Run tests" Style="{StaticResource SettingsFieldLabel}" />
+                                       Text="Run tests" Style="{StaticResource SettingsFieldLabel}"
+                                       ToolTip="Off — no automatic post-build tests. On build success — after any eligible successful build. After file-triggered build — only after a permitted file-change auto-build. Both auto options honour Suppress auto-build tests. AI Controlled never auto-builds, so After file-triggered build stays idle there." />
 
                             <ComboBox Grid.Row="5" Grid.Column="0" Margin="12,4,12,0"
                                       x:Name="BuildControlModeCombo"
@@ -727,7 +728,7 @@
 
                             <CheckBox x:Name="SuppressAutoBuildTestsCheck"
                                       Content="Skip tests on auto-build (ship-check / tray Run tests still run)"
-                                      ToolTip="When enabled, OnBuildSuccess tests are skipped after file-change builds. Override per project via the control-plane API." />
+                                      ToolTip="When enabled, OnBuildSuccess and After file-triggered build (OnFileChange) automatic post-build tests are skipped. Ship-check and tray Run tests still run. Override per project via the control-plane API." />
 
                             <TextBlock x:Name="ProjectStartBlockedHint"
                                        TextWrapping="Wrap"

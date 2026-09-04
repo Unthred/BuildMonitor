@@ -11,7 +11,7 @@ Under **Settings → Monitor**:
 | `controlPlaneEnabled` | `true` | Start the HTTP listener with the tray app |
 | `controlPlanePort` | `7700` | `http://127.0.0.1:{port}/` |
 | `controlPlaneBusyTimeoutSeconds` | `120` | Busy with no idle → treat as idle (agent crash) |
-| `suppressAutoBuildTests` | `true` | Skip `OnBuildSuccess` tests after auto-builds; ship-check and tray **Run tests** still run |
+| `suppressAutoBuildTests` | `true` | Skip `OnBuildSuccess` and `OnFileChange` automatic post-build tests after auto-builds; ship-check and tray **Run tests** still run |
 
 Override `suppressAutoBuildTests` per project via session/ship-check JSON (`suppressAutoBuildTests`).
 
@@ -208,7 +208,7 @@ Omit `filter` to run the full configured test project/solution.
 ## Behaviour
 
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
-- Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective.
+- Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective. That suppress gate applies to both **`OnBuildSuccess`** and **`OnFileChange`** (`After file-triggered build`) automatic post-build tests.
 - **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running.
 - **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first unless `--no-build` hits missing/stale test assemblies, in which case it does **one** full-build recovery and retries tests once. **409** if tests, rebuild, or ship-check is already running.
 - Busy timeout (default **120s**) is measured from the last **busy POST or file-change while busy**, not from the original busy start. If timeout fires, the status card says **Agent busy timed out · build allowed** (as opposed to **Agent finished editing** when `/session/idle` arrived).
