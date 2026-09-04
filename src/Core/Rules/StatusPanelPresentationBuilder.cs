@@ -11,10 +11,20 @@ public static class StatusPanelPresentationBuilder
     public static StatusPanelPresentation Build(
         IReadOnlyList<ProjectHealthSnapshot> snapshots,
         DateTimeOffset? panelDismissAtUtc,
-        DateTimeOffset utcNow)
+        DateTimeOffset utcNow,
+        Func<string, int, IReadOnlyList<OperationalEvent>>? recentHistoryForProject = null,
+        bool historyStoreAvailable = true)
     {
         var active = snapshots.Where(s => s.IsActive).ToList();
-        var cards = active.Select(s => BuildCard(s, utcNow)).ToList();
+        var expandHistoryByDefault = active.Count <= 1;
+        var cards = active
+            .Select(s => BuildCard(
+                s,
+                utcNow,
+                recentHistoryForProject,
+                historyStoreAvailable,
+                expandHistoryByDefault))
+            .ToList();
         var sideRail = BuildSideRail(active);
         var headerCountdown = StatusPanelHeaderCountdownFormatter.Format(snapshots, panelDismissAtUtc, utcNow);
         var (headerStillEditingProjectId, headerStillEditingToolTip) = ResolveHeaderStillEditing(
@@ -49,7 +59,12 @@ public static class StatusPanelPresentationBuilder
         return (null, null);
     }
 
-    private static StatusPanelCardPresentation BuildCard(ProjectHealthSnapshot snapshot, DateTimeOffset utcNow)
+    private static StatusPanelCardPresentation BuildCard(
+        ProjectHealthSnapshot snapshot,
+        DateTimeOffset utcNow,
+        Func<string, int, IReadOnlyList<OperationalEvent>>? recentHistoryForProject,
+        bool historyStoreAvailable,
+        bool expandHistoryByDefault)
     {
         var controlPlane = ControlPlaneStatusFormatter.Format(snapshot, utcNow);
         var showProgressChart = snapshot.ProgressSteps.Count > 0
@@ -74,6 +89,14 @@ public static class StatusPanelPresentationBuilder
                 utcNow);
         var buildSourceRows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, utcNow);
         var overallLabel = StatusPanelOverallFormatter.FormatLabel(snapshot.Health, [snapshot]);
+        var recentActivity = OperationalHistoryPresentationMapper.BuildSection(
+            historyStoreAvailable,
+            historyStoreAvailable && recentHistoryForProject is not null
+                ? recentHistoryForProject(snapshot.ProjectId, OperationalHistoryPresentationMapper.StatusCardRowLimit)
+                : [],
+            OperationalHistoryPresentationMapper.StatusCardRowLimit,
+            expandHistoryByDefault,
+            utcNow);
 
         return new StatusPanelCardPresentation(
             ProjectId: snapshot.ProjectId,
@@ -101,7 +124,8 @@ public static class StatusPanelPresentationBuilder
             OverallLabel: overallLabel,
             ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
             Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
-            BuildSourceRows: buildSourceRows);
+            BuildSourceRows: buildSourceRows,
+            RecentActivity: recentActivity);
     }
 
     private static IReadOnlyList<StatusPanelStatusRow> BuildDetailRows(
