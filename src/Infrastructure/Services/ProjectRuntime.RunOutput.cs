@@ -285,6 +285,8 @@ internal sealed partial class ProjectRuntime
         desiredRunHostState = DesiredRunHostState.Running;
         watchPausedByControlPlane = false;
         isRestarting = true;
+        history.BeginIntentionalRestart();
+        var restartCompleted = false;
         HealthCoalesceRequested?.Invoke(true);
 
         try
@@ -328,9 +330,16 @@ internal sealed partial class ProjectRuntime
             }
 
             EnsureRunProcessStartedAfterBuild();
+            history.CompleteIntentionalRestart(runProcess?.IsRunning == true);
+            restartCompleted = true;
         }
         finally
         {
+            if (!restartCompleted)
+            {
+                history.CancelIntentionalRestartSuppression();
+            }
+
             isRestarting = false;
             HealthCoalesceRequested?.Invoke(true);
         }

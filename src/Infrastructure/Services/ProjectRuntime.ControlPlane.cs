@@ -166,6 +166,7 @@ internal sealed partial class ProjectRuntime
             Local.RunOptions.RunMode);
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         ControlPlaneRebuildResult? result = null;
+        string? historyOpId = null;
 
         try
         {
@@ -176,6 +177,19 @@ internal sealed partial class ProjectRuntime
                 RequestBuildCancellation();
                 await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
             }
+
+            // Begin correlation only after any prior build has finished so we do not steal its OperationId.
+            if (!TryBeginHistoryOperation(
+                    OperationalEventSource.Agent,
+                    "rebuild",
+                    "Rebuild requested",
+                    out var begunOp))
+            {
+                throw new InvalidOperationException(
+                    "Another operational history operation is already active for this project.");
+            }
+
+            historyOpId = begunOp;
 
             await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
 
@@ -223,6 +237,7 @@ internal sealed partial class ProjectRuntime
 
             Interlocked.Exchange(ref agentRebuildInProgress, 0);
             CompleteAgentRebuild(result?.Ok == true);
+            EndHistoryOperation(historyOpId);
         }
     }
 
@@ -288,6 +303,10 @@ internal sealed partial class ProjectRuntime
         desiredRunHostState = DesiredRunHostState.Stopped;
         watchPausedByControlPlane = false;
         await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
+        if (wasRunning)
+        {
+            history.RecordHostStopped("Host stopped");
+        }
         if (Local.RunOptions.RunMode != ProjectRunMode.None)
         {
             SetState(ProjectLifecycleState.Idle);
@@ -336,6 +355,7 @@ internal sealed partial class ProjectRuntime
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         ControlPlaneShipCheckResult? result = null;
+        string? historyOpId = null;
 
         try
         {
@@ -346,6 +366,18 @@ internal sealed partial class ProjectRuntime
                 RequestBuildCancellation();
                 await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
             }
+
+            if (!TryBeginHistoryOperation(
+                    OperationalEventSource.Agent,
+                    "ship-check",
+                    "Ship-check requested",
+                    out var begunOp))
+            {
+                throw new InvalidOperationException(
+                    "Another operational history operation is already active for this project.");
+            }
+
+            historyOpId = begunOp;
 
             await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
 
@@ -445,6 +477,18 @@ internal sealed partial class ProjectRuntime
 
             Interlocked.Exchange(ref shipCheckInProgress, 0);
             CompleteShipCheck(result?.Ok == true);
+            if (historyOpId is not null)
+            {
+                history.RecordExplicit(
+                    OperationalEventSource.Agent,
+                    "ship-check",
+                    result?.Ok == true ? "Ship-check completed" : "Ship-check completed with failure",
+                    result?.Ok == true
+                        ? OperationalEventOutcome.Succeeded
+                        : OperationalEventOutcome.Failed);
+            }
+
+            EndHistoryOperation(historyOpId);
         }
     }
 
@@ -480,9 +524,22 @@ internal sealed partial class ProjectRuntime
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         ControlPlaneRunTestsResult? result = null;
+        string? historyOpId = null;
 
         try
         {
+            if (!TryBeginHistoryOperation(
+                    OperationalEventSource.Agent,
+                    "tests",
+                    "Tests requested",
+                    out var begunOp))
+            {
+                throw new InvalidOperationException(
+                    "Another operational history operation is already active for this project.");
+            }
+
+            historyOpId = begunOp;
+
             NotifyControlPlaneChanged(immediate: true);
             PrepareTest("agent tests");
             await TestAsync(cancellationToken).ConfigureAwait(false);
@@ -526,6 +583,7 @@ internal sealed partial class ProjectRuntime
             shipCheckFilter = null;
             Interlocked.Exchange(ref agentTestsInProgress, 0);
             CompleteAgentTests(result?.Ok == true);
+            EndHistoryOperation(historyOpId);
         }
     }
 
@@ -553,6 +611,11 @@ internal sealed partial class ProjectRuntime
         }
 
         Local.BuildControlMode = mode;
+
+        history.RecordWorkflowModeChange(
+            OperationalEventSource.Agent,
+            ProjectBuildControlModeWire.ToWire(previous),
+            ProjectBuildControlModeWire.ToWire(mode));
 
         if (mode == ProjectBuildControlMode.AiControlled)
         {

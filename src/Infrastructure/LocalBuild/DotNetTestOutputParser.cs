@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using BuildMonitor.Core.Models;
 
 namespace BuildMonitor.Infrastructure.LocalBuild;
 
@@ -157,6 +158,43 @@ public static class DotNetTestOutputParser
 
         // Intentionally ignores "Test run for …" — VSTest prints that banner before opening the DLL.
         return HasPostDiscoveryExecutionEvidence(logText);
+    }
+
+    /// <summary>
+    /// Distinct failing test names from VSTest/xUnit lines, capped for operational history detail.
+    /// </summary>
+    public static IReadOnlyList<string> CollectFailingTestNames(
+        string logText,
+        int maxNames = OperationalEventDetail.MaxFailingTestNames)
+    {
+        if (string.IsNullOrWhiteSpace(logText) || maxNames < 1)
+        {
+            return [];
+        }
+
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in logText.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = StripAnsi(raw.TrimEnd('\r'));
+            if (!TryParseFailedTest(line, out var name) || string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            if (!seen.Add(name))
+            {
+                continue;
+            }
+
+            names.Add(name);
+            if (names.Count >= maxNames)
+            {
+                break;
+            }
+        }
+
+        return names;
     }
 
     public static bool LooksLikeRestoreOrBuildOnly(string logText) =>

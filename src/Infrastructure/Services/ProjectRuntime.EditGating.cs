@@ -148,6 +148,7 @@ internal sealed partial class ProjectRuntime
 
     private void EnterWaitingForEditsState(string action)
     {
+        history.RecordWaitingForEditsEntered(action);
         SetState(ProjectLifecycleState.WaitingForEdits);
         SetProjectCurrentAction(action);
         MarkHealthDirty();

@@ -71,6 +71,19 @@ internal sealed partial class ProjectRuntime
         if (triggeredByFileChange)
         {
             NoteFileChangeBuildStarted();
+            history.EnsureRuntimeOperation(
+                OperationalEventSource.System,
+                "file-triggered-build",
+                "File-triggered build scheduled",
+                recordExplicitAction: true);
+        }
+        else if (!history.HasActiveOperation)
+        {
+            history.EnsureRuntimeOperation(
+                OperationalEventSource.System,
+                "build",
+                pendingBuildReason,
+                recordExplicitAction: false);
         }
 
         var buildReason = triggeredByFileChange
@@ -93,6 +106,7 @@ internal sealed partial class ProjectRuntime
         buildCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         currentBuildReasonInFlight = buildReason;
         var buildToken = buildCancellationSource.Token;
+        var clearRuntimeHistoryAfterBuild = true;
 
         try
         {
@@ -115,6 +129,13 @@ internal sealed partial class ProjectRuntime
             var buildBanner = WriteBuildStartBanner(buildReason);
             SetState(ProjectLifecycleState.Building);
             SetProjectCurrentAction($"Building — {buildReason}");
+            history.RecordBuild(
+                OperationalEventOutcome.Started,
+                $"Build started — {buildReason}",
+                currentBuildTriggerId,
+                buildNumber,
+                branch: null,
+                detail: new OperationalEventDetail(LogKind: BuildLogKind.Build));
 
             buildProgressTracker = new BuildProgressTracker();
             buildProgressTracker.Reset();
@@ -260,20 +281,47 @@ internal sealed partial class ProjectRuntime
             {
                 progressSteps = [];
                 SetState(ProjectLifecycleState.BuildOk);
+                history.RecordBuild(
+                    OperationalEventOutcome.Succeeded,
+                    $"Build succeeded — {buildReason}",
+                    currentBuildTriggerId,
+                    buildNumber,
+                    branch: null,
+                    detail: new OperationalEventDetail(
+                        ExitCode: 0,
+                        LogKind: BuildLogKind.Build));
                 if (PostBuildTestTriggerPolicy.ShouldRunTestsAfterSuccessfulBuild(
                         Local.RunOptions.RunTests,
                         triggeredByFileChange,
                         ShouldSkipAutoBuildTests()))
                 {
+                    clearRuntimeHistoryAfterBuild = false;
                     PrepareTest(triggeredByFileChange
                         ? "file-change build success"
                         : "build success");
-                    await TestAsync(cancellationToken);
+                    try
+                    {
+                        await TestAsync(cancellationToken);
+                    }
+                    finally
+                    {
+                        history.ClearRuntimeOwnedOperation();
+                    }
                 }
             }
             else
             {
                 SetState(ProjectLifecycleState.BuildFailed);
+                history.RecordBuild(
+                    OperationalEventOutcome.Failed,
+                    $"Build failed — {buildReason}",
+                    currentBuildTriggerId,
+                    buildNumber,
+                    branch: null,
+                    detail: new OperationalEventDetail(
+                        ExitCode: result.ExitCode,
+                        ErrorPreview: TruncateHistoryPreview(lastErrorPreview),
+                        LogKind: BuildLogKind.Build));
             }
 
             if (buildProgressTracker is not null)
@@ -317,6 +365,10 @@ internal sealed partial class ProjectRuntime
             Interlocked.Exchange(ref compileInProgress, 0);
             Interlocked.Exchange(ref buildInProgress, 0);
             Interlocked.Exchange(ref buildTriggeredByFileChange, 0);
+            if (clearRuntimeHistoryAfterBuild)
+            {
+                history.ClearRuntimeOwnedOperation();
+            }
 
             if (triggeredByFileChange)
             {
@@ -367,6 +419,17 @@ internal sealed partial class ProjectRuntime
             logText,
             cancellationToken);
 
+        history.RecordBuild(
+            OperationalEventOutcome.Cancelled,
+            $"Build cancelled — {buildReason}",
+            currentBuildTriggerId,
+            buildNumber,
+            branch: null,
+            detail: new OperationalEventDetail(
+                ExitCode: result.ExitCode,
+                ErrorPreview: "Build cancelled — superseded by newer source changes",
+                LogKind: BuildLogKind.Build));
+
         progressSteps = [];
         buildProgressTracker = null;
         EnterWaitingForEditsState("Build cancelled — waiting for edits to settle");
@@ -377,6 +440,18 @@ internal sealed partial class ProjectRuntime
             "Newer source changes detected. Rebuilding when edits settle.",
             UserNotificationKind.Info,
             UserNotificationCategory.FileChangeDetected);
+    }
+
+    private static string? TruncateHistoryPreview(string? preview)
+    {
+        if (string.IsNullOrWhiteSpace(preview))
+        {
+            return null;
+        }
+
+        const int max = 240;
+        var trimmed = preview.Trim();
+        return trimmed.Length <= max ? trimmed : trimmed[..max];
     }
 
     private async Task WaitForEditQuietThenBuildAsync(string buildReason)
@@ -474,6 +549,11 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
+        history.EnsureRuntimeOperation(
+            OperationalEventSource.System,
+            "file-triggered-build",
+            "File-triggered build scheduled",
+            recordExplicitAction: true);
         Interlocked.Exchange(ref buildTriggeredByFileChange, 1);
         pendingBuildReason = "file change (queued)";
 
