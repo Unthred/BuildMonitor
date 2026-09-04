@@ -1,4 +1,5 @@
 using System.Text;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.Core.Settings;
@@ -15,6 +16,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private readonly FileChangeBurstStatsStore burstStatsStore;
     private readonly BuildTrainingStore trainingStore;
     private readonly DotNetCliRunner cliRunner;
+    private readonly OperationalHistoryEmitter history;
     private Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser;
     private SupervisedProcess? runProcess;
     private DebouncedFileWatcher? fileWatcher;
@@ -205,7 +207,8 @@ internal sealed partial class ProjectRuntime : IDisposable
         BuildTriggerJournal triggerJournal,
         FileChangeBurstStatsStore burstStatsStore,
         BuildTrainingStore trainingStore,
-        Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null)
+        Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null,
+        IOperationalHistoryStore? operationalHistory = null)
     {
         if (projectSettings.Local is null)
         {
@@ -219,8 +222,30 @@ internal sealed partial class ProjectRuntime : IDisposable
         this.burstStatsStore = burstStatsStore;
         this.trainingStore = trainingStore;
         this.notifyUser = notifyUser;
+        history = new OperationalHistoryEmitter(operationalHistory, () => this.projectSettings.Id);
         RegisterProjectWorkers();
     }
+
+    /// <summary>
+    /// Starts a caller-owned correlated history operation when the slot is free.
+    /// Returns <c>false</c> when another operation is already active (no overwrite).
+    /// </summary>
+    public bool TryBeginHistoryOperation(
+        OperationalEventSource source,
+        string actionName,
+        string summary,
+        out string operationId) =>
+        history.TryBeginCallerOwnedOperation(source, actionName, summary, out operationId);
+
+    /// <summary>
+    /// Ends a caller-owned history operation started via <see cref="TryBeginHistoryOperation"/>.
+    /// Pass the id returned from a successful begin so a rejected overlap cannot clear another op.
+    /// </summary>
+    public void EndHistoryOperation(string? operationId = null) =>
+        history.ClearCallerOwnedOperation(operationId);
+
+    /// <summary>Test probe: active operational history operation id.</summary>
+    internal string? ActiveHistoryOperationId => history.OperationId;
 
     public void UpdateDefinition(MonitoredProjectSettings updated, GlobalMonitorSettings? monitor = null)
     {
@@ -597,6 +622,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     {
         state = newState;
         lastChangedUtc = DateTimeOffset.UtcNow;
+        history.NoteLifecycleState(newState);
         var action = FormatLifecycleAction(newState);
         SetProjectCurrentAction(action);
         HeartbeatProjectWorker("state", newState.ToString());

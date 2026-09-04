@@ -23,6 +23,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly BuildTrainingStore trainingStore;
     private readonly ControlPlaneSessionStore sessionStore;
     private readonly ControlPlaneMetricsStore metricsStore;
+    private readonly IOperationalHistoryStore? operationalHistory;
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
@@ -49,6 +50,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
         controlPlaneEventJournal = new ControlPlaneEventJournal(dataRoot);
         burstStatsStore = new FileChangeBurstStatsStore(dataRoot);
         trainingStore = new BuildTrainingStore(dataRoot);
+        operationalHistory = TryCreateOperationalHistoryStore(dataRoot);
         metricsStore = new ControlPlaneMetricsStore(controlPlaneEventJournal);
         sessionStore = new ControlPlaneSessionStore(metricsStore, controlPlaneEventJournal);
         WorkerHealthRegistry.Shared.Register(
@@ -103,6 +105,41 @@ public sealed partial class ProjectOrchestrator : IDisposable
     public ControlPlaneEventJournal ControlPlaneEventJournal => controlPlaneEventJournal;
 
     public BuildTriggerJournal TriggerJournal => triggerJournal;
+
+    /// <summary>App-level operational history (#113/#114). Null when init failed.</summary>
+    public IOperationalHistoryStore? OperationalHistory => operationalHistory;
+
+    private IOperationalHistoryStore? TryCreateOperationalHistoryStore(string dataRoot)
+    {
+        try
+        {
+            return new OperationalHistoryStore(
+                dataRoot,
+                onPersistenceWarning: message =>
+                    RaiseUserNotification(
+                        string.Empty,
+                        "Operational history",
+                        message,
+                        UserNotificationKind.Warning,
+                        UserNotificationCategory.Warning));
+        }
+        catch
+        {
+            // History must never block tray startup.
+            return null;
+        }
+    }
+
+    private ProjectRuntime CreateRuntime(MonitoredProjectSettings project) =>
+        new(
+            project,
+            logStore,
+            cliRunner,
+            triggerJournal,
+            burstStatsStore,
+            trainingStore,
+            RaiseUserNotification,
+            operationalHistory);
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
@@ -252,14 +289,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
             {
                 if (!runtimes.ContainsKey(project.Id))
                 {
-                    var runtime = new ProjectRuntime(
-                        project,
-                        logStore,
-                        cliRunner,
-                        triggerJournal,
-                        burstStatsStore,
-                        trainingStore,
-                        RaiseUserNotification);
+                    var runtime = CreateRuntime(project);
                     runtime.SetSessionStore(sessionStore);
                     runtime.SetMetricsStore(metricsStore);
                     runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
@@ -381,8 +411,21 @@ public sealed partial class ProjectOrchestrator : IDisposable
             return;
         }
 
+        string? historyOpId = null;
         try
         {
+            if (!runtime.TryBeginHistoryOperation(
+                    OperationalEventSource.User,
+                    "rebuild",
+                    "Rebuild requested",
+                    out var begunOp))
+            {
+                // Another correlated unit owns the slot; build gate will no-op if busy.
+                await runtime.BuildAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            historyOpId = begunOp;
             runtime.PrepareBuild("manual rebuild");
             await runtime.BuildAsync(cancellationToken);
             if (runtime.RestartAppAfterRebuild)
@@ -401,6 +444,10 @@ public sealed partial class ProjectOrchestrator : IDisposable
                 UserNotificationKind.Error,
                 UserNotificationCategory.BuildFailure);
         }
+        finally
+        {
+            runtime.EndHistoryOperation(historyOpId);
+        }
     }
 
     public async Task RunTestsAsync(string projectId, CancellationToken cancellationToken)
@@ -410,8 +457,20 @@ public sealed partial class ProjectOrchestrator : IDisposable
             return;
         }
 
+        string? historyOpId = null;
         try
         {
+            if (!runtime.TryBeginHistoryOperation(
+                    OperationalEventSource.User,
+                    "tests",
+                    "Tests requested",
+                    out var begunOp))
+            {
+                await runtime.TestAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            historyOpId = begunOp;
             runtime.PrepareTest("manual");
             await runtime.TestAsync(cancellationToken);
             healthCoalescer.Request(immediate: true);
@@ -424,6 +483,10 @@ public sealed partial class ProjectOrchestrator : IDisposable
                 ExceptionDetailFormatter.Format(ex),
                 UserNotificationKind.Error,
                 UserNotificationCategory.Error);
+        }
+        finally
+        {
+            runtime.EndHistoryOperation(historyOpId);
         }
     }
 
@@ -461,14 +524,37 @@ public sealed partial class ProjectOrchestrator : IDisposable
             return;
         }
 
+        string? historyOpId = null;
         try
         {
             if (rebuildFirst)
             {
+                if (!runtime.TryBeginHistoryOperation(
+                        OperationalEventSource.User,
+                        "run-restart",
+                        "Run restart requested (rebuild first)",
+                        out var begunOp))
+                {
+                    return;
+                }
+
+                historyOpId = begunOp;
                 await runtime.RebuildAndRestartAsync(cancellationToken);
             }
             else
             {
+                var startOrRestart = runtime.DesiredRunHostState == DesiredRunHostState.Running
+                    || runtime.IsRunProcessActive;
+                if (!runtime.TryBeginHistoryOperation(
+                        OperationalEventSource.User,
+                        startOrRestart ? "run-restart" : "run-start",
+                        startOrRestart ? "Run restart requested" : "Run start requested",
+                        out var begunOp))
+                {
+                    return;
+                }
+
+                historyOpId = begunOp;
                 await runtime.RestartAppAsync(cancellationToken);
             }
 
@@ -482,6 +568,10 @@ public sealed partial class ProjectOrchestrator : IDisposable
                 ExceptionDetailFormatter.Format(ex),
                 UserNotificationKind.Error,
                 UserNotificationCategory.Error);
+        }
+        finally
+        {
+            runtime.EndHistoryOperation(historyOpId);
         }
     }
 

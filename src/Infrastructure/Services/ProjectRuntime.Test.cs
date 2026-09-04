@@ -71,11 +71,32 @@ internal sealed partial class ProjectRuntime
                 SetState(ProjectLifecycleState.TestFailed);
                 lastErrorPreview = resolution.DiscoveryNote;
                 buildErrorCount = 1;
+                history.RecordTests(
+                    OperationalEventOutcome.Failed,
+                    $"Tests failed — {testReason} (no targets)",
+                    new OperationalEventDetail(
+                        ExitCode: 1,
+                        ErrorPreview: TruncateHistoryPreview(resolution.DiscoveryNote),
+                        LogKind: BuildLogKind.Test,
+                        TestFailedCount: 1));
                 return;
             }
 
             WriteTestStartBanner(testReason, resolution);
             SetState(ProjectLifecycleState.Testing);
+            if (!history.HasActiveOperation)
+            {
+                history.EnsureRuntimeOperation(
+                    OperationalEventSource.System,
+                    "tests",
+                    testReason,
+                    recordExplicitAction: false);
+            }
+
+            history.RecordTests(
+                OperationalEventOutcome.Started,
+                $"Tests started — {testReason}",
+                new OperationalEventDetail(LogKind: BuildLogKind.Test));
             NotifyProgressChanged(force: true);
 
             var startedAtUtc = DateTimeOffset.UtcNow;
@@ -150,6 +171,13 @@ internal sealed partial class ProjectRuntime
                 buildErrorCount = preservedBuildErrors;
                 buildWarningCount = preservedBuildWarnings;
                 SetState(ProjectLifecycleState.TestOk);
+                history.RecordTests(
+                    OperationalEventOutcome.Succeeded,
+                    $"Tests succeeded — {testReason}",
+                    new OperationalEventDetail(
+                        ExitCode: 0,
+                        LogKind: BuildLogKind.Test,
+                        TestFailedCount: 0));
             }
             else
             {
@@ -159,11 +187,22 @@ internal sealed partial class ProjectRuntime
                     ?? summaryLine
                     ?? "No tests were executed";
                 SetState(ProjectLifecycleState.TestFailed);
+                var failingNames = DotNetTestOutputParser.CollectFailingTestNames(logText);
+                history.RecordTests(
+                    OperationalEventOutcome.Failed,
+                    $"Tests failed — {testReason}",
+                    new OperationalEventDetail(
+                        ExitCode: effectiveExitCode,
+                        ErrorPreview: TruncateHistoryPreview(lastErrorPreview),
+                        LogKind: BuildLogKind.Test,
+                        TestFailedCount: testSummary?.Failed ?? buildErrorCount,
+                        FailingTestNames: failingNames.Count > 0 ? failingNames : null));
             }
         }
         finally
         {
             Interlocked.Exchange(ref testInProgress, 0);
+            history.ClearRuntimeOwnedOperation();
             fileChangeBuildCooldownUntil = DateTimeOffset.UtcNow.AddSeconds(10);
             fileWatcher?.Resume();
 

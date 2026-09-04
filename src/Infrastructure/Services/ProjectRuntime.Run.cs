@@ -99,6 +99,8 @@ internal sealed partial class ProjectRuntime
             });
 
         NotifyProgressChanged(force: true);
+        history.RecordHostStarted(
+            UsesDotNetWatchProcess() ? "Host started (watch)" : "Host started");
 
         SetState(Local.RunOptions.RunMode == ProjectRunMode.Watch
             || UsesCoalescedWatchRebuilds()
@@ -145,6 +147,10 @@ internal sealed partial class ProjectRuntime
                 Local.RunOptions.MaxRestartRetries))
         {
             restartCount++;
+            history.RecordHostCrashed(
+                "Host crashed — recovering",
+                exitCode,
+                lastErrorPreview);
             SetState(ProjectLifecycleState.Crashed);
             StartRunProcess(skipEmbeddedBuild: true);
             return;
@@ -160,6 +166,10 @@ internal sealed partial class ProjectRuntime
                 DateTimeOffset.UtcNow,
                 exitedProcess.Output,
                 CancellationToken.None);
+            history.RecordHostCrashed(
+                "Host crashed",
+                exitCode,
+                lastErrorPreview);
             SetState(ProjectLifecycleState.Crashed);
         }
         else

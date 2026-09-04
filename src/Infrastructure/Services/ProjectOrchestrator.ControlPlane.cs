@@ -185,7 +185,23 @@ public sealed partial class ProjectOrchestrator
 
         try
         {
-            return await runtime.StopRunAsync(cancellationToken).ConfigureAwait(false);
+            if (!runtime.TryBeginHistoryOperation(
+                    OperationalEventSource.Agent,
+                    "run-stop",
+                    "Run stop requested",
+                    out var begunOp))
+            {
+                return await runtime.StopRunAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            try
+            {
+                return await runtime.StopRunAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                runtime.EndHistoryOperation(begunOp);
+            }
         }
         finally
         {
@@ -308,14 +324,7 @@ public sealed partial class ProjectOrchestrator
 
             if (!runtimes.TryGetValue(project.Id, out runtime))
             {
-                runtime = new ProjectRuntime(
-                    project,
-                    logStore,
-                    cliRunner,
-                    triggerJournal,
-                    burstStatsStore,
-                    trainingStore,
-                    RaiseUserNotification);
+                runtime = CreateRuntime(project);
                 runtime.SetSessionStore(sessionStore);
                 runtime.SetMetricsStore(metricsStore);
                 runtime.HealthCoalesceRequested += OnRuntimeHealthCoalesceRequested;
