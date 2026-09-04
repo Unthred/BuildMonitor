@@ -24,6 +24,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
     private readonly ControlPlaneSessionStore sessionStore;
     private readonly ControlPlaneMetricsStore metricsStore;
     private readonly IOperationalHistoryStore? operationalHistory;
+    private readonly AzureHealthHistoryObserver azureHealthHistory;
     private readonly Dictionary<string, ProjectRuntime> runtimes = new();
     private readonly object sync = new();
     private readonly HealthCoalescer healthCoalescer;
@@ -51,6 +52,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
         burstStatsStore = new FileChangeBurstStatsStore(dataRoot);
         trainingStore = new BuildTrainingStore(dataRoot);
         operationalHistory = TryCreateOperationalHistoryStore(dataRoot);
+        azureHealthHistory = new AzureHealthHistoryObserver(operationalHistory);
         metricsStore = new ControlPlaneMetricsStore(controlPlaneEventJournal);
         sessionStore = new ControlPlaneSessionStore(metricsStore, controlPlaneEventJournal);
         WorkerHealthRegistry.Shared.Register(
@@ -153,6 +155,7 @@ public sealed partial class ProjectOrchestrator : IDisposable
 
     private void PublishHealthFromCoalescer(IReadOnlyList<ProjectHealthSnapshot> snapshots, MonitorHealth rollup)
     {
+        azureHealthHistory.ObservePublishedSnapshots(snapshots);
         var registry = WorkerHealthRegistry.Shared;
         registry.Heartbeat(
             "health.event.raise",

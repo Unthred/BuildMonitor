@@ -4,7 +4,8 @@ Typed, bounded **operational history** records meaningful BuildMonitor observati
 
 Parent epic: [#110](https://github.com/Unthred/BuildMonitor/issues/110).  
 Infrastructure slice: [#113](https://github.com/Unthred/BuildMonitor/issues/113) (`#110a`).  
-Local/action emitters: [#114](https://github.com/Unthred/BuildMonitor/issues/114) (`#110b`).
+Local/action emitters: [#114](https://github.com/Unthred/BuildMonitor/issues/114) (`#110b`).  
+Azure / composite-health emitters: [#115](https://github.com/Unthred/BuildMonitor/issues/115) (`#110c`).
 
 ## Purpose
 
@@ -121,11 +122,69 @@ Do **not** record:
 - progress-step or watch-compile chatter as operational history;
 - coincidental Stop+Start as `Restarted` — only authoritative intentional restart.
 
+## V1 Azure / composite-health events (#115)
+
+Observers hang off the **tray publish path** (`ProjectOrchestrator.PublishHealthFromCoalescer`), not a second Azure poller or second health evaluator. Input is the same coalesced `ProjectHealthSnapshot` list already used for UI.
+
+### Wiring
+
+| Item | Choice |
+|------|--------|
+| Observer | `AzureHealthHistoryObserver` (app-level, owned by `ProjectOrchestrator`) |
+| Authority | Published snapshot `Azure` facet + `Health` rollup only |
+| Dedupe | In-memory per project; **resets on process restart** |
+| History as state | **Never** — JSONL is not re-read to reconstruct current Azure/health |
+
+### Azure events (`Source = Azure`, `Kind = AzureRun`)
+
+Correlation key: **Azure `RunId`** (plus build number / branch when already on the primary run). Do **not** invent Local `OperationId` links.
+
+| Edge | When | Outcome | Detail.ActionName |
+|------|------|---------|-------------------|
+| Current run established / replaced | `PrimaryRun.RunId` changes (including first discovery after startup) | `Started` / `Succeeded` / `Failed` / `Cancelled` / `Changed` from run state+result | `azure-run-current` |
+| Same-run transition | Same `RunId`, but `State` and/or `Result` changes | Same mapping; one combined event if both change in one poll | `azure-run-transition` |
+
+`PreviousValue` / `NewValue` use `State/Result` strings (e.g. `InProgress/Unknown` → `Completed/Failed`).
+
+### Azure poll dedupe / noise rules
+
+Do **not** emit when:
+
+- unchanged poll (same `RunId` + same `State` + same `Result`);
+- `Availability` is `AuthRequired` or `Unavailable` (keep prior Azure dedupe; do not invent a run-state change from a missing `PrimaryRun`);
+- facet is `NotMonitored` with no primary run (clear Azure dedupe silently);
+- project drops out of the published set (inactive / removed) — clear dedupe silently.
+
+Transport / PAT failures are **not** converted into fake Azure run results.
+
+### Composite health (`Source = System`, `Kind = HealthTransition`, `Outcome = Changed`)
+
+Emit only when **effective** published `snapshot.Health` changes for an active project.
+
+| Field | Content |
+|-------|---------|
+| PreviousValue / NewValue | `MonitorHealth` names (`Green`, `Amber`, …) |
+| Summary | `Health {prev} → {next}` |
+| Detail.ActionName | `composite-health` |
+
+No speculative failure “reason” (#111). Local/Azure activity must not alter health semantics merely because history is observing — the observer never re-composes health.
+
+### Startup / baseline (#115)
+
+| Stream | Behaviour |
+|--------|-----------|
+| **Azure** | First observed current `RunId` **emits** one `azure-run-current` (useful after restart). |
+| **Health** | First observed effective health is a **silent baseline**; only later changes emit `HealthTransition` (avoids Unknown/Green spam every tray restart). |
+
+### Invariant: no second health evaluator
+
+History consumes `ProjectHealthComposer` / `HealthCoalescer` output already published to the tray. Do not add parallel Azure CI evaluation for #115.
+
 ## Distinction from existing journals
 
 | Journal | Question it answers |
 |---------|---------------------|
-| Operational history | What meaningful Local/action edges happened (timeline-ready) |
+| Operational history | What meaningful Local/Azure/health/action edges happened (timeline-ready) |
 | BuildTriggerJournal | Why a build was *triggered* (paths, inference, verdicts) |
 | ControlPlaneEventJournal | Control-plane session/metrics telemetry |
 
@@ -135,7 +194,6 @@ Immutable `OperationalEvent` (schema version **1**) — see #113. Path: `%LocalA
 
 ## Later slices
 
-- Azure / composite-health emitters → [#115](https://github.com/Unthred/BuildMonitor/issues/115)
 - Timeline UI → [#116](https://github.com/Unthred/BuildMonitor/issues/116)
 
 ## API
