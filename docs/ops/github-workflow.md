@@ -139,7 +139,9 @@ The script is idempotent (skips issues whose titles already exist) and ensures c
 
 | Theme | Issue title (created by sync script if missing) |
 |-------|--------------------------------------------------|
-| Tests | Run tests after permitted file-triggered build (`OnFileChange`; not a watcher-side trigger) |
+| Observability | #110 Per-project operational history and timeline (slices #113–#116) |
+| Observability | #111 Actionable failure details from tray/status UI |
+| Observability | #112 Per-project activity and progress model |
 | Tray UX | Open log viewer from tray context menu |
 | Tray UX | WPF tray context menu (Phase 2, if #8 insufficient) |
 | Optional module | Azure DevOps polling (shipped — see SETTINGS / ARCHITECTURE; notifications still deferred) |
