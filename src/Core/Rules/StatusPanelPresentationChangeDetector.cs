@@ -110,6 +110,7 @@ public static class StatusPanelPresentationChangeDetector
         && left.ErrorCount == right.ErrorCount
         && left.WarningCount == right.WarningCount
         && left.ShowCopyErrorsButton == right.ShowCopyErrorsButton
+        && left.ShowRebuildButton == right.ShowRebuildButton
         && left.ShowRestartButtons == right.ShowRestartButtons
         && left.ShowRunTestsButton == right.ShowRunTestsButton
         && left.ShowStillEditingButton == right.ShowStillEditingButton

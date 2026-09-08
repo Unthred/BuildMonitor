@@ -62,6 +62,7 @@ public sealed record StatusPanelCardPresentation(
     int ErrorCount,
     int WarningCount,
     bool ShowCopyErrorsButton,
+    bool ShowRebuildButton,
     bool ShowRestartButtons,
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,

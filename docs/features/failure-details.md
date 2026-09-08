@@ -66,16 +66,21 @@ This is presentation order only — not a claim about root cause. Azure / run-ho
 
 - Compact **Failure details** block on the status panel card, **above** Recent activity.
 - Primary reason always visible; additional concurrent reasons behind a short expander.
-- Context actions sit with each reason (not a second generic toolbar).
+- Failure details keep lightweight links only (`Open build log` / `Copy errors` / `Open test log`).
+- Rebuild / Restart / Rebuild & restart / Tests live on the **card action row** (capability-driven) so recovery buttons are not duplicated.
 - Legacy raw `ErrorPreview` is suppressed when Failure details are present (avoids duplication).
 - Activity / accent rail (#112) and overall health footer are unchanged.
 
-## Actions
+## Card toolbar actions
 
-| Reason | Actions |
-|--------|---------|
-| Build | Open build log, Copy errors, Rebuild, Rebuild & restart (when run host supported) |
-| Tests | Open test log, Run tests |
+| Action | When shown |
+|--------|------------|
+| Rebuild | Active Local project (does not require a run host) |
+| Restart | Active + supervised run host (`SupportsAppRestart` / RunMode ≠ None) |
+| Rebuild & restart | Rebuild + Restart both available |
+| Tests | Active Local project |
+
+Self-host note: Rebuild for BuildMonitor.TrayApp builds the watched source tree; it does **not** replace the deployed `C:\Utils\BuildMonitor` binaries. Restart is hidden when RunMode is None.
 
 ## Fallbacks
 

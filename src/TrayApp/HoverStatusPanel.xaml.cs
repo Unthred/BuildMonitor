@@ -366,6 +366,22 @@ public partial class HoverStatusPanel : Window
                 actions.Children.Add(copyErrors);
             }
 
+            if (cardModel.ShowRebuildButton)
+            {
+                var rebuild = new WpfButton
+                {
+                    Content = StatusPanelActionLabels.Rebuild,
+                    ToolTip = StatusPanelActionLabels.RebuildToolTip,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    FontSize = 10,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    HorizontalAlignment = WpfHorizontalAlignment.Left,
+                    Tag = cardModel.ProjectId
+                };
+                WireActionButton(rebuild, () => RebuildRequested?.Invoke(cardModel.ProjectId));
+                actions.Children.Add(rebuild);
+            }
+
             if (cardModel.ShowRestartButtons)
             {
                 var restart = new WpfButton

@@ -63,7 +63,8 @@ public sealed class ProjectFailureDetailsBuilderTests
         Assert.Equal("CS1002 · A.cs:10 · ; expected", reason.ShortReason);
         Assert.Equal(7, reason.LocalBuildNumber);
         Assert.Contains(reason.Actions, a => a.Kind == FailureActionKind.OpenBuildLog);
-        Assert.Contains(reason.Actions, a => a.Kind == FailureActionKind.Rebuild);
+        Assert.Contains(reason.Actions, a => a.Kind == FailureActionKind.CopyErrors);
+        Assert.DoesNotContain(reason.Actions, a => a.Kind == FailureActionKind.Rebuild);
         Assert.DoesNotContain(reason.Actions, a => a.Kind == FailureActionKind.RebuildAndRestart);
     }
 
@@ -89,7 +90,7 @@ public sealed class ProjectFailureDetailsBuilderTests
         Assert.Equal("FooTests.Bar · BazTests.Quux", reason.ShortReason);
         Assert.Equal("Assert.Equal failed", reason.Detail);
         Assert.Equal(
-            [FailureActionKind.OpenTestLog, FailureActionKind.RunTests],
+            [FailureActionKind.OpenTestLog],
             reason.Actions.Select(a => a.Kind).ToArray());
     }
 
@@ -110,7 +111,7 @@ public sealed class ProjectFailureDetailsBuilderTests
         Assert.Equal(2, details.Reasons.Count);
         Assert.Equal(FailureSourceKind.LocalBuild, details.Primary.Source);
         Assert.Equal(FailureSourceKind.LocalTests, details.Reasons[1].Source);
-        Assert.Contains(details.Primary.Actions, a => a.Kind == FailureActionKind.RebuildAndRestart);
+        Assert.DoesNotContain(details.Primary.Actions, a => a.Kind == FailureActionKind.RebuildAndRestart);
     }
 
     [Fact]

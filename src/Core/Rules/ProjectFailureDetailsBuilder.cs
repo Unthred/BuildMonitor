@@ -76,7 +76,7 @@ public static class ProjectFailureDetailsBuilder
             Title: "Build failed",
             ShortReason: shortReason,
             Severity: FailureSeverity.Error,
-            Actions: BuildLocalBuildActions(snapshot),
+            Actions: BuildLocalBuildActions(),
             Detail: null,
             ObservedAtUtc: observedAt,
             ExitCode: exitCode,
@@ -154,29 +154,17 @@ public static class ProjectFailureDetailsBuilder
         return true;
     }
 
-    private static IReadOnlyList<FailureAction> BuildLocalBuildActions(ProjectHealthSnapshot snapshot)
-    {
-        var actions = new List<FailureAction>(4)
-        {
-            new(FailureActionKind.OpenBuildLog, "Open build log"),
-            new(FailureActionKind.CopyErrors, "Copy errors"),
-            new(FailureActionKind.Rebuild, "Rebuild")
-        };
-
-        if (snapshot.SupportsAppRestart)
-        {
-            actions.Add(new FailureAction(
-                FailureActionKind.RebuildAndRestart,
-                StatusPanelActionLabels.RebuildAndRestart));
-        }
-
-        return actions;
-    }
+    private static IReadOnlyList<FailureAction> BuildLocalBuildActions() =>
+    [
+        // Rebuild / Restart live on the card toolbar to avoid duplicate recovery buttons (#111a).
+        new(FailureActionKind.OpenBuildLog, "Open build log"),
+        new(FailureActionKind.CopyErrors, "Copy errors")
+    ];
 
     private static IReadOnlyList<FailureAction> BuildLocalTestActions() =>
     [
-        new(FailureActionKind.OpenTestLog, "Open test log"),
-        new(FailureActionKind.RunTests, "Run tests")
+        new(FailureActionKind.OpenTestLog, "Open test log")
+        // Run tests stays on the card toolbar (Tests) to avoid duplicate controls.
     ];
 
     private static OperationalEvent? FindMatchingFailedBuild(
