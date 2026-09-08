@@ -78,7 +78,8 @@ public static class StatusPanelPresentationChangeDetector
                 || prev.ShowProgressChart != card.ShowProgressChart
                 || !ProgressStepsEqual(prev.ProgressSteps, card.ProgressSteps)
                 || !BuildSourceRowsUrgentEqual(prev.BuildSourceRows, card.BuildSourceRows)
-                || !HiddenAzureSectionUrgentEqual(prev, card))
+                || !HiddenAzureSectionUrgentEqual(prev, card)
+                || !FailureDetailsEqual(prev.FailureDetails, card.FailureDetails))
             {
                 return true;
             }
@@ -109,6 +110,7 @@ public static class StatusPanelPresentationChangeDetector
         && left.ErrorCount == right.ErrorCount
         && left.WarningCount == right.WarningCount
         && left.ShowCopyErrorsButton == right.ShowCopyErrorsButton
+        && left.ShowRebuildButton == right.ShowRebuildButton
         && left.ShowRestartButtons == right.ShowRestartButtons
         && left.ShowRunTestsButton == right.ShowRunTestsButton
         && left.ShowStillEditingButton == right.ShowStillEditingButton
@@ -121,7 +123,52 @@ public static class StatusPanelPresentationChangeDetector
         && BuildSourceRowsUrgentEqual(left.BuildSourceRows, right.BuildSourceRows)
         && HiddenAzureSectionRebuildEqual(left, right)
         && OperationalHistoryPresentationMapper.SectionsEqual(left.RecentActivity, right.RecentActivity)
-        && ActivitySetsEqual(left.Activity, right.Activity);
+        && ActivitySetsEqual(left.Activity, right.Activity)
+        && FailureDetailsEqual(left.FailureDetails, right.FailureDetails);
+
+    private static bool FailureDetailsEqual(ProjectFailureDetails? left, ProjectFailureDetails? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        if (left.Reasons.Count != right.Reasons.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Reasons.Count; i++)
+        {
+            var a = left.Reasons[i];
+            var b = right.Reasons[i];
+            if (a.Source != b.Source
+                || a.Severity != b.Severity
+                || !string.Equals(a.Title, b.Title, StringComparison.Ordinal)
+                || !string.Equals(a.ShortReason, b.ShortReason, StringComparison.Ordinal)
+                || !string.Equals(a.Detail, b.Detail, StringComparison.Ordinal)
+                || a.Actions.Count != b.Actions.Count)
+            {
+                return false;
+            }
+
+            for (var j = 0; j < a.Actions.Count; j++)
+            {
+                if (a.Actions[j].Kind != b.Actions[j].Kind
+                    || !string.Equals(a.Actions[j].Label, b.Actions[j].Label, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
 
     private static bool ActivitySetsEqual(ProjectActivitySet? left, ProjectActivitySet? right)
     {

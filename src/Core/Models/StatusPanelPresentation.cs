@@ -62,6 +62,7 @@ public sealed record StatusPanelCardPresentation(
     int ErrorCount,
     int WarningCount,
     bool ShowCopyErrorsButton,
+    bool ShowRebuildButton,
     bool ShowRestartButtons,
     bool ShowRunTestsButton,
     bool ShowStillEditingButton,
@@ -72,7 +73,9 @@ public sealed record StatusPanelCardPresentation(
     AzureStatusPresentation? Azure = null,
     IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null,
     OperationalHistorySectionPresentation? RecentActivity = null,
-    ProjectActivitySet? Activity = null);
+    ProjectActivitySet? Activity = null,
+    /// <summary>Current Local failure details (#111a); null when no current failure reasons.</summary>
+    ProjectFailureDetails? FailureDetails = null);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

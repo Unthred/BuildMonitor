@@ -7,6 +7,8 @@ public sealed class StatusPanelActionLabelsTests
     [Fact]
     public void Rebuild_and_restart_label_matches_tray_semantics()
     {
+        Assert.Equal("Rebuild", StatusPanelActionLabels.Rebuild);
+        Assert.Contains("Build the project", StatusPanelActionLabels.RebuildToolTip, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Rebuild & restart", StatusPanelActionLabels.RebuildAndRestart);
         Assert.Contains("Full build", StatusPanelActionLabels.RebuildAndRestartToolTip, StringComparison.OrdinalIgnoreCase);
     }

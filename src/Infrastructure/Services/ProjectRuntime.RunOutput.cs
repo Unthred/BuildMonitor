@@ -91,6 +91,9 @@ internal sealed partial class ProjectRuntime
             lastBuildExitCode = 1;
             lastErrorPreview = line.Trim();
             lastBuildFinishedAtUtc = DateTimeOffset.UtcNow;
+            lastFailedLocalBuildNumber = buildNumber > 0 ? buildNumber : null;
+            lastFailedBuildTriggerId = currentBuildTriggerId;
+            lastFailedBuildOperationId = history.OperationId;
             RefreshBuildIssueCountsFromWatchOutput(force: true);
             buildErrorCount = Math.Max(buildErrorCount, 1);
             if (runProcess?.IsRunning == true)
@@ -112,6 +115,9 @@ internal sealed partial class ProjectRuntime
             var wasWatchRebuild = watchRebuildInProgress;
             watchRebuildInProgress = false;
             lastBuildExitCode = 0;
+            lastFailedLocalBuildNumber = null;
+            lastFailedBuildTriggerId = null;
+            lastFailedBuildOperationId = null;
             lastBuildFinishedAtUtc = DateTimeOffset.UtcNow;
             RefreshBuildIssueCountsFromWatchOutput(force: true);
             if (state is ProjectLifecycleState.BuildFailed)

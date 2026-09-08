@@ -3,18 +3,85 @@ using BuildMonitor.Core.Rules;
 
 namespace BuildMonitor.Tests;
 
-/// <summary>Project-scoped status card actions remain independent and presentation-stable.</summary>
 public sealed class StatusPanelCardActionPolicyTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 28, 11, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Card_actions_are_enabled_for_active_local_project()
+    public void TrayApp_like_rebuild_only_shows_rebuild_not_restart()
     {
-        var card = BuildCard("project-a", supportsRestart: true);
+        var card = BuildCard("buildmonitor-tray", supportsRestart: false);
+
+        Assert.True(card.ShowRebuildButton);
+        Assert.False(card.ShowRestartButtons);
+        Assert.True(card.ShowRunTestsButton);
+    }
+
+    [Fact]
+    public void Restart_capable_project_shows_restart_and_rebuild_and_restart()
+    {
+        var card = BuildCard("witherby-like", supportsRestart: true);
+
+        Assert.True(card.ShowRebuildButton);
         Assert.True(card.ShowRestartButtons);
         Assert.True(card.ShowRunTestsButton);
-        Assert.Equal("project-a", card.ProjectId);
+    }
+
+    [Fact]
+    public void Rebuild_and_restart_requires_both_capabilities()
+    {
+        var rebuildOnly = Snapshot("p1", "P1", supportsRestart: false);
+        var withHost = Snapshot("p2", "P2", supportsRestart: true);
+
+        Assert.True(StatusPanelCardActionRules.ShowRebuild(rebuildOnly));
+        Assert.False(StatusPanelCardActionRules.ShowRestart(rebuildOnly));
+        Assert.False(StatusPanelCardActionRules.ShowRebuildAndRestart(rebuildOnly));
+
+        Assert.True(StatusPanelCardActionRules.ShowRebuild(withHost));
+        Assert.True(StatusPanelCardActionRules.ShowRestart(withHost));
+        Assert.True(StatusPanelCardActionRules.ShowRebuildAndRestart(withHost));
+    }
+
+    [Fact]
+    public void Failed_build_does_not_suppress_rebuild()
+    {
+        var snapshot = Snapshot("bm", "BuildMonitor.TrayApp", supportsRestart: false) with
+        {
+            Health = MonitorHealth.Red,
+            HealthLabel = "Needs fix",
+            State = ProjectLifecycleState.BuildFailed,
+            LastBuildExitCode = 1,
+            ErrorCount = 1,
+            LastErrorPreview = "error CS0001: boom"
+        };
+
+        var card = Assert.Single(StatusPanelPresentationBuilder.Build([snapshot], null, Now).Cards);
+        Assert.True(card.ShowRebuildButton);
+        Assert.False(card.ShowRestartButtons);
+        Assert.NotNull(card.FailureDetails);
+        Assert.DoesNotContain(
+            card.FailureDetails.Primary.Actions,
+            a => a.Kind is FailureActionKind.Rebuild or FailureActionKind.RebuildAndRestart);
+        Assert.Contains(card.FailureDetails.Primary.Actions, a => a.Kind == FailureActionKind.OpenBuildLog);
+    }
+
+    [Fact]
+    public void Inactive_project_hides_toolbar_actions()
+    {
+        var snapshot = Snapshot("idle", "Idle", supportsRestart: true) with { IsActive = false };
+        Assert.False(StatusPanelCardActionRules.ShowRebuild(snapshot));
+        Assert.False(StatusPanelCardActionRules.ShowRestart(snapshot));
+        Assert.False(StatusPanelCardActionRules.ShowRebuildAndRestart(snapshot));
+        Assert.False(StatusPanelCardActionRules.ShowRunTests(snapshot));
+    }
+
+    [Fact]
+    public void Witherby_like_action_set_unchanged_shape()
+    {
+        var card = BuildCard("witherby", supportsRestart: true);
+        Assert.True(card.ShowRebuildButton);
+        Assert.True(card.ShowRestartButtons);
+        Assert.True(card.ShowRunTestsButton);
     }
 
     [Fact]
@@ -22,19 +89,22 @@ public sealed class StatusPanelCardActionPolicyTests
     {
         var presentation = StatusPanelPresentationBuilder.Build(
             [
-                Snapshot("project-a", "A"),
-                Snapshot("project-b", "B")
+                Snapshot("project-a", "A", supportsRestart: true),
+                Snapshot("project-b", "B", supportsRestart: false)
             ],
             null,
             Now);
 
         Assert.Equal(["project-a", "project-b"], presentation.Cards.Select(c => c.ProjectId).ToArray());
+        Assert.True(presentation.Cards[0].ShowRestartButtons);
+        Assert.False(presentation.Cards[1].ShowRestartButtons);
+        Assert.All(presentation.Cards, c => Assert.True(c.ShowRebuildButton));
     }
 
     [Fact]
     public void Local_warnings_row_requests_log_open_not_azure_navigation()
     {
-        var snapshot = Snapshot("project-a", "A") with
+        var snapshot = Snapshot("project-a", "A", supportsRestart: true) with
         {
             Health = MonitorHealth.Amber,
             HealthLabel = "Warnings",
@@ -53,11 +123,11 @@ public sealed class StatusPanelCardActionPolicyTests
 
     private static StatusPanelCardPresentation BuildCard(string projectId, bool supportsRestart)
     {
-        var snapshot = Snapshot(projectId, projectId) with { SupportsAppRestart = supportsRestart };
+        var snapshot = Snapshot(projectId, projectId, supportsRestart);
         return StatusPanelPresentationBuilder.Build([snapshot], null, Now).Cards[0];
     }
 
-    private static ProjectHealthSnapshot Snapshot(string projectId, string displayName) =>
+    private static ProjectHealthSnapshot Snapshot(string projectId, string displayName, bool supportsRestart) =>
         new(
             ProjectId: projectId,
             DisplayName: displayName,
@@ -73,6 +143,6 @@ public sealed class StatusPanelCardActionPolicyTests
             LastBuildFinishedAtUtc: Now.AddMinutes(-1),
             IsActive: true,
             ProgressSteps: [],
-            SupportsAppRestart: true,
-            ListenUrl: "http://localhost:5000");
+            SupportsAppRestart: supportsRestart,
+            ListenUrl: supportsRestart ? "http://localhost:5000" : null);
 }

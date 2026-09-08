@@ -10,6 +10,7 @@ Feature: [#112](https://github.com/Unthred/BuildMonitor/issues/112).
 | Concern | Mechanism |
 |---------|-----------|
 | **What is happening now?** | `ProjectActivitySet` / `ProjectActivitySnapshot` (#112) |
+| **Why unhealthy now?** | `ProjectFailureDetails` (#111) — see [failure-details.md](failure-details.md) |
 | **What happened?** | `OperationalEvent` stream (#110 / #113–#116) |
 | **Health / rollup** | `MonitorHealth` + composers (unchanged precedence) |
 | **Tray mascot** | Coarse state only — no progress on the 16px icon |
