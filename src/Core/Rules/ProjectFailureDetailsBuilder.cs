@@ -1,10 +1,12 @@
+using System.Globalization;
 using BuildMonitor.Core.Models;
 
 namespace BuildMonitor.Core.Rules;
 
 /// <summary>
-/// Builds current-state <see cref="ProjectFailureDetails"/> for Local build/test (#111a).
+/// Builds current-state <see cref="ProjectFailureDetails"/> for Local + Azure (#111a / #111b).
 /// History may enrich matched ids only — never decides that a failure is current.
+/// Azure reasons use the current <see cref="ProjectAzureHealthFacet"/> only (no timeline fetch).
 /// </summary>
 public static class ProjectFailureDetailsBuilder
 {
@@ -12,7 +14,7 @@ public static class ProjectFailureDetailsBuilder
         ProjectHealthSnapshot snapshot,
         IReadOnlyList<OperationalEvent>? recentHistory = null)
     {
-        var reasons = new List<FailureReason>(2);
+        var reasons = new List<FailureReason>(4);
 
         if (TryBuildLocalBuildReason(snapshot, recentHistory, out var buildReason))
         {
@@ -22,6 +24,23 @@ public static class ProjectFailureDetailsBuilder
         if (TryBuildLocalTestsReason(snapshot, recentHistory, out var testsReason))
         {
             reasons.Add(testsReason);
+        }
+
+        var hasLocal = reasons.Count > 0;
+
+        if (TryBuildAzureCiReason(snapshot, recentHistory, compact: hasLocal, out var azureCiReason))
+        {
+            reasons.Add(azureCiReason);
+        }
+        else if (TryBuildAzureAttentionOnlyReason(snapshot, out var attentionReason))
+        {
+            // Primary is healthy/active but another pipeline drives Attention — compact warning only.
+            reasons.Add(attentionReason);
+        }
+
+        if (TryBuildAzureAvailabilityReason(snapshot, out var availabilityReason))
+        {
+            reasons.Add(availabilityReason);
         }
 
         return reasons.Count == 0 ? null : new ProjectFailureDetails(reasons);
@@ -40,6 +59,37 @@ public static class ProjectFailureDetailsBuilder
     /// <summary>Current Local test failure is the completed <see cref="ProjectLifecycleState.TestFailed"/> state.</summary>
     public static bool IsCurrentLocalTestFailure(ProjectHealthSnapshot snapshot) =>
         snapshot.State == ProjectLifecycleState.TestFailed;
+
+    /// <summary>
+    /// Azure CI failure/warning when availability is Available and PrimaryRun is a completed
+    /// Failed / PartiallySucceeded run matching CiState.
+    /// </summary>
+    public static bool IsCurrentAzureCiFailure(ProjectHealthSnapshot snapshot)
+    {
+        var azure = snapshot.Azure;
+        if (azure is null || azure.Availability != AzureMonitoringAvailability.Available)
+        {
+            return false;
+        }
+
+        var primary = azure.PrimaryRun;
+        if (primary is null || primary.State != PipelineRunState.Completed)
+        {
+            return false;
+        }
+
+        return primary.Result switch
+        {
+            PipelineRunResult.Failed when azure.CiState == AzureCiMonitoringState.Failed => true,
+            PipelineRunResult.PartiallySucceeded when azure.CiState is AzureCiMonitoringState.Warning
+                or AzureCiMonitoringState.Failed => true,
+            _ => false
+        };
+    }
+
+    public static bool IsCurrentAzureAvailabilityIssue(ProjectHealthSnapshot snapshot) =>
+        snapshot.Azure?.Availability is AzureMonitoringAvailability.AuthRequired
+            or AzureMonitoringAvailability.Unavailable;
 
     private static bool TryBuildLocalBuildReason(
         ProjectHealthSnapshot snapshot,
@@ -154,6 +204,285 @@ public static class ProjectFailureDetailsBuilder
         return true;
     }
 
+    private static bool TryBuildAzureCiReason(
+        ProjectHealthSnapshot snapshot,
+        IReadOnlyList<OperationalEvent>? recentHistory,
+        bool compact,
+        out FailureReason reason)
+    {
+        reason = null!;
+        if (!IsCurrentAzureCiFailure(snapshot))
+        {
+            return false;
+        }
+
+        var azure = snapshot.Azure!;
+        var primary = azure.PrimaryRun!;
+        var matched = FindMatchingAzureHistory(snapshot.ProjectId, primary.RunId, recentHistory);
+        var isPartial = primary.Result == PipelineRunResult.PartiallySucceeded;
+        var severity = isPartial ? FailureSeverity.Warning : FailureSeverity.Error;
+        var runLabel = FormatAzureRunLabel(primary);
+        var branch = FirstNonEmpty(primary.Branch, matched?.Branch, azure.FocusBranch) ?? string.Empty;
+        var pipeline = FirstNonEmpty(primary.PipelineDisplayName);
+
+        string title;
+        string shortReason;
+        if (compact)
+        {
+            title = isPartial
+                ? $"Azure · {runLabel} partially succeeded"
+                : $"Azure · {runLabel} failed";
+            shortReason = FirstNonEmpty(branch, pipeline) ?? DescribeAzureResult(primary);
+        }
+        else
+        {
+            title = isPartial ? "Azure build partially succeeded" : "Azure build failed";
+            shortReason = FormatAzurePrimaryShortReason(primary, pipeline, runLabel, branch, matched);
+        }
+
+        var detailParts = new List<string>(2);
+        var attention = FormatAttentionNeeds(azure.AttentionRuns);
+        if (!string.IsNullOrWhiteSpace(attention))
+        {
+            detailParts.Add(attention);
+        }
+
+        // Prefer AzureStage / transition only when it adds context beyond State/Result already known.
+        if (!string.IsNullOrWhiteSpace(matched?.Detail?.AzureStage)
+            && !string.Equals(matched!.Detail!.AzureStage, $"{primary.State}/{primary.Result}", StringComparison.Ordinal))
+        {
+            detailParts.Add(matched.Detail.AzureStage!);
+        }
+        else if (!string.IsNullOrWhiteSpace(matched?.PreviousValue)
+                 && !string.IsNullOrWhiteSpace(matched.NewValue))
+        {
+            detailParts.Add($"{matched.PreviousValue} → {matched.NewValue}");
+        }
+
+        var runUrl = ResolveAzureRunUrl(primary, azure.NavigationContext);
+        var actions = BuildAzureCiActions(snapshot.ProjectId, primary, azure.NavigationContext, runUrl);
+
+        reason = new FailureReason(
+            Source: FailureSourceKind.AzureCi,
+            Title: title,
+            ShortReason: shortReason,
+            Severity: severity,
+            Actions: actions,
+            Detail: detailParts.Count == 0 ? null : string.Join(" · ", detailParts),
+            ObservedAtUtc: matched?.OccurredAtUtc
+                           ?? primary.FinishedAtUtc
+                           ?? primary.StartedAtUtc
+                           ?? azure.PolledAtUtc,
+            AzureRunId: primary.RunId,
+            Url: runUrl);
+        return true;
+    }
+
+    private static bool TryBuildAzureAttentionOnlyReason(
+        ProjectHealthSnapshot snapshot,
+        out FailureReason reason)
+    {
+        reason = null!;
+        var azure = snapshot.Azure;
+        if (azure is null || azure.Availability != AzureMonitoringAvailability.Available)
+        {
+            return false;
+        }
+
+        // Only when Primary is not already represented as the CI failure card.
+        if (IsCurrentAzureCiFailure(snapshot))
+        {
+            return false;
+        }
+
+        if (azure.CiState is not (AzureCiMonitoringState.Failed or AzureCiMonitoringState.Warning))
+        {
+            return false;
+        }
+
+        var attentionLine = FormatAttentionNeeds(azure.AttentionRuns);
+        if (string.IsNullOrWhiteSpace(attentionLine))
+        {
+            return false;
+        }
+
+        reason = new FailureReason(
+            Source: FailureSourceKind.AzureCi,
+            Title: "Azure pipelines need attention",
+            ShortReason: attentionLine,
+            Severity: FailureSeverity.Warning,
+            Actions: [],
+            ObservedAtUtc: azure.PolledAtUtc);
+        return true;
+    }
+
+    private static bool TryBuildAzureAvailabilityReason(
+        ProjectHealthSnapshot snapshot,
+        out FailureReason reason)
+    {
+        reason = null!;
+        var azure = snapshot.Azure;
+        if (azure is null)
+        {
+            return false;
+        }
+
+        if (azure.Availability == AzureMonitoringAvailability.AuthRequired)
+        {
+            reason = new FailureReason(
+                Source: FailureSourceKind.AzureAvailability,
+                Title: "Azure sign-in required",
+                ShortReason: FirstNonEmpty(azure.StatusMessage, "Sign in to resume Azure monitoring")
+                             ?? "Sign in to resume Azure monitoring",
+                Severity: FailureSeverity.Warning,
+                Actions: [],
+                ObservedAtUtc: azure.PolledAtUtc);
+            return true;
+        }
+
+        if (azure.Availability == AzureMonitoringAvailability.Unavailable)
+        {
+            reason = new FailureReason(
+                Source: FailureSourceKind.AzureAvailability,
+                Title: "Azure monitoring unavailable",
+                ShortReason: FirstNonEmpty(azure.StatusMessage, "Azure DevOps could not be reached")
+                             ?? "Azure DevOps could not be reached",
+                Severity: FailureSeverity.Warning,
+                Actions: [],
+                ObservedAtUtc: azure.PolledAtUtc);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatAzurePrimaryShortReason(
+        AzurePipelineRunInfo primary,
+        string? pipeline,
+        string runLabel,
+        string branch,
+        OperationalEvent? matched)
+    {
+        var enrichedBuild = FirstNonEmpty(
+            FormatDisplayBuildNumber(primary.BuildNumber),
+            matched?.AzureBuildNumber is string bn && !string.IsNullOrWhiteSpace(bn)
+                ? bn.Trim()
+                : null);
+        var usePipeline = !string.IsNullOrWhiteSpace(pipeline)
+                          && pipeline!.Length <= 28
+                          && !string.Equals(pipeline, branch, StringComparison.OrdinalIgnoreCase);
+
+        if (usePipeline)
+        {
+            // MasterCI #553 · master  OR  MasterCI #553 failed style when branch empty
+            var head = $"{pipeline} {runLabel}";
+            if (!string.IsNullOrWhiteSpace(branch))
+            {
+                return $"{head} · {branch}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(enrichedBuild)
+                && !runLabel.Contains(enrichedBuild, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{head} · {enrichedBuild}";
+            }
+
+            return head;
+        }
+
+        if (!string.IsNullOrWhiteSpace(branch))
+        {
+            return $"{runLabel} · {branch}";
+        }
+
+        return FirstNonEmpty(enrichedBuild, DescribeAzureResult(primary)) ?? runLabel;
+    }
+
+    private static string FormatAzureRunLabel(AzurePipelineRunInfo run) =>
+        string.Create(CultureInfo.InvariantCulture, $"#{run.RunId}");
+
+    private static string? FormatDisplayBuildNumber(string? buildNumber) =>
+        string.IsNullOrWhiteSpace(buildNumber) ? null : buildNumber.Trim();
+
+    private static string DescribeAzureResult(AzurePipelineRunInfo run) =>
+        run.Result switch
+        {
+            PipelineRunResult.Failed => "Failed",
+            PipelineRunResult.PartiallySucceeded => "Partially succeeded",
+            PipelineRunResult.Canceled => "Cancelled",
+            PipelineRunResult.Succeeded => "Succeeded",
+            _ => run.State.ToString()
+        };
+
+    private static string? FormatAttentionNeeds(IReadOnlyList<AzurePipelineRunInfo> attention)
+    {
+        if (attention.Count == 0)
+        {
+            return null;
+        }
+
+        var needing = attention.Count(r =>
+            r.State == PipelineRunState.Completed
+            && r.Result is PipelineRunResult.Failed or PipelineRunResult.PartiallySucceeded);
+        if (needing <= 0)
+        {
+            return null;
+        }
+
+        return needing == 1
+            ? "1 other pipeline needs attention"
+            : string.Create(CultureInfo.InvariantCulture, $"{needing} other pipelines need attention");
+    }
+
+    private static string? ResolveAzureRunUrl(
+        AzurePipelineRunInfo primary,
+        AzureBuildNavigationContext? navigationContext)
+    {
+        if (!string.IsNullOrWhiteSpace(primary.RunUrl)
+            && Uri.TryCreate(primary.RunUrl, UriKind.Absolute, out _))
+        {
+            return primary.RunUrl.Trim();
+        }
+
+        if (navigationContext is null)
+        {
+            return null;
+        }
+
+        return AzureDevOpsDeepLinkBuilder.BuildRunResultsUrl(
+            navigationContext.OrganizationUrl,
+            navigationContext.AdoProjectIdOrName,
+            primary.RunId);
+    }
+
+    private static IReadOnlyList<FailureAction> BuildAzureCiActions(
+        string projectId,
+        AzurePipelineRunInfo primary,
+        AzureBuildNavigationContext? navigationContext,
+        string? runUrl)
+    {
+        var actions = new List<FailureAction>(2);
+        if (!string.IsNullOrWhiteSpace(runUrl))
+        {
+            actions.Add(new FailureAction(FailureActionKind.OpenAzureRun, "Open Azure run", Url: runUrl));
+        }
+
+        if (navigationContext is not null)
+        {
+            var nav = AzureBuildSourceNavigationBuilder.Build(primary, navigationContext);
+            if (nav.FailureRequest is not null)
+            {
+                // FailureRequest is only present when NeedsFailureResolution — timeline stays click-lazy.
+                actions.Add(new FailureAction(
+                    FailureActionKind.OpenAzureFailureLogs,
+                    "Open failure logs",
+                    AzureFailureRequest: nav.FailureRequest with { ProjectId = projectId }));
+            }
+        }
+
+        return actions;
+    }
+
     private static IReadOnlyList<FailureAction> BuildLocalBuildActions() =>
     [
         // Rebuild / Restart live on the card toolbar to avoid duplicate recovery buttons (#111a).
@@ -243,6 +572,31 @@ public static class ProjectFailureDetailsBuilder
             {
                 return entry;
             }
+        }
+
+        return null;
+    }
+
+    private static OperationalEvent? FindMatchingAzureHistory(
+        string projectId,
+        long azureRunId,
+        IReadOnlyList<OperationalEvent>? recentHistory)
+    {
+        if (recentHistory is null || recentHistory.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var entry in recentHistory)
+        {
+            if (entry.Kind != OperationalEventKind.AzureRun
+                || entry.AzureRunId != azureRunId
+                || !string.Equals(entry.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return entry;
         }
 
         return null;

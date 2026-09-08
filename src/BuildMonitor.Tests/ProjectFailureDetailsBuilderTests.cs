@@ -393,7 +393,7 @@ public sealed class ProjectFailureDetailsBuilderTests
         var composed = ProjectHealthComposer.WithAzure(local, azure);
 
         Assert.Equal(MonitorHealth.Red, composed.Health);
-        // Azure failure alone does not yet produce #111a Local failure details.
+        // Without PrimaryRun, Azure CI failure details are not invented from CiState alone.
         Assert.Null(ProjectFailureDetailsBuilder.Build(composed));
         Assert.Equal(MonitorHealth.Red, composed.Health);
     }
