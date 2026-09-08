@@ -126,7 +126,8 @@ public sealed record ProjectHealthSnapshot(
     int LastBuildExitCode = -1,
     ProjectControlPlaneSnapshot? ControlPlane = null,
     ProjectAzureHealthFacet? Azure = null,
-    LocalGitContext? LocalGit = null);
+    LocalGitContext? LocalGit = null,
+    TestRunLiveProgress? TestProgress = null);
 
 public enum BuildTriggerKind
 {

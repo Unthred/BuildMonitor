@@ -12,7 +12,7 @@ Timeline UI: [#116](https://github.com/Unthred/BuildMonitor/issues/116) (`#110d`
 
 | Concern | Mechanism |
 |---------|-----------|
-| **What is happening now?** | Live runtime / Azure snapshots (#112 activity model — separate) |
+| **What is happening now?** | Live activity/progress model (#112) — [activity-and-progress.md](activity-and-progress.md) |
 | **What happened?** | `OperationalEvent` stream (#110) |
 | **Raw compiler/test output** | `last-build.log` / `last-test.log` / log viewer ([LOGS.md](../LOGS.md)) |
 | **Build *trigger* diagnostics** | `BuildTriggerJournal` (`diagnostics/build-triggers.jsonl`) |

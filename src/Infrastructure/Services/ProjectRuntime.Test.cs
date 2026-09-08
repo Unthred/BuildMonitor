@@ -56,6 +56,7 @@ internal sealed partial class ProjectRuntime
             }
 
             Interlocked.Exchange(ref liveTestOutputRevision, 0);
+            liveTestProgress.Reset(DateTimeOffset.UtcNow);
             buildErrorCount = 0;
             buildWarningCount = 0;
             lastErrorPreview = null;
@@ -83,6 +84,7 @@ internal sealed partial class ProjectRuntime
             }
 
             WriteTestStartBanner(testReason, resolution);
+            liveTestProgress.Reset(DateTimeOffset.UtcNow);
             SetState(ProjectLifecycleState.Testing);
             if (!history.HasActiveOperation)
             {
@@ -456,10 +458,12 @@ internal sealed partial class ProjectRuntime
         lock (liveOutputSync)
         {
             liveTestOutput.AppendLine(line);
+            liveTestProgress.OnOutputLine(line);
         }
 
         Interlocked.Increment(ref liveTestOutputRevision);
         HeartbeatProjectWorker("test-output");
+        // Existing coalescer bounds UI publish rate (immediate: false).
         RequestHealthCoalesce(immediate: false);
     }
 

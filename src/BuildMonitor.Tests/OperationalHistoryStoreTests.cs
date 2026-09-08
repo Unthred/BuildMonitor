@@ -10,8 +10,9 @@ public sealed class OperationalHistoryStoreTests
     {
         using var dir = TempDir.Create();
         var store = NewStore(dir.Path);
-        var t0 = DateTimeOffset.Parse("2026-09-04T10:00:00Z");
-        var t1 = DateTimeOffset.Parse("2026-09-04T10:01:00Z");
+        // Relative to UtcNow — absolute calendar fixtures age out of DefaultMaxAgeDays retention.
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var t1 = DateTimeOffset.UtcNow.AddMinutes(-1);
 
         Assert.True(store.TryRecord(Event("a", "p1", t0, "older")));
         Assert.True(store.TryRecord(Event("b", "p1", t1, "newer")));
@@ -182,9 +183,9 @@ public sealed class OperationalHistoryStoreTests
         var diagnostics = Path.Combine(dir.Path, "diagnostics");
         Directory.CreateDirectory(diagnostics);
         var path = Path.Combine(diagnostics, OperationalHistoryStore.FileName);
-        var t0 = DateTimeOffset.Parse("2026-09-04T10:00:00Z");
-        var t1 = DateTimeOffset.Parse("2026-09-04T10:01:00Z");
-        var t2 = DateTimeOffset.Parse("2026-09-04T10:02:00Z");
+        // Relative timestamps so load-time age retention does not empty the fixture.
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var t2 = DateTimeOffset.UtcNow.AddMinutes(-1);
         File.WriteAllLines(path,
         [
             JsonLine(Event("a", "p1", t0, "a")),
@@ -196,6 +197,21 @@ public sealed class OperationalHistoryStoreTests
         var ids = store.GetRecent().Select(e => e.Id).ToArray();
         Assert.Equal(["c", "a"], ids);
         Assert.DoesNotContain("b", ids);
+    }
+
+    [Fact]
+    public void TryRecord_true_then_empty_GetRecent_when_OccurredAt_outside_max_age()
+    {
+        // Regression: calendar-fixed fixtures older than DefaultMaxAgeDays look like
+        // "TryRecord succeeded but GetRecent is empty" once wall-clock advances.
+        using var dir = TempDir.Create();
+        var store = NewStore(dir.Path);
+        var tooOld = DateTimeOffset.UtcNow
+            - TimeSpan.FromDays(OperationalHistoryStore.DefaultMaxAgeDays + 1);
+
+        Assert.True(store.TryRecord(Event("aged-out", "p1", tooOld, "pruned")));
+        Assert.Empty(store.GetRecent());
+        Assert.Empty(store.GetRecentForProject("p1"));
     }
 
     [Fact]
