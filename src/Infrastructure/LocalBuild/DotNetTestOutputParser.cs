@@ -408,6 +408,42 @@ public static class DotNetTestOutputParser
         || line.Equals("Stack Trace:", StringComparison.OrdinalIgnoreCase)
         || line.Equals("Standard Output Messages:", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// First useful assertion/error message from a failed test (no stack frames).
+    /// Prefers the text after the test name separator when present.
+    /// </summary>
+    public static string? TryGetFirstFailureMessage(string logText, int maxLength = 180)
+    {
+        if (string.IsNullOrWhiteSpace(logText))
+        {
+            return null;
+        }
+
+        foreach (var issue in ParseIssues(logText))
+        {
+            if (!issue.IsError)
+            {
+                continue;
+            }
+
+            var text = issue.Text;
+            var sep = text.IndexOf(" — ", StringComparison.Ordinal);
+            if (sep >= 0 && sep + 3 < text.Length)
+            {
+                text = text[(sep + 3)..].Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            return text.Length <= maxLength ? text : text[..(maxLength - 1)].TrimEnd() + "…";
+        }
+
+        return null;
+    }
+
     private static string TruncateDisplay(string text) =>
         text.Length <= 320 ? text : text[..317] + "...";
 

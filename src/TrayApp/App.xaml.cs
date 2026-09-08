@@ -100,6 +100,7 @@ public partial class App : System.Windows.Application
         StatusPanelVisuals.LinkOpener = orchestrator.BuildSourceLinkOpener;
         StatusPanelVisuals.OpenProjectLog = request => OpenLogViewer(
             request.ProjectId,
+            logKind: request.LogKind,
             selectErrorsFilter: request.SelectErrors,
             selectWarningsFilter: request.SelectWarnings);
         orchestrator.SetSettingsPersistHandler(settings =>
@@ -1094,6 +1095,13 @@ public partial class App : System.Windows.Application
             RunTrayMenuBackgroundAction(() => CopyProjectErrorsAsync(projectId));
         hoverPanel.RestartAppRequested += projectId =>
             RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(projectId, CancellationToken.None));
+        hoverPanel.RebuildRequested += projectId =>
+        {
+            CancelSiteReadyDismissSchedule();
+            statusPanelAutoShownForBuild = true;
+            hoverPanel?.PrepareForPendingRebuild();
+            RunTrayMenuBackgroundAction(() => orchestrator!.RebuildAsync(projectId, CancellationToken.None));
+        };
         hoverPanel.RebuildAndRestartRequested += projectId =>
         {
             CancelSiteReadyDismissSchedule();

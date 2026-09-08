@@ -66,6 +66,10 @@ internal sealed partial class ProjectRuntime : IDisposable
     private bool learnFromDiagnosticsVerdicts = true;
     private int pendingHotReloadRestartRequest;
     private int buildNumber;
+    private int? lastFailedLocalBuildNumber;
+    private string? lastFailedBuildTriggerId;
+    private string? lastFailedBuildOperationId;
+    private LocalTestFailureSnapshot? lastTestFailure;
     private string pendingBuildReason = "startup";
     private DateTimeOffset lastMeaningfulFileChangeUtc = DateTimeOffset.MinValue;
     private int fileChangeRebuildScheduleGeneration;
@@ -167,7 +171,11 @@ internal sealed partial class ProjectRuntime : IDisposable
                 GetEditGatingQuietUntilUtc(),
                 lastBuildExitCode,
                 BuildControlPlaneSnapshot(),
-                TestProgress: ResolveLiveTestProgress());
+                TestProgress: ResolveLiveTestProgress(),
+                LastFailedLocalBuildNumber: lastFailedLocalBuildNumber,
+                LastFailedBuildTriggerId: lastFailedBuildTriggerId,
+                LastFailedBuildOperationId: lastFailedBuildOperationId,
+                LastTestFailure: lastTestFailure);
     }
 
     private TestRunLiveProgress? ResolveLiveTestProgress()

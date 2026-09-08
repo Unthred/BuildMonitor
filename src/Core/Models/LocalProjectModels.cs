@@ -127,7 +127,13 @@ public sealed record ProjectHealthSnapshot(
     ProjectControlPlaneSnapshot? ControlPlane = null,
     ProjectAzureHealthFacet? Azure = null,
     LocalGitContext? LocalGit = null,
-    TestRunLiveProgress? TestProgress = null);
+    TestRunLiveProgress? TestProgress = null,
+    /// <summary>Correlation for the last failed Local build while that failure is still current.</summary>
+    int? LastFailedLocalBuildNumber = null,
+    string? LastFailedBuildTriggerId = null,
+    string? LastFailedBuildOperationId = null,
+    /// <summary>Structured last completed failed Local test run; cleared when tests recover or restart.</summary>
+    LocalTestFailureSnapshot? LastTestFailure = null);
 
 public enum BuildTriggerKind
 {

@@ -4,4 +4,5 @@ namespace BuildMonitor.Core.Models;
 public sealed record StatusPanelProjectLogRequest(
     string ProjectId,
     bool SelectErrors = false,
-    bool SelectWarnings = false);
+    bool SelectWarnings = false,
+    BuildLogKind? LogKind = null);

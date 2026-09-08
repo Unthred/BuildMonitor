@@ -280,6 +280,9 @@ internal sealed partial class ProjectRuntime
             if (result.ExitCode == 0)
             {
                 progressSteps = [];
+                lastFailedLocalBuildNumber = null;
+                lastFailedBuildTriggerId = null;
+                lastFailedBuildOperationId = null;
                 SetState(ProjectLifecycleState.BuildOk);
                 history.RecordBuild(
                     OperationalEventOutcome.Succeeded,
@@ -311,6 +314,9 @@ internal sealed partial class ProjectRuntime
             }
             else
             {
+                lastFailedLocalBuildNumber = buildNumber;
+                lastFailedBuildTriggerId = currentBuildTriggerId;
+                lastFailedBuildOperationId = history.OperationId;
                 SetState(ProjectLifecycleState.BuildFailed);
                 history.RecordBuild(
                     OperationalEventOutcome.Failed,
@@ -582,6 +588,12 @@ internal sealed partial class ProjectRuntime
         buildErrorCount = metadata.ExitCode == 0 ? 0 : metadata.ErrorCount;
         buildWarningCount = metadata.WarningCount;
         lastErrorPreview = metadata.ExitCode == 0 ? null : metadata.ErrorLines.FirstOrDefault();
+        if (metadata.ExitCode == 0)
+        {
+            lastFailedLocalBuildNumber = null;
+            lastFailedBuildTriggerId = null;
+            lastFailedBuildOperationId = null;
+        }
         // Prefer counts re-parsed from the saved log so tray matches what the log viewer shows.
         var logText = await logStore.LoadLogTextAsync(metadata, maxBytes: 512_000, cancellationToken);
         if (!string.IsNullOrWhiteSpace(logText))

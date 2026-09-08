@@ -60,11 +60,21 @@ internal sealed partial class ProjectRuntime
             buildErrorCount = 0;
             buildWarningCount = 0;
             lastErrorPreview = null;
+            lastTestFailure = null;
 
             var resolution = TestProjectDiscovery.Resolve(
                 Local.RootFolder,
                 Local.ProjectFile,
                 Local.TestProjectFile);
+
+            if (!history.HasActiveOperation)
+            {
+                history.EnsureRuntimeOperation(
+                    OperationalEventSource.System,
+                    "tests",
+                    testReason,
+                    recordExplicitAction: false);
+            }
 
             if (resolution.Targets.Count == 0)
             {
@@ -72,6 +82,12 @@ internal sealed partial class ProjectRuntime
                 SetState(ProjectLifecycleState.TestFailed);
                 lastErrorPreview = resolution.DiscoveryNote;
                 buildErrorCount = 1;
+                lastTestFailure = new LocalTestFailureSnapshot(
+                    FailedCount: 1,
+                    SkippedCount: 0,
+                    FailingTestNames: [],
+                    FirstFailureMessage: TruncateHistoryPreview(resolution.DiscoveryNote),
+                    OperationId: history.OperationId);
                 history.RecordTests(
                     OperationalEventOutcome.Failed,
                     $"Tests failed — {testReason} (no targets)",
@@ -86,15 +102,6 @@ internal sealed partial class ProjectRuntime
             WriteTestStartBanner(testReason, resolution);
             liveTestProgress.Reset(DateTimeOffset.UtcNow);
             SetState(ProjectLifecycleState.Testing);
-            if (!history.HasActiveOperation)
-            {
-                history.EnsureRuntimeOperation(
-                    OperationalEventSource.System,
-                    "tests",
-                    testReason,
-                    recordExplicitAction: false);
-            }
-
             history.RecordTests(
                 OperationalEventOutcome.Started,
                 $"Tests started — {testReason}",
@@ -172,6 +179,7 @@ internal sealed partial class ProjectRuntime
             {
                 buildErrorCount = preservedBuildErrors;
                 buildWarningCount = preservedBuildWarnings;
+                lastTestFailure = null;
                 SetState(ProjectLifecycleState.TestOk);
                 history.RecordTests(
                     OperationalEventOutcome.Succeeded,
@@ -189,7 +197,18 @@ internal sealed partial class ProjectRuntime
                     ?? summaryLine
                     ?? "No tests were executed";
                 SetState(ProjectLifecycleState.TestFailed);
-                var failingNames = DotNetTestOutputParser.CollectFailingTestNames(logText);
+                var failingNames = DotNetTestOutputParser.CollectFailingTestNames(
+                    logText,
+                    ProjectFailureDetails.MaxFailingTestNamesOnCard);
+                var failedCount = testSummary?.Failed ?? buildErrorCount;
+                var skippedCount = testSummary?.Skipped ?? 0;
+                var firstMessage = DotNetTestOutputParser.TryGetFirstFailureMessage(logText);
+                lastTestFailure = new LocalTestFailureSnapshot(
+                    FailedCount: Math.Max(failedCount, 1),
+                    SkippedCount: Math.Max(skippedCount, 0),
+                    FailingTestNames: failingNames,
+                    FirstFailureMessage: firstMessage,
+                    OperationId: history.OperationId);
                 history.RecordTests(
                     OperationalEventOutcome.Failed,
                     $"Tests failed — {testReason}",
@@ -197,7 +216,7 @@ internal sealed partial class ProjectRuntime
                         ExitCode: effectiveExitCode,
                         ErrorPreview: TruncateHistoryPreview(lastErrorPreview),
                         LogKind: BuildLogKind.Test,
-                        TestFailedCount: testSummary?.Failed ?? buildErrorCount,
+                        TestFailedCount: lastTestFailure.FailedCount,
                         FailingTestNames: failingNames.Count > 0 ? failingNames : null));
             }
         }

@@ -31,6 +31,7 @@ public partial class HoverStatusPanel : Window
     private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, TextBlock> ageTextBlocks = new();
     private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, StatusPanelVisuals.BuildSourceStatusCellHandle> localStatusCells = new();
     private readonly Dictionary<string, bool> recentActivityExpandedByProject = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, bool> failureDetailsExpandedByProject = new(StringComparer.OrdinalIgnoreCase);
     private IOperationalHistoryStore? operationalHistory;
     private Rectangle? lastTrayIconBounds;
     private IntPtr lastTrayIconWindowHandle;
@@ -44,6 +45,7 @@ public partial class HoverStatusPanel : Window
     public event Action<string>? ViewLogRequested;
     public event Action<string>? CopyErrorsRequested;
     public event Action<string>? RestartAppRequested;
+    public event Action<string>? RebuildRequested;
     public event Action<string>? RebuildAndRestartRequested;
     public event Action<string>? RunTestsRequested;
     public event Action<string>? MarkStillEditingRequested;
@@ -422,6 +424,16 @@ public partial class HoverStatusPanel : Window
             panel.Children.Add(actionRow);
             System.Windows.Controls.Panel.SetZIndex(actionRow, 10);
 
+            if (cardModel.FailureDetails is not null)
+            {
+                panel.Children.Add(StatusPanelFailureDetailsVisuals.Build(
+                    cardModel.FailureDetails,
+                    cardModel.ProjectId,
+                    palette,
+                    failureDetailsExpandedByProject,
+                    InvokeFailureAction));
+            }
+
             if (cardModel.RecentActivity is not null)
             {
                 panel.Children.Add(StatusPanelRecentActivityVisuals.Build(
@@ -453,6 +465,37 @@ public partial class HoverStatusPanel : Window
         // Use Click (not PreviewMouseLeftButtonDown) so Button chrome receives the
         // routed event reliably; hyperlinks keep PreviewMouse for #97 stability.
         button.Click += (_, _) => invoke();
+    }
+
+    private void InvokeFailureAction(string projectId, FailureActionKind kind)
+    {
+        switch (kind)
+        {
+            case FailureActionKind.OpenBuildLog:
+                StatusPanelVisuals.OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                    projectId,
+                    SelectErrors: true,
+                    LogKind: BuildLogKind.Build));
+                break;
+            case FailureActionKind.OpenTestLog:
+                StatusPanelVisuals.OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                    projectId,
+                    SelectErrors: true,
+                    LogKind: BuildLogKind.Test));
+                break;
+            case FailureActionKind.CopyErrors:
+                CopyErrorsRequested?.Invoke(projectId);
+                break;
+            case FailureActionKind.Rebuild:
+                RebuildRequested?.Invoke(projectId);
+                break;
+            case FailureActionKind.RebuildAndRestart:
+                RebuildAndRestartRequested?.Invoke(projectId);
+                break;
+            case FailureActionKind.RunTests:
+                RunTestsRequested?.Invoke(projectId);
+                break;
+        }
     }
 
     private void ApplyHeaderCountdownText(string text)

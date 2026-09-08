@@ -71,12 +71,6 @@ public static class StatusPanelPresentationBuilder
             && snapshot.State is ProjectLifecycleState.Building
                 or ProjectLifecycleState.Testing
                 or ProjectLifecycleState.BuildFailed;
-        var showErrorPreview = !showProgressChart && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview);
-        var buildOverrideActive = !string.IsNullOrWhiteSpace(controlPlane.BuildActivityOverride);
-        var showActivityIndicator = !showProgressChart
-            && !showErrorPreview
-            && !buildOverrideActive
-            && snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing;
 
         var statusRows = BuildDetailRows(snapshot, controlPlane, utcNow);
         var currentAction = ResolveCurrentAction(snapshot, controlPlane, statusRows);
@@ -89,15 +83,27 @@ public static class StatusPanelPresentationBuilder
                 utcNow);
         var buildSourceRows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, utcNow);
         var overallLabel = StatusPanelOverallFormatter.FormatLabel(snapshot.Health, [snapshot]);
+        var historyEvents = historyStoreAvailable && recentHistoryForProject is not null
+            ? recentHistoryForProject(snapshot.ProjectId, OperationalHistoryPresentationMapper.StatusCardRowLimit)
+            : Array.Empty<OperationalEvent>();
         var recentActivity = OperationalHistoryPresentationMapper.BuildSection(
             historyStoreAvailable,
-            historyStoreAvailable && recentHistoryForProject is not null
-                ? recentHistoryForProject(snapshot.ProjectId, OperationalHistoryPresentationMapper.StatusCardRowLimit)
-                : [],
+            historyEvents,
             OperationalHistoryPresentationMapper.StatusCardRowLimit,
             expandHistoryByDefault,
             utcNow);
         var activity = ProjectActivityBuilder.Build(snapshot, utcNow);
+        var failureDetails = ProjectFailureDetailsBuilder.Build(snapshot, historyEvents);
+        var showErrorPreview = !showProgressChart
+            && failureDetails is null
+            && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview);
+        var buildOverrideActive = !string.IsNullOrWhiteSpace(controlPlane.BuildActivityOverride);
+        var showActivityIndicator = !showProgressChart
+            && !showErrorPreview
+            && failureDetails is null
+            && !buildOverrideActive
+            && snapshot.State is ProjectLifecycleState.Building or ProjectLifecycleState.Testing;
+
         if (string.IsNullOrWhiteSpace(currentAction)
             && !string.IsNullOrWhiteSpace(activity.CoexistenceSummaryText))
         {
@@ -121,7 +127,7 @@ public static class StatusPanelPresentationBuilder
             ShowProgressChart: showProgressChart,
             ProgressSteps: snapshot.ProgressSteps,
             ShowErrorPreview: showErrorPreview,
-            ErrorPreview: snapshot.LastErrorPreview,
+            ErrorPreview: showErrorPreview ? snapshot.LastErrorPreview : null,
             ShowActivityIndicator: showActivityIndicator,
             ActivityState: snapshot.State,
             ErrorCount: snapshot.ErrorCount,
@@ -137,7 +143,8 @@ public static class StatusPanelPresentationBuilder
             Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
             BuildSourceRows: buildSourceRows,
             RecentActivity: recentActivity,
-            Activity: activity);
+            Activity: activity,
+            FailureDetails: failureDetails);
     }
 
     private static IReadOnlyList<StatusPanelStatusRow> BuildDetailRows(
