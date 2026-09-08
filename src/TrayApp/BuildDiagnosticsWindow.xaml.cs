@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Settings;
 using BuildMonitor.Infrastructure.Diagnostics;
@@ -202,6 +203,7 @@ public partial class BuildDiagnosticsWindow : Window
                     new FileChangeBurstStats());
                 tab.ControlPlaneMetrics = orchestrator.GetControlPlaneMetrics(projectId);
                 tab.ControlPlaneWorkflow = orchestrator.GetControlPlaneWorkflow(projectId);
+                tab.RefreshHistory(orchestrator.OperationalHistory);
 
                 if (!IsNoteEditorFocused())
                 {
@@ -341,12 +343,14 @@ public partial class BuildDiagnosticsWindow : Window
         private BuildIntelligenceSnapshot? intelligence;
         private ControlPlaneMetricsSnapshot? controlPlaneMetrics;
         private ControlPlaneWorkflowSnapshot? controlPlaneWorkflow;
+        private string historyStatusMessage = string.Empty;
 
         public ProjectDiagnosticsTabViewModel(string projectId, string displayName)
         {
             ProjectId = projectId;
             this.displayName = displayName;
             Triggers = [];
+            HistoryRows = [];
         }
 
         public string ProjectId { get; }
@@ -402,7 +406,34 @@ public partial class BuildDiagnosticsWindow : Window
 
         public ObservableCollection<BuildTriggerRowViewModel> Triggers { get; }
 
+        public ObservableCollection<OperationalHistoryDiagnosticsRow> HistoryRows { get; }
+
+        public string HistoryStatusMessage
+        {
+            get => historyStatusMessage;
+            private set
+            {
+                if (historyStatusMessage == value)
+                {
+                    return;
+                }
+
+                historyStatusMessage = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HistoryStatusVisibility));
+            }
+        }
+
+        public Visibility HistoryStatusVisibility =>
+            string.IsNullOrWhiteSpace(HistoryStatusMessage) ? Visibility.Collapsed : Visibility.Visible;
+
         public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void RefreshHistory(IOperationalHistoryStore? store)
+        {
+            OperationalHistoryDiagnosticsBinder.Refresh(HistoryRows, store, ProjectId, out var status);
+            HistoryStatusMessage = status;
+        }
 
         public void RefreshTriggers(
             IReadOnlyList<BuildTriggerRecord> entries,

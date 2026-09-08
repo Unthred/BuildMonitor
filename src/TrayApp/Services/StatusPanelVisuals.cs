@@ -613,6 +613,9 @@ internal static class StatusPanelVisuals
             _ => new SolidColorBrush(palette.Foreground) { Opacity = 0.88 }
         };
 
+    internal static SolidColorBrush EmphasisBrushForHistory(StatusPanelRowEmphasis emphasis, ThemePalette palette) =>
+        EmphasisBrush(emphasis, palette);
+
     /// <summary>High-contrast link colour for identifiers (Run / Build No. / PR / Branch), not status semantics.</summary>
     private static SolidColorBrush LinkBrush(ThemePalette palette) =>
         new(WpfColor.FromRgb(

@@ -26,7 +26,7 @@ A BuildMonitor **project** is a logical software product with optional **Local**
 5. `ProjectRuntime` updates health snapshots on state transitions; Azure facets refresh on the poll loop.
 6. Tray icon and hover panel subscribe to `HealthUpdated` (shared BUILDS table for Local + Azure sources, plus DETAIL for runtime).
 7. User opens `BuildLogViewerWindow` for full log + error navigation. Azure run rows open the Azure DevOps build results page when a run URL exists.
-8. **Operational history** (`OperationalHistoryStore`, `#110` / `#113`–`#115`) is a bounded JSONL event stream for “what happened?” — separate from raw logs and from build-trigger / control-plane journals. Local lifecycle + explicit-action emitters are wired through `ProjectOrchestrator` → `ProjectRuntime` (`OperationalHistoryEmitter`). Azure run + composite-health transitions are observed on tray health publish (`AzureHealthHistoryObserver`). Timeline UI lands in `#116`. See [features/operational-history.md](features/operational-history.md).
+8. **Operational history** (`OperationalHistoryStore`, `#110` / `#113`–`#116`) is a bounded JSONL event stream for “what happened?” — separate from raw logs and from build-trigger / control-plane journals. Local lifecycle + explicit-action emitters are wired through `ProjectOrchestrator` → `ProjectRuntime` (`OperationalHistoryEmitter`). Azure run + composite-health transitions are observed on tray health publish (`AzureHealthHistoryObserver`). Timeline UI: status-panel **Recent activity** + Diagnostics **Operational history** (`OperationalHistoryPresentationMapper`). See [features/operational-history.md](features/operational-history.md).
 
 ## Status panel (tray)
 

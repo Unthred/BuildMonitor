@@ -70,7 +70,8 @@ public sealed record StatusPanelCardPresentation(
     string OverallLabel,
     bool ShowControlPlaneSection = false,
     AzureStatusPresentation? Azure = null,
-    IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null);
+    IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null,
+    OperationalHistorySectionPresentation? RecentActivity = null);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

@@ -77,10 +77,16 @@
                         HorizontalAlignment="Right" />
             </Grid>
 
-            <ItemsControl x:Name="ProjectCards"
+            <ScrollViewer x:Name="CardsScroll"
                           Grid.Row="1"
                           Grid.Column="0"
-                          VerticalAlignment="Top" />
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalAlignment="Stretch"
+                          CanContentScroll="False">
+                <ItemsControl x:Name="ProjectCards"
+                              VerticalAlignment="Top" />
+            </ScrollViewer>
 
             <Border x:Name="SideRail"
                     Grid.Row="1"

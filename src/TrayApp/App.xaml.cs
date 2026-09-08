@@ -1083,7 +1083,8 @@ public partial class App : System.Windows.Application
 
         hoverPanel = new HoverStatusPanel
         {
-            FollowVirtualDesktop = currentSettings.AppBehavior.FollowStatusPanelToVirtualDesktop
+            FollowVirtualDesktop = currentSettings.AppBehavior.FollowStatusPanelToVirtualDesktop,
+            OperationalHistory = orchestrator!.OperationalHistory
         };
         hoverPanel.ApplyLayout(windowsLayoutStore.Layout.StatusPanel);
         hoverPanel.SizeChanged += (_, _) => ScheduleSaveStatusPanelLayout();

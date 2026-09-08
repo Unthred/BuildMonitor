@@ -119,7 +119,8 @@ public static class StatusPanelPresentationChangeDetector
         && StatusRowsEqual(left.StatusRows, right.StatusRows)
         && string.Equals(left.CurrentActionText, right.CurrentActionText, StringComparison.Ordinal)
         && BuildSourceRowsUrgentEqual(left.BuildSourceRows, right.BuildSourceRows)
-        && HiddenAzureSectionRebuildEqual(left, right);
+        && HiddenAzureSectionRebuildEqual(left, right)
+        && OperationalHistoryPresentationMapper.SectionsEqual(left.RecentActivity, right.RecentActivity);
 
     /// <summary>
     /// When BUILDS rows are shown, the legacy Azure block is hidden — its timing ticks must not rebuild hyperlinks.

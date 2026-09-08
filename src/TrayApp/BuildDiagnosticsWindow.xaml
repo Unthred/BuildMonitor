@@ -30,7 +30,7 @@
                            TextWrapping="Wrap"
                            Opacity="0.8"
                            FontSize="11"
-                           Text="One tab per active project — rebuild timing and agent control-plane metrics at the top, today's triggers below. Mark unexpected triggers to train ignore rules and debounce learning." />
+                           Text="One tab per active project — rebuild timing and agent control-plane metrics at the top, operational history next, today's triggers below. Mark unexpected triggers to train ignore rules and debounce learning." />
             </StackPanel>
         </DockPanel>
 
@@ -48,6 +48,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <local:BuildIntelligencePanel Snapshot="{Binding Intelligence}" Margin="0,0,0,8" />
@@ -55,7 +56,64 @@
                                                        Snapshot="{Binding ControlPlaneMetrics}"
                                                        Workflow="{Binding ControlPlaneWorkflow}"
                                                        Margin="0,0,0,8" />
-                        <DataGrid Grid.Row="2"
+                        <Expander Grid.Row="2"
+                                  Header="Operational history"
+                                  IsExpanded="True"
+                                  Margin="0,0,0,8"
+                                  FontWeight="SemiBold">
+                            <DockPanel LastChildFill="True" MaxHeight="260">
+                                <TextBlock DockPanel.Dock="Top"
+                                           Text="{Binding HistoryStatusMessage}"
+                                           FontStyle="Italic"
+                                           Opacity="0.7"
+                                           FontSize="11"
+                                           Margin="0,0,0,4"
+                                           Visibility="{Binding HistoryStatusVisibility}" />
+                                <ListBox ItemsSource="{Binding HistoryRows}"
+                                         BorderThickness="1"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.CanContentScroll="False">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="2,2,2,2" ToolTip="{Binding ToolTip}">
+                                                <DockPanel LastChildFill="True">
+                                                    <TextBlock DockPanel.Dock="Left"
+                                                               Width="70"
+                                                               FontFamily="Consolas"
+                                                               FontSize="11"
+                                                               Opacity="0.75"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Text="{Binding TimeLabel}" />
+                                                    <TextBlock DockPanel.Dock="Left"
+                                                               Width="72"
+                                                               FontSize="11"
+                                                               FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Text="{Binding SourceLabel}" />
+                                                    <TextBlock FontSize="11"
+                                                               TextWrapping="Wrap"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Text="{Binding PrimaryText}" />
+                                                </DockPanel>
+                                                <TextBlock FontSize="10"
+                                                           Opacity="0.7"
+                                                           TextWrapping="Wrap"
+                                                           Text="{Binding SecondaryText}"
+                                                           Visibility="{Binding SecondaryVisibility}" />
+                                                <TextBlock FontSize="10"
+                                                           Opacity="0.65"
+                                                           TextWrapping="Wrap"
+                                                           Margin="0,2,0,0"
+                                                           Text="{Binding DetailText}"
+                                                           Visibility="{Binding DetailVisibility}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Expander>
+                        <DataGrid Grid.Row="3"
                                   ItemsSource="{Binding Triggers}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"

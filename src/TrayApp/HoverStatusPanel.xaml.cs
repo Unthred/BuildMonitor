@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BuildMonitor.Core.Abstractions;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Core.Rules;
 using BuildMonitor.TrayApp.Services;
@@ -29,6 +30,8 @@ public partial class HoverStatusPanel : Window
     private DateTimeOffset? panelDismissAtUtc;
     private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, TextBlock> ageTextBlocks = new();
     private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, StatusPanelVisuals.BuildSourceStatusCellHandle> localStatusCells = new();
+    private readonly Dictionary<string, bool> recentActivityExpandedByProject = new(StringComparer.OrdinalIgnoreCase);
+    private IOperationalHistoryStore? operationalHistory;
     private Rectangle? lastTrayIconBounds;
     private IntPtr lastTrayIconWindowHandle;
     private Rectangle? lastPlacementBounds;
@@ -52,6 +55,13 @@ public partial class HoverStatusPanel : Window
     {
         get => followVirtualDesktop;
         set => followVirtualDesktop = value;
+    }
+
+    /// <summary>Optional in-memory operational history (#116). Null means unavailable.</summary>
+    public IOperationalHistoryStore? OperationalHistory
+    {
+        get => operationalHistory;
+        set => operationalHistory = value;
     }
 
     public HoverStatusPanel()
@@ -88,6 +98,9 @@ public partial class HoverStatusPanel : Window
         };
     }
 
+    private IReadOnlyList<OperationalEvent> RecentHistoryLookup(string projectId, int limit) =>
+        operationalHistory?.GetRecentForProject(projectId, limit) ?? [];
+
     private void CloseButton_Click(object sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke();
 
@@ -104,7 +117,9 @@ public partial class HoverStatusPanel : Window
         var presentation = StatusPanelPresentationBuilder.Build(
             lastSnapshots,
             panelDismissAtUtc,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            RecentHistoryLookup,
+            historyStoreAvailable: operationalHistory is not null);
         ApplySideRail(presentation.SideRail, palette);
     }
 
@@ -127,7 +142,12 @@ public partial class HoverStatusPanel : Window
         lastSnapshots = snapshots;
         panelDismissAtUtc = dismissAtUtc;
         var palette = ThemeService.GetPalette(currentTheme);
-        var presentation = StatusPanelPresentationBuilder.Build(snapshots, dismissAtUtc, DateTimeOffset.UtcNow);
+        var presentation = StatusPanelPresentationBuilder.Build(
+            snapshots,
+            dismissAtUtc,
+            DateTimeOffset.UtcNow,
+            RecentHistoryLookup,
+            historyStoreAvailable: operationalHistory is not null);
 
         var rebuildCards = StatusPanelPresentationChangeDetector.RequiresCardRebuild(
             lastRenderedPresentation,
@@ -176,7 +196,9 @@ public partial class HoverStatusPanel : Window
         presentation ??= StatusPanelPresentationBuilder.Build(
             lastSnapshots,
             panelDismissAtUtc,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            RecentHistoryLookup,
+            historyStoreAvailable: operationalHistory is not null);
         var palette = ThemeService.GetPalette(currentTheme);
         foreach (var (key, row) in StatusPanelBuildSourceVolatileRefresher.CollectVolatileRows(presentation))
         {
@@ -400,6 +422,15 @@ public partial class HoverStatusPanel : Window
             panel.Children.Add(actionRow);
             System.Windows.Controls.Panel.SetZIndex(actionRow, 10);
 
+            if (cardModel.RecentActivity is not null)
+            {
+                panel.Children.Add(StatusPanelRecentActivityVisuals.Build(
+                    cardModel.RecentActivity,
+                    cardModel.ProjectId,
+                    palette,
+                    recentActivityExpandedByProject));
+            }
+
             card.Child = panel;
             ProjectCards.Items.Add(card);
         }
@@ -465,7 +496,9 @@ public partial class HoverStatusPanel : Window
         var presentation = StatusPanelPresentationBuilder.Build(
             lastSnapshots,
             panelDismissAtUtc,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            RecentHistoryLookup,
+            historyStoreAvailable: operationalHistory is not null);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);
         RefreshVolatileBuildSourceCells(presentation);
@@ -714,7 +747,9 @@ public partial class HoverStatusPanel : Window
         var presentation = StatusPanelPresentationBuilder.Build(
             lastSnapshots,
             panelDismissAtUtc,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            RecentHistoryLookup,
+            historyStoreAvailable: operationalHistory is not null);
         ApplySideRail(presentation.SideRail, ThemeService.GetPalette(currentTheme));
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
         ApplyHeaderStillEditing(presentation.HeaderStillEditingProjectId, presentation.HeaderStillEditingToolTip);

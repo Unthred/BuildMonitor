@@ -5,7 +5,8 @@ Typed, bounded **operational history** records meaningful BuildMonitor observati
 Parent epic: [#110](https://github.com/Unthred/BuildMonitor/issues/110).  
 Infrastructure slice: [#113](https://github.com/Unthred/BuildMonitor/issues/113) (`#110a`).  
 Local/action emitters: [#114](https://github.com/Unthred/BuildMonitor/issues/114) (`#110b`).  
-Azure / composite-health emitters: [#115](https://github.com/Unthred/BuildMonitor/issues/115) (`#110c`).
+Azure / composite-health emitters: [#115](https://github.com/Unthred/BuildMonitor/issues/115) (`#110c`).  
+Timeline UI: [#116](https://github.com/Unthred/BuildMonitor/issues/116) (`#110d`).
 
 ## Purpose
 
@@ -180,6 +181,41 @@ No speculative failure “reason” (#111). Local/Azure activity must not alter 
 
 History consumes `ProjectHealthComposer` / `HealthCoalescer` output already published to the tray. Do not add parallel Azure CI evaluation for #115.
 
+## Timeline UI (#116)
+
+Consumes the **in-memory** `IOperationalHistoryStore` only (no JSONL reparse on refresh).
+
+### Status panel — Recent activity
+
+| Item | Choice |
+|------|--------|
+| Placement | Bottom of each project card, **after** BUILDS / DETAIL / actions / overall footer |
+| Control | Collapsible **Recent activity** expander |
+| Default expanded | **Yes** when exactly one active project; **No** when 2+ (remembered per project while the panel lives) |
+| Limit | **10** rows (`OperationalHistoryPresentationMapper.StatusCardRowLimit`); expanded list scrolls inside ~140px |
+| Order | Newest-first |
+| Empty | `No recent activity yet` |
+| Store null | `Recent activity unavailable` (quiet) |
+| Refresh | Piggybacks existing health → status panel rebuild; queries `GetRecentForProject` in memory |
+
+Current health / Local / Azure rows remain primary. Timeline rows are historical — a Failed history row does **not** change tray health.
+
+### Diagnostics — Operational history
+
+| Item | Choice |
+|------|--------|
+| Placement | Per-project tab, expander between control-plane metrics and triggers grid |
+| Limit | **50** rows |
+| Detail | Secondary line + optional detail text under the row; tooltips carry full local timestamp |
+
+### Presentation mapper
+
+`OperationalHistoryPresentationMapper` (Core) maps `OperationalEvent` → human rows (source label/glyph, primary summary, emphasis). Do not show raw enum type names in the UI.
+
+Historical event detail is **not** the authoritative current failure explanation (#111).
+
+Visual QA notes: [operational-history-visual-qa.md](operational-history-visual-qa.md).
+
 ## Distinction from existing journals
 
 | Journal | Question it answers |
@@ -191,10 +227,6 @@ History consumes `ProjectHealthComposer` / `HealthCoalescer` output already publ
 ## Model / persistence
 
 Immutable `OperationalEvent` (schema version **1**) — see #113. Path: `%LocalAppData%/BuildMonitor/diagnostics/operational-history.jsonl`. Retention: **3 days** + **250/project**.
-
-## Later slices
-
-- Timeline UI → [#116](https://github.com/Unthred/BuildMonitor/issues/116)
 
 ## API
 
