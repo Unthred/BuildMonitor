@@ -483,9 +483,9 @@ public partial class HoverStatusPanel : Window
         button.Click += (_, _) => invoke();
     }
 
-    private void InvokeFailureAction(string projectId, FailureActionKind kind)
+    private void InvokeFailureAction(string projectId, FailureAction action)
     {
-        switch (kind)
+        switch (action.Kind)
         {
             case FailureActionKind.OpenBuildLog:
                 StatusPanelVisuals.OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
@@ -510,6 +510,22 @@ public partial class HoverStatusPanel : Window
                 break;
             case FailureActionKind.RunTests:
                 RunTestsRequested?.Invoke(projectId);
+                break;
+            case FailureActionKind.OpenAzureRun:
+                if (!string.IsNullOrWhiteSpace(action.Url)
+                    && Uri.TryCreate(action.Url, UriKind.Absolute, out var runUri))
+                {
+                    StatusPanelVisuals.LinkOpener?.OpenUri(projectId, runUri);
+                }
+
+                break;
+            case FailureActionKind.OpenAzureFailureLogs:
+                if (action.AzureFailureRequest is not null)
+                {
+                    // Timeline / stage resolution happens only here (user click), never during card build.
+                    _ = StatusPanelVisuals.LinkOpener?.OpenFailureDetailsAsync(action.AzureFailureRequest);
+                }
+
                 break;
         }
     }

@@ -7,7 +7,7 @@ using WpfOrientation = System.Windows.Controls.Orientation;
 
 namespace BuildMonitor.TrayApp.Services;
 
-/// <summary>Compact Failure details block for hover status cards (#111a).</summary>
+/// <summary>Compact Failure details block for hover status cards (#111a / #111b).</summary>
 internal static class StatusPanelFailureDetailsVisuals
 {
     private const double MaxSectionHeight = 140;
@@ -17,7 +17,7 @@ internal static class StatusPanelFailureDetailsVisuals
         string projectId,
         ThemePalette palette,
         IDictionary<string, bool> expandedByProject,
-        Action<string, FailureActionKind> onAction)
+        Action<string, FailureAction> onAction)
     {
         var root = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
         root.Children.Add(new TextBlock
@@ -104,16 +104,19 @@ internal static class StatusPanelFailureDetailsVisuals
         FailureReason reason,
         string projectId,
         ThemePalette palette,
-        Action<string, FailureActionKind> onAction)
+        Action<string, FailureAction> onAction)
     {
         var block = new StackPanel { Margin = new Thickness(0, 2, 0, 4) };
+        var titleColor = reason.Severity == FailureSeverity.Warning
+            ? System.Windows.Media.Color.FromRgb(180, 120, 20)
+            : System.Windows.Media.Color.FromRgb(220, 53, 69);
 
         block.Children.Add(new TextBlock
         {
             Text = reason.Title,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69)),
+            Foreground = new SolidColorBrush(titleColor),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -159,8 +162,8 @@ internal static class StatusPanelFailureDetailsVisuals
                     Margin = new Thickness(0, 0, 4, 0),
                     Tag = projectId
                 };
-                var kind = action.Kind;
-                button.Click += (_, _) => onAction(projectId, kind);
+                var captured = action;
+                button.Click += (_, _) => onAction(projectId, captured);
                 actions.Children.Add(button);
             }
 
