@@ -54,38 +54,98 @@ public static class DotNetTestOutputParser
 
         foreach (var line in logText.Replace("\r\n", "\n").Split('\n'))
         {
-            var trimmed = line.Trim();
-            if (trimmed.Length == 0)
+            if (TryParseSummaryLine(line, out var summary))
             {
-                continue;
-            }
-
-            var vstest = VstestSummaryRegex.Match(trimmed);
-            if (vstest.Success)
-            {
-                return new DotNetTestSummary(
-                    int.Parse(vstest.Groups[4].Value),
-                    int.Parse(vstest.Groups[2].Value),
-                    int.Parse(vstest.Groups[1].Value),
-                    int.Parse(vstest.Groups[3].Value),
-                    vstest.Groups[5].Success ? vstest.Groups[5].Value.Trim() : null,
-                    vstest.Groups[6].Success ? vstest.Groups[6].Value.Trim() : null);
-            }
-
-            var legacy = LegacySummaryRegex.Match(trimmed);
-            if (legacy.Success)
-            {
-                return new DotNetTestSummary(
-                    int.Parse(legacy.Groups[1].Value),
-                    int.Parse(legacy.Groups[2].Value),
-                    int.Parse(legacy.Groups[3].Value),
-                    int.Parse(legacy.Groups[4].Value),
-                    legacy.Groups[5].Value.Trim(),
-                    null);
+                return summary;
             }
         }
 
         return null;
+    }
+
+    /// <summary>Parses a single VSTest/legacy summary line when present.</summary>
+    public static bool TryParseSummaryLine(string line, out DotNetTestSummary summary)
+    {
+        summary = null!;
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var trimmed = StripAnsi(line).Trim();
+        if (trimmed.Length == 0)
+        {
+            return false;
+        }
+
+        var vstest = VstestSummaryRegex.Match(trimmed);
+        if (vstest.Success)
+        {
+            summary = new DotNetTestSummary(
+                int.Parse(vstest.Groups[4].Value),
+                int.Parse(vstest.Groups[2].Value),
+                int.Parse(vstest.Groups[1].Value),
+                int.Parse(vstest.Groups[3].Value),
+                vstest.Groups[5].Success ? vstest.Groups[5].Value.Trim() : null,
+                vstest.Groups[6].Success ? vstest.Groups[6].Value.Trim() : null);
+            return true;
+        }
+
+        var legacy = LegacySummaryRegex.Match(trimmed);
+        if (legacy.Success)
+        {
+            summary = new DotNetTestSummary(
+                int.Parse(legacy.Groups[1].Value),
+                int.Parse(legacy.Groups[2].Value),
+                int.Parse(legacy.Groups[3].Value),
+                int.Parse(legacy.Groups[4].Value),
+                legacy.Groups[5].Value.Trim(),
+                null);
+            return true;
+        }
+
+        return false;
+    }
+
+    public enum ConsoleTestResultKind
+    {
+        Passed = 0,
+        Failed = 1,
+        Skipped = 2
+    }
+
+    /// <summary>
+    /// VSTest console detailed result lines (<c>Passed … [N ms]</c> etc.).
+    /// Intentionally ignores xUnit <c>[PASS]</c>/<c>[FAIL]</c> to avoid double-counting when both appear.
+    /// </summary>
+    public static bool TryParseConsoleResultLine(string line, out ConsoleTestResultKind kind)
+    {
+        kind = default;
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var trimmed = StripAnsi(line).TrimEnd('\r');
+        if (VstestFailedLineRegex.IsMatch(trimmed))
+        {
+            kind = ConsoleTestResultKind.Failed;
+            return true;
+        }
+
+        if (VstestPassedLineRegex.IsMatch(trimmed))
+        {
+            kind = ConsoleTestResultKind.Passed;
+            return true;
+        }
+
+        if (VstestSkippedLineRegex.IsMatch(trimmed))
+        {
+            kind = ConsoleTestResultKind.Skipped;
+            return true;
+        }
+
+        return false;
     }
 
     public static string FormatSummaryLine(DotNetTestSummary summary) =>

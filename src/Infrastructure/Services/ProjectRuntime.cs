@@ -36,6 +36,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private readonly object liveOutputSync = new();
     private readonly StringBuilder liveBuildOutput = new();
     private readonly StringBuilder liveTestOutput = new();
+    private readonly DotNetTestLiveProgressTracker liveTestProgress = new();
     private int liveOutputRevision;
     private int liveTestOutputRevision;
     private int testInProgress;
@@ -165,7 +166,18 @@ internal sealed partial class ProjectRuntime : IDisposable
                 BuildEditGatingDetailText(),
                 GetEditGatingQuietUntilUtc(),
                 lastBuildExitCode,
-                BuildControlPlaneSnapshot());
+                BuildControlPlaneSnapshot(),
+                TestProgress: ResolveLiveTestProgress());
+    }
+
+    private TestRunLiveProgress? ResolveLiveTestProgress()
+    {
+        if (Volatile.Read(ref testInProgress) == 0 && state is not ProjectLifecycleState.Testing)
+        {
+            return null;
+        }
+
+        return liveTestProgress.ToSnapshot();
     }
 
     public void MarkHealthDirty() => Interlocked.Exchange(ref healthDirty, 1);

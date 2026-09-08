@@ -22,73 +22,11 @@ public static class StatusPanelAccentFormatter
                    || StatusPanelBuildVisibilityEvaluator.ShouldShowSiteAwaiting(snapshot));
     }
 
-    public static string FormatActivityLabel(ProjectHealthSnapshot snapshot)
-    {
-        var controlPlane = snapshot.ControlPlane ?? ProjectControlPlaneSnapshot.Unused;
-        if (controlPlane.AgentTestsInProgress)
-        {
-            return "Tests — running";
-        }
+    public static string FormatActivityLabel(ProjectHealthSnapshot snapshot) =>
+        ProjectActivityBuilder.FormatRailLabel(snapshot, DateTimeOffset.UtcNow);
 
-        if (controlPlane.AgentRebuildInProgress
-            || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
-        {
-            return controlPlane.AgentRebuildPhase switch
-            {
-                ControlPlaneShipCheckPhase.Preparing => "Rebuild — preparing",
-                ControlPlaneShipCheckPhase.Building => "Rebuild — building",
-                ControlPlaneShipCheckPhase.ResumingWatch => "Rebuild — resuming watch",
-                _ => "Rebuild — running"
-            };
-        }
-
-        if (controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
-            || controlPlane.ShipCheckInProgress)
-        {
-            return controlPlane.ShipCheckPhase switch
-            {
-                ControlPlaneShipCheckPhase.Preparing => "Ship check — preparing",
-                ControlPlaneShipCheckPhase.Building => "Ship check — building",
-                ControlPlaneShipCheckPhase.Testing => "Ship check — testing",
-                ControlPlaneShipCheckPhase.ResumingWatch => "Ship check — resuming watch",
-                _ => "Ship check — running"
-            };
-        }
-
-        if (snapshot.State == ProjectLifecycleState.Testing)
-        {
-            return "Running tests";
-        }
-
-        if (snapshot.State == ProjectLifecycleState.Building)
-        {
-            var failed = snapshot.ProgressSteps.FirstOrDefault(s => s.Status == BuildStepStatus.Failed);
-            if (failed is not null)
-            {
-                return "Build failed";
-            }
-
-            var active = snapshot.ProgressSteps.FirstOrDefault(s => s.Status == BuildStepStatus.Active);
-            if (active is not null)
-            {
-                return FormatActiveBuildStep(active.Label);
-            }
-
-            return "Building";
-        }
-
-        if (snapshot.IsRestarting)
-        {
-            return "Launching app";
-        }
-
-        if (StatusPanelBuildVisibilityEvaluator.ShouldShowSiteAwaiting(snapshot))
-        {
-            return "Starting site";
-        }
-
-        return "Working";
-    }
+    public static string FormatActivityLabel(ProjectHealthSnapshot snapshot, DateTimeOffset utcNow) =>
+        ProjectActivityBuilder.FormatRailLabel(snapshot, utcNow);
 
     public static MonitorHealth ResolveAccentHealth(ProjectHealthSnapshot snapshot)
     {
@@ -103,21 +41,5 @@ public static class StatusPanelAccentFormatter
         }
 
         return snapshot.Health;
-    }
-
-    private static string FormatActiveBuildStep(string label)
-    {
-        if (label.Contains("restore", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Restoring";
-        }
-
-        if (label.Contains("failed", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Build failed";
-        }
-
-        var shortName = label.Length > 16 ? label[..14] + "…" : label;
-        return $"Compiling {shortName}";
     }
 }

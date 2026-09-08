@@ -120,7 +120,31 @@ public static class StatusPanelPresentationChangeDetector
         && string.Equals(left.CurrentActionText, right.CurrentActionText, StringComparison.Ordinal)
         && BuildSourceRowsUrgentEqual(left.BuildSourceRows, right.BuildSourceRows)
         && HiddenAzureSectionRebuildEqual(left, right)
-        && OperationalHistoryPresentationMapper.SectionsEqual(left.RecentActivity, right.RecentActivity);
+        && OperationalHistoryPresentationMapper.SectionsEqual(left.RecentActivity, right.RecentActivity)
+        && ActivitySetsEqual(left.Activity, right.Activity);
+
+    private static bool ActivitySetsEqual(ProjectActivitySet? left, ProjectActivitySet? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        return string.Equals(left.PrimaryStatusText, right.PrimaryStatusText, StringComparison.Ordinal)
+               && string.Equals(left.CoexistenceSummaryText, right.CoexistenceSummaryText, StringComparison.Ordinal)
+               && left.Activities.Count == right.Activities.Count
+               && left.Activities.Zip(right.Activities).All(pair =>
+                   pair.First.Source == pair.Second.Source
+                   && pair.First.Phase == pair.Second.Phase
+                   && string.Equals(pair.First.StatusText, pair.Second.StatusText, StringComparison.Ordinal)
+                   && pair.First.Progress?.Current == pair.Second.Progress?.Current
+                   && pair.First.Progress?.Total == pair.Second.Progress?.Total);
+    }
 
     /// <summary>
     /// When BUILDS rows are shown, the legacy Azure block is hidden — its timing ticks must not rebuild hyperlinks.

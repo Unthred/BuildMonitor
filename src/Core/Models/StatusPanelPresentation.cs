@@ -71,7 +71,8 @@ public sealed record StatusPanelCardPresentation(
     bool ShowControlPlaneSection = false,
     AzureStatusPresentation? Azure = null,
     IReadOnlyList<BuildSourcePresentationRow>? BuildSourceRows = null,
-    OperationalHistorySectionPresentation? RecentActivity = null);
+    OperationalHistorySectionPresentation? RecentActivity = null,
+    ProjectActivitySet? Activity = null);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(

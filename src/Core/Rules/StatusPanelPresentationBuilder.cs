@@ -25,7 +25,7 @@ public static class StatusPanelPresentationBuilder
                 historyStoreAvailable,
                 expandHistoryByDefault))
             .ToList();
-        var sideRail = BuildSideRail(active);
+        var sideRail = BuildSideRail(active, utcNow);
         var headerCountdown = StatusPanelHeaderCountdownFormatter.Format(snapshots, panelDismissAtUtc, utcNow);
         var (headerStillEditingProjectId, headerStillEditingToolTip) = ResolveHeaderStillEditing(
             active,
@@ -97,6 +97,17 @@ public static class StatusPanelPresentationBuilder
             OperationalHistoryPresentationMapper.StatusCardRowLimit,
             expandHistoryByDefault,
             utcNow);
+        var activity = ProjectActivityBuilder.Build(snapshot, utcNow);
+        if (string.IsNullOrWhiteSpace(currentAction)
+            && !string.IsNullOrWhiteSpace(activity.CoexistenceSummaryText))
+        {
+            currentAction = activity.CoexistenceSummaryText;
+        }
+        else if (string.IsNullOrWhiteSpace(currentAction)
+                 && activity.Primary is { Source: ActivitySourceKind.Azure, IsActive: true })
+        {
+            currentAction = activity.Primary.StatusText;
+        }
 
         return new StatusPanelCardPresentation(
             ProjectId: snapshot.ProjectId,
@@ -125,7 +136,8 @@ public static class StatusPanelPresentationBuilder
             ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
             Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
             BuildSourceRows: buildSourceRows,
-            RecentActivity: recentActivity);
+            RecentActivity: recentActivity,
+            Activity: activity);
     }
 
     private static IReadOnlyList<StatusPanelStatusRow> BuildDetailRows(
@@ -308,7 +320,9 @@ public static class StatusPanelPresentationBuilder
         return null;
     }
 
-    private static StatusPanelSideRailPresentation BuildSideRail(IReadOnlyList<ProjectHealthSnapshot> active)
+    private static StatusPanelSideRailPresentation BuildSideRail(
+        IReadOnlyList<ProjectHealthSnapshot> active,
+        DateTimeOffset utcNow)
     {
         var overallHealth = StatusPanelIdleRailFormatter.ResolveHealth(active);
         var overallLabel = StatusPanelOverallFormatter.FormatLabel(overallHealth, active);
@@ -319,7 +333,7 @@ public static class StatusPanelPresentationBuilder
             return new StatusPanelSideRailPresentation(
                 Mode: StatusPanelSideRailMode.Accent,
                 AccentHealth: StatusPanelAccentFormatter.ResolveAccentHealth(accentSnapshot),
-                ActivityLabel: StatusPanelAccentFormatter.FormatActivityLabel(accentSnapshot),
+                ActivityLabel: StatusPanelAccentFormatter.FormatActivityLabel(accentSnapshot, utcNow),
                 IdleHealth: overallHealth,
                 IdleLabel: overallLabel,
                 ShowWebReadyBadge: false);
