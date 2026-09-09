@@ -443,14 +443,10 @@ internal sealed partial class ProjectRuntime
                 failures.Add(issue.Text);
             }
 
-            var counts = summary is null
-                ? new ControlPlaneTestCounts(
-                    Failed: Snapshot.State == ProjectLifecycleState.TestOk ? 0 : 1,
-                    Passed: 0,
-                    Skipped: 0)
-                : new ControlPlaneTestCounts(summary.Failed, summary.Passed, summary.Skipped);
-
-            var testsOk = Snapshot.State == ProjectLifecycleState.TestOk && counts.Failed == 0;
+            var (testsOk, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+                summary,
+                lifecycleTestOk: Snapshot.State == ProjectLifecycleState.TestOk,
+                failures);
             result = new ControlPlaneShipCheckResult(
                 Ok: testsOk,
                 Project: projectLabel,
@@ -561,14 +557,10 @@ internal sealed partial class ProjectRuntime
                 failures.Add(issue.Text);
             }
 
-            var counts = summary is null
-                ? new ControlPlaneTestCounts(
-                    Failed: Snapshot.State == ProjectLifecycleState.TestOk ? 0 : 1,
-                    Passed: 0,
-                    Skipped: 0)
-                : new ControlPlaneTestCounts(summary.Failed, summary.Passed, summary.Skipped);
-
-            var testsOk = Snapshot.State == ProjectLifecycleState.TestOk && counts.Failed == 0;
+            var (testsOk, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+                summary,
+                lifecycleTestOk: Snapshot.State == ProjectLifecycleState.TestOk,
+                failures);
             result = new ControlPlaneRunTestsResult(
                 Ok: testsOk,
                 Project: projectLabel,
