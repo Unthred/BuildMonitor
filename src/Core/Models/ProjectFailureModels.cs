@@ -7,7 +7,6 @@ public enum FailureSourceKind
     LocalTests = 1,
     AzureCi = 2,
     AzureAvailability = 3,
-    /// <summary>Reserved for #111c — not built in #111b.</summary>
     RunHost = 4
 }
 
@@ -26,7 +25,8 @@ public enum FailureActionKind
     RebuildAndRestart = 4,
     RunTests = 5,
     OpenAzureRun = 6,
-    OpenAzureFailureLogs = 7
+    OpenAzureFailureLogs = 7,
+    OpenRunLog = 8
 }
 
 /// <summary>One context-specific action on a failure reason.</summary>

@@ -175,7 +175,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 LastFailedLocalBuildNumber: lastFailedLocalBuildNumber,
                 LastFailedBuildTriggerId: lastFailedBuildTriggerId,
                 LastFailedBuildOperationId: lastFailedBuildOperationId,
-                LastTestFailure: lastTestFailure);
+                LastTestFailure: lastTestFailure,
+                DesiredRunHostState: desiredRunHostState);
     }
 
     private TestRunLiveProgress? ResolveLiveTestProgress()

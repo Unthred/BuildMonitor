@@ -1,9 +1,9 @@
-# Failure details (Local + Azure)
+# Failure details (Local + RunHost + Azure)
 
 Authoritative **current** failure context answers “why is this unhealthy now, and what can I do?”  
 Distinct from activity (#112) and operational history (#110).
 
-Feature: [#111](https://github.com/Unthred/BuildMonitor/issues/111) — slices **#111a** (Local) and **#111b** (Azure).
+Feature: [#111](https://github.com/Unthred/BuildMonitor/issues/111) — slices **#111a** (Local), **#111b** (Azure), **#111c** (RunHost).
 
 ## Purpose
 
@@ -22,12 +22,25 @@ Failure reasons are selected **only** from current authoritative state:
 |--------|----------------|
 | Local build | `LastBuildExitCode` is a failed build **and** state is not Building / WaitingForEdits / Testing |
 | Local tests | `ProjectLifecycleState.TestFailed` |
+| RunHost | `State == Crashed` **and** `DesiredRunHostState == Running` **and** `SupportsAppRestart` **and** not `IsRestarting` |
 | Azure CI | `ProjectAzureHealthFacet` is **Available** and `PrimaryRun` is completed **Failed** / **PartiallySucceeded** matching `CiState` |
 | Azure availability | Facet `Availability` is **AuthRequired** or **Unavailable** |
 
 A healthy project with old Failed history shows **no** Failure details card — history stays under Recent activity only.
 
-**Do not** infer Azure failure from Operational History alone. History may enrich a reason only after the facet selects it.
+**Do not** infer Azure or RunHost failure from Operational History alone. History may enrich a reason only after current state selects it.
+
+### RunHost vs intentional stop / restart (#106)
+
+| Situation | RunHost Failure details |
+|-----------|-------------------------|
+| Genuine crash, desired still Running | Yes — `Run host crashed` |
+| User / `/run/stop` → desired Stopped | No (even if a crash was recent) |
+| Intentional Restart / Rebuild & restart (`IsRestarting`) | No — stale crash suppressed |
+| `RunMode.None` (`SupportsAppRestart` false) | No |
+| After successful host start / Idle | No |
+
+Preserve #106 desired-state semantics exactly. Failure details explain unhealthy state; they do not redefine health.
 
 ### Azure availability vs CI
 
@@ -55,9 +68,12 @@ Operational History may **enrich** a current reason when identifiers match:
 |--------|------------------------------|
 | Build | `LocalBuildNumber`, `BuildTriggerId`, `OperationId` |
 | Tests | `OperationId` only (no loose “latest failed test” heuristic) |
+| RunHost | Failed `RunHost` event with `OccurredAtUtc` at/after the current crash transition (`LastChangedUtc`, 5s skew); never a prior crash. Snapshot exit/preview preferred; history fills gaps only |
 | Azure | `OperationalEvent.AzureRunId == PrimaryRun.RunId` only |
 
-Unmatched stale Failed events (including old Azure runs for a now-successful current run) never become the primary card.
+RunHost live `LastErrorPreview` is used only when crash-correlated (e.g. last build exit is not a failed build). Prefer history preview / exit when available.
+
+Unmatched stale Failed events never become the primary card.
 
 ## Local test structured data
 
@@ -82,12 +98,13 @@ Unknown shapes keep a trimmed raw one-line preview. Not a general log summarizer
 
 1. Local build (Primary when present)
 2. Local tests
-3. Azure CI
-4. Azure availability
+3. RunHost crash
+4. Azure CI
+5. Azure availability
 
-This is presentation order only — not a claim about root cause. Run-host reasons are deferred (#111c).
+This is presentation order only — not a claim about root cause.
 
-When Local and Azure are both unhealthy, **both** appear. Local stays Primary under the locked order; Azure is an additional compact reason (e.g. `Azure · #553 failed`). Do not hide Azure merely because Local failed.
+When multiple sources are unhealthy, **all** meaningful reasons appear. Local stays Primary under the locked order; RunHost sits before Azure; Azure may be a compact additional reason (e.g. `Azure · #553 failed`).
 
 ### Attention runs
 
@@ -95,13 +112,31 @@ When Local and Azure are both unhealthy, **both** appear. Local stays Primary un
 
 ## Status UI
 
-- Compact **Failure details** block on the status panel card, **above** Recent activity — same chrome for Local and Azure (no separate Azure failure card).
+- Compact **Failure details** block on the status panel card, **above** Recent activity — same chrome for Local, RunHost, and Azure.
 - Primary reason always visible; additional concurrent reasons behind a short expander.
 - Failure details keep lightweight links only.
 - Rebuild / Restart / Rebuild & restart / Tests live on the **card action row** (capability-driven) so recovery buttons are not duplicated.
 - Legacy raw `ErrorPreview` is suppressed when Failure details are present (avoids duplication).
 - Activity / accent rail (#112) and overall health footer are unchanged.
-- Existing Azure BUILDS row / Open in Azure DevOps navigation stays unchanged; Failure details uses explicit labels (`Open Azure run` / `Open failure logs`).
+- Existing Azure BUILDS row / Open in Azure DevOps navigation stays unchanged; Failure details uses explicit labels (`Open Azure run` / `Open failure logs` / `Open run log`).
+
+## RunHost actions and recovery
+
+| Action | Owner |
+|--------|-------|
+| Open run log | Failure details |
+| Restart | Card toolbar |
+| Rebuild & restart | Card toolbar |
+
+### Recovery
+
+| Transition | Failure card |
+|------------|--------------|
+| Crash → Restart begins | Clears (`IsRestarting` / leaves `Crashed`) |
+| Crash → Rebuild & restart | Clears while Building / restarting |
+| Crash → explicit stop | Clears (desired Stopped; typically Idle) |
+| Crash → successful host start | Clears |
+| Repeated crashes | One current RunHost reason; sequence stays in Recent activity |
 
 ## Azure actions and lazy navigation
 
@@ -135,33 +170,34 @@ Self-host note: Rebuild for BuildMonitor.TrayApp builds the watched source tree;
 |--------|----------|
 | Build, no preview | `Build failed` / `Open build log for details` |
 | Tests, no names/counts | `Tests failed` / `Open test log for details` |
+| RunHost, no exit/preview | `Run host crashed` / `Open run log for details` |
 | Azure CI | Run id + branch / pipeline when available |
 | Azure availability | Facet `StatusMessage` when present |
 
 Never show blank cards or raw enum names.
 
-## Visual QA (#111a / #111b)
+## Visual QA (#111a / #111b / #111c)
 
-Manual status-panel checks (prefer non-destructive failures; use fixture presentation when live Azure failure is unavailable):
+Manual status-panel checks (prefer non-destructive failures; use fixture presentation when live failure is unavailable):
 
 | Scenario | Expect |
 |----------|--------|
 | Local build failure | Failure details above Recent activity; compact CS/MSB line when available; Open build log / Copy errors |
 | Test failure | `N tests failed` + up to 3 names; Open test log |
 | Concurrent build+test | Build primary; Tests under “Also …” |
+| RunHost crash | `Run host crashed` + exit code; Open run log; toolbar Restart / Rebuild & restart |
+| Crash → Restart / Rebuild & restart | Card clears during intentional lifecycle |
+| Intentional Stop after crash | No current RunHost Failure details |
 | Azure-only failed | `Azure build failed` + run/branch; Open Azure run / Open failure logs |
-| Local healthy + Azure failed | Azure primary under Failure details |
-| Local failed + Azure failed | Local primary; compact Azure additional |
-| AuthRequired | Warning availability; no fake CI run |
-| Unavailable | Warning availability; no fake CI run |
+| Local/RunHost + Azure | Locked order; compact Azure additional |
+| AuthRequired / Unavailable | Warning availability; no fake CI run |
 | PartiallySucceeded | Warning wording (not “failed”) |
-| Healthy Azure + historical failed Azure event | No Failure details; history under Recent activity |
+| Healthy + historical failed event | No Failure details; history under Recent activity |
 | Min width / 2-project density | Card stays usable; secondary reasons collapsed |
-| Activity + Azure Failure details + Recent activity | All three visible; activity not overwritten |
+| Activity + Failure details + Recent activity | All three visible; activity not overwritten |
 
-Do not force risky production pipeline failures solely for QA.
+Do not crash BuildMonitor.TrayApp (`RunMode.None`) to exercise RunHost — use a supervised project (e.g. WitherbyConnect). Do not force risky production Azure pipeline failures solely for QA.
 
 ## Deferred
 
-- Run-host crash cards (#111c)
 - Tray tooltip one-liner polish beyond existing `LastErrorPreview`

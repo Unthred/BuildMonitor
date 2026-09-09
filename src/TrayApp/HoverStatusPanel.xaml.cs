@@ -499,6 +499,12 @@ public partial class HoverStatusPanel : Window
                     SelectErrors: true,
                     LogKind: BuildLogKind.Test));
                 break;
+            case FailureActionKind.OpenRunLog:
+                StatusPanelVisuals.OpenProjectLog?.Invoke(new StatusPanelProjectLogRequest(
+                    projectId,
+                    SelectErrors: true,
+                    LogKind: BuildLogKind.Run));
+                break;
             case FailureActionKind.CopyErrors:
                 CopyErrorsRequested?.Invoke(projectId);
                 break;
