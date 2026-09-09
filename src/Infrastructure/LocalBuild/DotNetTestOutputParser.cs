@@ -45,6 +45,34 @@ public static class DotNetTestOutputParser
         @"Total tests:\s*(\d+)\.\s*Passed:\s*(\d+)\.\s*Failed:\s*(\d+)\.\s*Skipped:\s*(\d+)\.\s*Total time:\s*([^\r\n]+)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+    // MSBuild/VSTest multi-line footer (solution-level dotnet test):
+    //   Test Run Successful.
+    //   Total tests: 1083
+    //        Passed: 1083
+    //    Total time: 20.0077 Seconds
+    private static readonly Regex MultilineTotalTestsRegex = new(
+        @"^\s*Total tests:\s*(\d+)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MultilinePassedRegex = new(
+        @"^\s*Passed:\s*(\d+)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MultilineFailedRegex = new(
+        @"^\s*Failed:\s*(\d+)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MultilineSkippedRegex = new(
+        @"^\s*Skipped:\s*(\d+)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MultilineTotalTimeRegex = new(
+        @"^\s*Total time:\s*(.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// Returns the <b>last</b> valid VSTest/legacy/multi-line aggregate in <paramref name="logText"/>.
+    /// </summary>
     public static DotNetTestSummary? TryParseSummary(string logText)
     {
         if (string.IsNullOrWhiteSpace(logText))
@@ -52,15 +80,24 @@ public static class DotNetTestOutputParser
             return null;
         }
 
-        foreach (var line in logText.Replace("\r\n", "\n").Split('\n'))
+        var lines = logText.Replace("\r\n", "\n").Split('\n');
+        DotNetTestSummary? last = null;
+
+        for (var i = 0; i < lines.Length; i++)
         {
-            if (TryParseSummaryLine(line, out var summary))
+            if (TryParseSummaryLine(lines[i], out var lineSummary))
             {
-                return summary;
+                last = lineSummary;
+                continue;
+            }
+
+            if (TryParseMultilineFooterAt(lines, i, out var multilineSummary))
+            {
+                last = multilineSummary;
             }
         }
 
-        return null;
+        return last;
     }
 
     /// <summary>Parses a single VSTest/legacy summary line when present.</summary>
@@ -81,30 +118,149 @@ public static class DotNetTestOutputParser
         var vstest = VstestSummaryRegex.Match(trimmed);
         if (vstest.Success)
         {
-            summary = new DotNetTestSummary(
-                int.Parse(vstest.Groups[4].Value),
-                int.Parse(vstest.Groups[2].Value),
-                int.Parse(vstest.Groups[1].Value),
-                int.Parse(vstest.Groups[3].Value),
-                vstest.Groups[5].Success ? vstest.Groups[5].Value.Trim() : null,
-                vstest.Groups[6].Success ? vstest.Groups[6].Value.Trim() : null);
-            return true;
+            return TryCreateSummary(
+                total: int.Parse(vstest.Groups[4].Value),
+                passed: int.Parse(vstest.Groups[2].Value),
+                failed: int.Parse(vstest.Groups[1].Value),
+                skipped: int.Parse(vstest.Groups[3].Value),
+                durationText: vstest.Groups[5].Success ? vstest.Groups[5].Value.Trim() : null,
+                assemblyName: vstest.Groups[6].Success ? vstest.Groups[6].Value.Trim() : null,
+                out summary);
         }
 
         var legacy = LegacySummaryRegex.Match(trimmed);
         if (legacy.Success)
         {
-            summary = new DotNetTestSummary(
-                int.Parse(legacy.Groups[1].Value),
-                int.Parse(legacy.Groups[2].Value),
-                int.Parse(legacy.Groups[3].Value),
-                int.Parse(legacy.Groups[4].Value),
-                legacy.Groups[5].Value.Trim(),
-                null);
-            return true;
+            return TryCreateSummary(
+                total: int.Parse(legacy.Groups[1].Value),
+                passed: int.Parse(legacy.Groups[2].Value),
+                failed: int.Parse(legacy.Groups[3].Value),
+                skipped: int.Parse(legacy.Groups[4].Value),
+                durationText: legacy.Groups[5].Value.Trim(),
+                assemblyName: null,
+                out summary);
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Parses the MSBuild multi-line footer starting at a <c>Total tests: N</c> line.
+    /// Omitted Failed/Skipped default to 0; omitted Passed is derived as Total − Failed − Skipped when safe.
+    /// </summary>
+    internal static bool TryParseMultilineFooterAt(string[] lines, int totalTestsIndex, out DotNetTestSummary summary)
+    {
+        summary = null!;
+        if (totalTestsIndex < 0 || totalTestsIndex >= lines.Length)
+        {
+            return false;
+        }
+
+        var totalMatch = MultilineTotalTestsRegex.Match(StripAnsi(lines[totalTestsIndex]).TrimEnd('\r'));
+        if (!totalMatch.Success)
+        {
+            return false;
+        }
+
+        var total = int.Parse(totalMatch.Groups[1].Value);
+        int? passed = null;
+        int? failed = null;
+        int? skipped = null;
+        string? durationText = null;
+
+        for (var j = totalTestsIndex + 1; j < Math.Min(totalTestsIndex + 12, lines.Length); j++)
+        {
+            var trimmed = StripAnsi(lines[j]).TrimEnd('\r').Trim();
+            if (trimmed.Length == 0)
+            {
+                if (passed is not null || failed is not null || skipped is not null || durationText is not null)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            var passedMatch = MultilinePassedRegex.Match(trimmed);
+            if (passedMatch.Success)
+            {
+                passed = int.Parse(passedMatch.Groups[1].Value);
+                continue;
+            }
+
+            var failedMatch = MultilineFailedRegex.Match(trimmed);
+            if (failedMatch.Success)
+            {
+                failed = int.Parse(failedMatch.Groups[1].Value);
+                continue;
+            }
+
+            var skippedMatch = MultilineSkippedRegex.Match(trimmed);
+            if (skippedMatch.Success)
+            {
+                skipped = int.Parse(skippedMatch.Groups[1].Value);
+                continue;
+            }
+
+            var timeMatch = MultilineTotalTimeRegex.Match(trimmed);
+            if (timeMatch.Success)
+            {
+                durationText = timeMatch.Groups[1].Value.Trim();
+                break;
+            }
+
+            // Unrelated content ends the footer block.
+            break;
+        }
+
+        var resolvedFailed = failed ?? 0;
+        var resolvedSkipped = skipped ?? 0;
+        int resolvedPassed;
+        if (passed is null)
+        {
+            resolvedPassed = total - resolvedFailed - resolvedSkipped;
+            if (resolvedPassed < 0)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            resolvedPassed = passed.Value;
+        }
+
+        return TryCreateSummary(
+            total,
+            resolvedPassed,
+            resolvedFailed,
+            resolvedSkipped,
+            durationText,
+            assemblyName: null,
+            out summary);
+    }
+
+    private static bool TryCreateSummary(
+        int total,
+        int passed,
+        int failed,
+        int skipped,
+        string? durationText,
+        string? assemblyName,
+        out DotNetTestSummary summary)
+    {
+        summary = null!;
+        if (total < 0 || passed < 0 || failed < 0 || skipped < 0)
+        {
+            return false;
+        }
+
+        if (passed + failed + skipped != total)
+        {
+            return false;
+        }
+
+        summary = new DotNetTestSummary(total, passed, failed, skipped, durationText, assemblyName);
+        return true;
     }
 
     public enum ConsoleTestResultKind

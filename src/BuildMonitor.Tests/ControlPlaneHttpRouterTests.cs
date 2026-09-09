@@ -89,6 +89,93 @@ public sealed class ControlPlaneHttpRouterTests
     }
 
     [Fact]
+    public async Task Post_tests_json_includes_real_counts()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            TestsResult = new ControlPlaneRunTestsResult(
+                true,
+                "Demo.csproj",
+                new ControlPlaneTestCounts(Failed: 0, Passed: 1083, Skipped: 0),
+                [],
+                @"C:\logs\last-test.log")
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/tests"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("\"passed\":1083", json, StringComparison.Ordinal);
+        Assert.Contains("\"failed\":0", json, StringComparison.Ordinal);
+        Assert.Contains("\"skipped\":0", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_tests_json_omits_tests_when_counts_unknown()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            TestsResult = new ControlPlaneRunTestsResult(
+                true,
+                "Demo.csproj",
+                Tests: null,
+                Failures: [ControlPlaneTestResultMapper.CountsUnavailableMessage],
+                Log: null)
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/tests"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.DoesNotContain("\"passed\":", json, StringComparison.Ordinal);
+        Assert.Contains("counts unavailable", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_ship_check_json_preserves_test_aggregate()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            ShipCheckResult = new ControlPlaneShipCheckResult(
+                true,
+                "Demo.csproj",
+                "pass",
+                new ControlPlaneTestCounts(Failed: 1, Passed: 8, Skipped: 1),
+                ["Sample.Fail"],
+                null)
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/ship-check"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("\"passed\":8", json, StringComparison.Ordinal);
+        Assert.Contains("\"failed\":1", json, StringComparison.Ordinal);
+        Assert.Contains("\"skipped\":1", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Post_run_stop_stops_running_app()
     {
         var actions = new FakeActions { Exists = true };
@@ -242,6 +329,8 @@ public sealed class ControlPlaneHttpRouterTests
         public string? LastRebuildProjectId { get; private set; }
         public string? LastStopProjectId { get; private set; }
         public ProjectBuildControlMode Mode { get; set; } = ProjectBuildControlMode.FileWatching;
+        public ControlPlaneRunTestsResult? TestsResult { get; set; }
+        public ControlPlaneShipCheckResult? ShipCheckResult { get; set; }
 
         public IReadOnlyList<ControlPlaneProjectInfo> ListProjects()
         {
@@ -341,7 +430,7 @@ public sealed class ControlPlaneHttpRouterTests
         public Task<ControlPlaneRunTestsResult> RunTestsAsync(
             ControlPlaneRunTestsRequest request,
             CancellationToken cancellationToken) =>
-            Task.FromResult(new ControlPlaneRunTestsResult(
+            Task.FromResult(TestsResult ?? new ControlPlaneRunTestsResult(
                 true,
                 "Demo.csproj",
                 new ControlPlaneTestCounts(0, 2, 0),
@@ -351,6 +440,12 @@ public sealed class ControlPlaneHttpRouterTests
         public Task<ControlPlaneShipCheckResult> ShipCheckAsync(
             ControlPlaneShipCheckRequest request,
             CancellationToken cancellationToken) =>
-            Task.FromResult(new ControlPlaneShipCheckResult(true, "Demo.csproj", "pass", null, [], null));
+            Task.FromResult(ShipCheckResult ?? new ControlPlaneShipCheckResult(
+                true,
+                "Demo.csproj",
+                "pass",
+                null,
+                [],
+                null));
     }
 }

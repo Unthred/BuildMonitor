@@ -36,6 +36,124 @@ public class DotNetTestOutputParserTests
     }
 
     [Fact]
+    public void TryParseSummary_parses_multiline_success_omitted_zero_failed_skipped()
+    {
+        const string log = """
+            Test Run Successful.
+            Total tests: 1083
+                 Passed: 1083
+             Total time: 20.0077 Seconds
+            """;
+
+        var summary = DotNetTestOutputParser.TryParseSummary(log);
+
+        Assert.NotNull(summary);
+        Assert.Equal(1083, summary!.Total);
+        Assert.Equal(1083, summary.Passed);
+        Assert.Equal(0, summary.Failed);
+        Assert.Equal(0, summary.Skipped);
+        Assert.Equal("20.0077 Seconds", summary.DurationText);
+    }
+
+    [Fact]
+    public void TryParseSummary_parses_multiline_with_failed_and_skipped()
+    {
+        const string log = """
+            Test Run Failed.
+            Total tests: 10
+                 Passed: 7
+                 Failed: 2
+                 Skipped: 1
+             Total time: 1.5 Seconds
+            """;
+
+        var summary = DotNetTestOutputParser.TryParseSummary(log);
+
+        Assert.NotNull(summary);
+        Assert.Equal(10, summary!.Total);
+        Assert.Equal(7, summary.Passed);
+        Assert.Equal(2, summary.Failed);
+        Assert.Equal(1, summary.Skipped);
+    }
+
+    [Fact]
+    public void TryParseSummary_multiline_omitted_passed_derives_from_total()
+    {
+        const string log = """
+            Test Run Failed.
+            Total tests: 5
+                 Failed: 2
+                 Skipped: 1
+             Total time: 0.1 Seconds
+            """;
+
+        var summary = DotNetTestOutputParser.TryParseSummary(log);
+
+        Assert.NotNull(summary);
+        Assert.Equal(5, summary!.Total);
+        Assert.Equal(2, summary.Passed);
+        Assert.Equal(2, summary.Failed);
+        Assert.Equal(1, summary.Skipped);
+    }
+
+    [Fact]
+    public void TryParseSummary_rejects_inconsistent_multiline_aggregate()
+    {
+        const string log = """
+            Test Run Successful.
+            Total tests: 10
+                 Passed: 9
+                 Failed: 0
+                 Skipped: 0
+             Total time: 1 Seconds
+            """;
+
+        Assert.Null(DotNetTestOutputParser.TryParseSummary(log));
+    }
+
+    [Fact]
+    public void TryParseSummary_last_valid_summary_wins()
+    {
+        const string log = """
+            Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 1 ms - Old.dll (net10.0)
+            Test Run Successful.
+            Total tests: 1083
+                 Passed: 1083
+             Total time: 20.0077 Seconds
+            """;
+
+        var summary = DotNetTestOutputParser.TryParseSummary(log);
+
+        Assert.NotNull(summary);
+        Assert.Equal(1083, summary!.Total);
+        Assert.Equal(1083, summary.Passed);
+    }
+
+    [Fact]
+    public void TryParseSummary_last_valid_wins_when_earlier_multiline_is_stale()
+    {
+        const string log = """
+            Test Run Successful.
+            Total tests: 3
+                 Passed: 3
+             Total time: 1 Seconds
+            more output
+            Test Run Failed.
+            Total tests: 10
+                 Passed: 8
+                 Failed: 2
+             Total time: 2 Seconds
+            """;
+
+        var summary = DotNetTestOutputParser.TryParseSummary(log);
+
+        Assert.NotNull(summary);
+        Assert.Equal(10, summary!.Total);
+        Assert.Equal(8, summary.Passed);
+        Assert.Equal(2, summary.Failed);
+    }
+
+    [Fact]
     public void FormatSummaryLine_includes_counts_and_duration()
     {
         var summary = new DotNetTestSummary(12, 12, 0, 0, "45 ms", "BuildMonitor.Tests.dll (net10.0)");
