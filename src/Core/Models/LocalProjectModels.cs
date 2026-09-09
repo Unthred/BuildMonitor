@@ -133,7 +133,9 @@ public sealed record ProjectHealthSnapshot(
     string? LastFailedBuildTriggerId = null,
     string? LastFailedBuildOperationId = null,
     /// <summary>Structured last completed failed Local test run; cleared when tests recover or restart.</summary>
-    LocalTestFailureSnapshot? LastTestFailure = null);
+    LocalTestFailureSnapshot? LastTestFailure = null,
+    /// <summary>Desired supervised host state (#106). Distinct from process liveness and temporary pause.</summary>
+    DesiredRunHostState DesiredRunHostState = DesiredRunHostState.Stopped);
 
 public enum BuildTriggerKind
 {

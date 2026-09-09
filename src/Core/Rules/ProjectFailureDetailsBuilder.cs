@@ -4,7 +4,7 @@ using BuildMonitor.Core.Models;
 namespace BuildMonitor.Core.Rules;
 
 /// <summary>
-/// Builds current-state <see cref="ProjectFailureDetails"/> for Local + Azure (#111a / #111b).
+/// Builds current-state <see cref="ProjectFailureDetails"/> for Local, RunHost, and Azure (#111).
 /// History may enrich matched ids only — never decides that a failure is current.
 /// Azure reasons use the current <see cref="ProjectAzureHealthFacet"/> only (no timeline fetch).
 /// </summary>
@@ -14,7 +14,7 @@ public static class ProjectFailureDetailsBuilder
         ProjectHealthSnapshot snapshot,
         IReadOnlyList<OperationalEvent>? recentHistory = null)
     {
-        var reasons = new List<FailureReason>(4);
+        var reasons = new List<FailureReason>(5);
 
         if (TryBuildLocalBuildReason(snapshot, recentHistory, out var buildReason))
         {
@@ -26,9 +26,14 @@ public static class ProjectFailureDetailsBuilder
             reasons.Add(testsReason);
         }
 
-        var hasLocal = reasons.Count > 0;
+        if (TryBuildRunHostReason(snapshot, recentHistory, out var runHostReason))
+        {
+            reasons.Add(runHostReason);
+        }
 
-        if (TryBuildAzureCiReason(snapshot, recentHistory, compact: hasLocal, out var azureCiReason))
+        var hasEarlier = reasons.Count > 0;
+
+        if (TryBuildAzureCiReason(snapshot, recentHistory, compact: hasEarlier, out var azureCiReason))
         {
             reasons.Add(azureCiReason);
         }
@@ -90,6 +95,16 @@ public static class ProjectFailureDetailsBuilder
     public static bool IsCurrentAzureAvailabilityIssue(ProjectHealthSnapshot snapshot) =>
         snapshot.Azure?.Availability is AzureMonitoringAvailability.AuthRequired
             or AzureMonitoringAvailability.Unavailable;
+
+    /// <summary>
+    /// Genuine supervised-host crash: lifecycle is Crashed, desired remains Running,
+    /// host is supported, and intentional restart is not in progress (#106 / #111c).
+    /// </summary>
+    public static bool IsCurrentRunHostFailure(ProjectHealthSnapshot snapshot) =>
+        snapshot.State == ProjectLifecycleState.Crashed
+        && snapshot.DesiredRunHostState == DesiredRunHostState.Running
+        && snapshot.SupportsAppRestart
+        && !snapshot.IsRestarting;
 
     private static bool TryBuildLocalBuildReason(
         ProjectHealthSnapshot snapshot,
@@ -201,6 +216,54 @@ public static class ProjectFailureDetailsBuilder
                       ?? (current?.FailedCount is > 0 ? 1 : snapshot.LastExitCode),
             OperationId: FirstNonEmpty(current?.OperationId, matched?.OperationId),
             LogKind: BuildLogKind.Test);
+        return true;
+    }
+
+    private static bool TryBuildRunHostReason(
+        ProjectHealthSnapshot snapshot,
+        IReadOnlyList<OperationalEvent>? recentHistory,
+        out FailureReason reason)
+    {
+        reason = null!;
+        if (!IsCurrentRunHostFailure(snapshot))
+        {
+            return false;
+        }
+
+        var matched = FindMatchingRunHostCrash(snapshot, recentHistory);
+        // Prefer authoritative current crash fields; history only fills gaps.
+        var exitCode = snapshot.LastExitCode is int code and not 0
+            ? code
+            : matched?.Detail?.ExitCode;
+        var preview = ResolveRunHostPreview(snapshot, matched);
+
+        string shortReason;
+        if (exitCode is int exit)
+        {
+            shortReason = string.IsNullOrWhiteSpace(preview)
+                ? string.Create(CultureInfo.InvariantCulture, $"Exit code {exit}")
+                : string.Create(CultureInfo.InvariantCulture, $"Exit code {exit} · {preview}");
+        }
+        else if (!string.IsNullOrWhiteSpace(preview))
+        {
+            shortReason = preview!;
+        }
+        else
+        {
+            shortReason = "Open run log for details";
+        }
+
+        reason = new FailureReason(
+            Source: FailureSourceKind.RunHost,
+            Title: "Run host crashed",
+            ShortReason: shortReason,
+            Severity: FailureSeverity.Error,
+            Actions: BuildRunHostActions(),
+            Detail: null,
+            ObservedAtUtc: matched?.OccurredAtUtc ?? snapshot.LastChangedUtc,
+            ExitCode: exitCode,
+            OperationId: FirstNonEmpty(matched?.OperationId),
+            LogKind: BuildLogKind.Run);
         return true;
     }
 
@@ -495,6 +558,63 @@ public static class ProjectFailureDetailsBuilder
         new(FailureActionKind.OpenTestLog, "Open test log")
         // Run tests stays on the card toolbar (Tests) to avoid duplicate controls.
     ];
+
+    private static IReadOnlyList<FailureAction> BuildRunHostActions() =>
+    [
+        // Restart / Rebuild & restart stay on the card toolbar (#111a / #111c).
+        new(FailureActionKind.OpenRunLog, "Open run log")
+    ];
+
+    private static string? ResolveRunHostPreview(
+        ProjectHealthSnapshot snapshot,
+        OperationalEvent? matched)
+    {
+        // Prefer live preview when it belongs to the current crash (build is not the failed source).
+        if (snapshot.LastBuildExitCode is 0 or < 0
+            && !string.IsNullOrWhiteSpace(snapshot.LastErrorPreview))
+        {
+            return TrimDetail(snapshot.LastErrorPreview!);
+        }
+
+        var fromHistory = FirstNonEmpty(matched?.Detail?.ErrorPreview);
+        return string.IsNullOrWhiteSpace(fromHistory) ? null : TrimDetail(fromHistory!);
+    }
+
+    private static OperationalEvent? FindMatchingRunHostCrash(
+        ProjectHealthSnapshot snapshot,
+        IReadOnlyList<OperationalEvent>? recentHistory)
+    {
+        if (recentHistory is null || recentHistory.Count == 0)
+        {
+            return null;
+        }
+
+        // Reject prior-crash history that predates the current crash transition.
+        var notBefore = snapshot.LastChangedUtc - TimeSpan.FromSeconds(5);
+
+        OperationalEvent? latest = null;
+        foreach (var entry in recentHistory)
+        {
+            if (entry.Kind != OperationalEventKind.RunHost
+                || entry.Outcome != OperationalEventOutcome.Failed
+                || !string.Equals(entry.ProjectId, snapshot.ProjectId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (entry.OccurredAtUtc < notBefore)
+            {
+                continue;
+            }
+
+            if (latest is null || entry.OccurredAtUtc > latest.OccurredAtUtc)
+            {
+                latest = entry;
+            }
+        }
+
+        return latest;
+    }
 
     private static OperationalEvent? FindMatchingFailedBuild(
         ProjectHealthSnapshot snapshot,
