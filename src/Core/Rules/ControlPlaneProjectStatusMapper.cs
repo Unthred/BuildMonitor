@@ -33,6 +33,8 @@ public static class ControlPlaneProjectStatusMapper
             overallLabel = ProjectHealthEvaluator.ToLabel(MonitorHealth.Unknown);
         }
 
+        var (activities, activitySummary) = MapActivities(snapshot, utcNow);
+
         return new ControlPlaneProjectInfo(
             id,
             displayName,
@@ -43,8 +45,93 @@ public static class ControlPlaneProjectStatusMapper
             overallLabel,
             session?.State,
             hasLocal ? MapLocal(snapshot) : null,
-            azureAttached ? MapAzure(snapshot?.Azure, utcNow) : null);
+            azureAttached ? MapAzure(snapshot?.Azure, utcNow) : null,
+            activities,
+            activitySummary);
     }
+
+    /// <summary>
+    /// Maps #112 <see cref="ProjectActivityBuilder"/> output for agents.
+    /// Uses the same coalesced snapshot as Local/Azure facets — no poll, history, or log parse.
+    /// </summary>
+    public static (IReadOnlyList<ControlPlaneActivityInfo> Activities, string? ActivitySummary) MapActivities(
+        ProjectHealthSnapshot? snapshot,
+        DateTimeOffset utcNow)
+    {
+        if (snapshot is null)
+        {
+            return (Array.Empty<ControlPlaneActivityInfo>(), null);
+        }
+
+        var set = ProjectActivityBuilder.Build(snapshot, utcNow);
+        var activities = set.Activities
+            .Where(a => a.IsActive && a.Phase != ActivityPhaseKind.Idle)
+            .Select(a => MapActivity(a, snapshot))
+            .ToArray();
+
+        return (activities, set.PrimaryStatusText);
+    }
+
+    private static ControlPlaneActivityInfo MapActivity(
+        ProjectActivitySnapshot activity,
+        ProjectHealthSnapshot snapshot) =>
+        new(
+            activity.Source,
+            activity.Phase,
+            activity.StatusText,
+            string.IsNullOrWhiteSpace(activity.Detail) ? null : activity.Detail.Trim(),
+            activity.StartedAtUtc,
+            MapProgress(activity, snapshot),
+            string.IsNullOrWhiteSpace(activity.OperationId) ? null : activity.OperationId,
+            activity.AzureRunId is > 0 ? activity.AzureRunId : null,
+            string.IsNullOrWhiteSpace(activity.AzureBuildNumber) ? null : activity.AzureBuildNumber.Trim(),
+            string.IsNullOrWhiteSpace(activity.Branch) ? null : activity.Branch.Trim());
+
+    /// <summary>
+    /// Trustworthy progress only. Prefer <see cref="ProjectActivitySnapshot.Progress"/> (current+total);
+    /// for testing phases, expose counts from the same <see cref="TestRunLiveProgress"/> #112 used —
+    /// never parse <see cref="ProjectActivitySnapshot.StatusText"/>.
+    /// </summary>
+    private static ControlPlaneActivityProgressInfo? MapProgress(
+        ProjectActivitySnapshot activity,
+        ProjectHealthSnapshot snapshot)
+    {
+        if (activity.Progress is { Total: > 0 } both)
+        {
+            return new ControlPlaneActivityProgressInfo(both.Current, both.Total);
+        }
+
+        if (!AllowsLiveTestProgress(activity.Phase, snapshot))
+        {
+            return null;
+        }
+
+        var live = snapshot.TestProgress;
+        if (live is null)
+        {
+            return null;
+        }
+
+        if (live.Total is > 0)
+        {
+            var bothEnds = ActivityProgress.TryCreate(live.Completed, live.Total.Value);
+            return bothEnds is null
+                ? null
+                : new ControlPlaneActivityProgressInfo(bothEnds.Current, bothEnds.Total);
+        }
+
+        if (live.Completed > 0)
+        {
+            return new ControlPlaneActivityProgressInfo(live.Completed);
+        }
+
+        return null;
+    }
+
+    private static bool AllowsLiveTestProgress(ActivityPhaseKind phase, ProjectHealthSnapshot snapshot) =>
+        phase is ActivityPhaseKind.Testing or ActivityPhaseKind.AgentTests
+        || (phase == ActivityPhaseKind.ShipCheck
+            && snapshot.ControlPlane?.ShipCheckPhase == ControlPlaneShipCheckPhase.Testing);
 
     /// <summary>
     /// Maps Azure facet fields for agents. Uses <see cref="ProjectAzureHealthFacet.PrimaryRun"/> only
