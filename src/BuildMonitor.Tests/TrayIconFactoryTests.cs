@@ -1,3 +1,4 @@
+using System.Drawing;
 using BuildMonitor.Core.Models;
 using BuildMonitor.TrayApp.Services;
 
@@ -104,6 +105,22 @@ public sealed class TrayIconFactoryTests
         var presentation = new TrayIconPresentation(TrayHealthRing.Failed, IsActive: true);
         var icon = TrayIconFactory.GetIcon(presentation, 5);
         Assert.Same(TrayIconFactory.GetStaticIcon(TrayHealthRing.Failed), icon);
+    }
+
+    [Fact]
+    public void Runtime_png_frames_have_transparent_corners()
+    {
+        var pngDir = Path.Combine(FindRepoRoot(), "src", "TrayApp", "Assets", "tray", "png");
+        Assert.True(Directory.Exists(pngDir), $"Missing PNG dir: {pngDir}");
+
+        foreach (var path in Directory.EnumerateFiles(pngDir, "tray-*.png"))
+        {
+            using var bmp = new Bitmap(path);
+            Assert.Equal(0, bmp.GetPixel(0, 0).A);
+            Assert.Equal(0, bmp.GetPixel(bmp.Width - 1, 0).A);
+            Assert.Equal(0, bmp.GetPixel(0, bmp.Height - 1).A);
+            Assert.Equal(0, bmp.GetPixel(bmp.Width - 1, bmp.Height - 1).A);
+        }
     }
 
     [Fact]
