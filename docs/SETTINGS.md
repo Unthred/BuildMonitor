@@ -210,6 +210,8 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 - **`appBehavior.followStatusPanelToVirtualDesktop`** (default **true**) — when the hover **status panel** opens, move it onto the virtual desktop you are currently viewing (foreground window / cursor).
 - **`appBehavior.keepStatusVisibleDuringLocalBuildActivity`** (default **true**) — keep the hover status panel visible while **any** active monitored project is building or testing locally, even when the pointer leaves the tray icon.
 - **`appBehavior.keepStatusVisibleDuringAzureBuildActivity`** (default **true**) — keep the hover status panel visible while **any** active monitored project has authoritative Azure CI activity (queued, in progress, or canceling). Uses the same Azure facet as BUILDS and `/projects`; does not add polling.
+
+If you dismiss the automatically shown status panel during an active build/test/Azure run, BuildMonitor keeps it closed for the remainder of that activity cycle. Hover or left-click can still open it; the next activity cycle may show it again automatically.
 - **`appBehavior.followBuildLogToVirtualDesktop`** (default **true**) — when the **build log** window opens or is activated, move it onto your current virtual desktop. Useful when auto-open log fires while you are on another desktop.
 
 Toggle both under **Settings → App → Virtual desktops**.

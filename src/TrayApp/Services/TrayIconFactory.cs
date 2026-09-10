@@ -13,6 +13,7 @@ public static class TrayIconFactory
     public const int ActiveFrameCount = 12;
 
     private static readonly Dictionary<string, Icon> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object CacheGate = new();
 
     public static Icon GetStaticIcon(TrayHealthRing health) =>
         GetCached(GetStaticResourceFileName(health));
@@ -70,41 +71,58 @@ public static class TrayIconFactory
             _ => GetStaticResourceFileName(TrayHealthRing.Failed)
         };
 
-    internal static int CachedIconCountForTests => Cache.Count;
+    internal static int CachedIconCountForTests
+    {
+        get
+        {
+            lock (CacheGate)
+            {
+                return Cache.Count;
+            }
+        }
+    }
 
     internal static void ClearCacheForTests()
     {
-        foreach (var icon in Cache.Values)
+        Icon[] icons;
+        lock (CacheGate)
+        {
+            icons = Cache.Values.ToArray();
+            Cache.Clear();
+        }
+
+        foreach (var icon in icons)
         {
             icon.Dispose();
         }
-
-        Cache.Clear();
     }
 
     private static Icon GetCached(string fileName)
     {
-        if (Cache.TryGetValue(fileName, out var cached))
+        lock (CacheGate)
         {
-            return cached;
-        }
+            if (Cache.TryGetValue(fileName, out var cached))
+            {
+                return cached;
+            }
 
-        var resourceName = ResolveEmbeddedResourceName(fileName);
-        if (resourceName is null)
-        {
-            throw new InvalidOperationException($"Tray icon resource not found: {fileName}");
-        }
+            var resourceName = ResolveEmbeddedResourceName(fileName);
+            if (resourceName is null)
+            {
+                throw new InvalidOperationException($"Tray icon resource not found: {fileName}");
+            }
 
-        var assembly = Assembly.GetExecutingAssembly();
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null)
-        {
-            throw new InvalidOperationException($"Tray icon stream missing: {fileName}");
-        }
+            var assembly = Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream is null)
+            {
+                throw new InvalidOperationException($"Tray icon stream missing: {fileName}");
+            }
 
-        var icon = new Icon(stream);
-        Cache[fileName] = icon;
-        return icon;
+            var icon = new Icon(stream);
+            Cache[fileName] = icon;
+            return icon;
+        }
     }
 
     private static string? ResolveEmbeddedResourceName(string fileName)
