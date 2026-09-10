@@ -1,28 +1,22 @@
-# GenerateTrayIcons — production asset packager (#95)
+# GenerateTrayIcons — tray health-ring packager (#129)
 
-Offline tool that turns the **externally supplied** production master sheet into committed tray ICO/PNG assets.
+Offline tool that composes **pre-rendered** multi-size tray ICOs/PNGs from the recovered badge-less duck.
 
-**Source authority:** `docs/assets/tray-icon-production-masters.png` — do not redraw, trace, or procedurally recreate the mascot.
-
-`BuilderDuckRenderer.cs` is **rejected** and unused; retained for history only.
+**Duck authority:** `docs/assets/tray-duck-base-badge-less.png`  
+**Do not** use `BuilderDuckRenderer.cs` (rejected).  
+**Do not** regenerate runtime assets from the legacy glyph master unless explicitly requested (`--legacy-glyph-master`).
 
 ## Usage
 
-Inspect layout and extraction bounds:
-
 ```powershell
 dotnet run --project tools/GenerateTrayIcons/GenerateTrayIcons.csproj -- --inspect
-```
-
-Generate tray PNG previews (16/20/24/32) and multi-size ICOs:
-
-```powershell
 dotnet run --project tools/GenerateTrayIcons/GenerateTrayIcons.csproj --
 ```
 
 Output:
 
-- `src/TrayApp/Assets/tray/png/tray-{state}-{size}.png`
-- `src/TrayApp/Assets/tray/runtime/tray-{state}.ico`
+- `src/TrayApp/Assets/tray/png/tray-*.png`
+- `src/TrayApp/Assets/tray/runtime/tray-*.ico` (4 static + 36 active frames)
+- `docs/assets/tray-ring-129/*` acceptance sheets
 
 Rebuild TrayApp after regenerating so embedded resources refresh.

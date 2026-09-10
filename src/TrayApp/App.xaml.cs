@@ -53,7 +53,8 @@ public partial class App : System.Windows.Application
     private readonly TrayContextMenuBuilder trayMenuBuilder = new();
     private int settingsApplyVersion;
     private readonly SemaphoreSlim settingsApplyGate = new(1, 1);
-    private TrayIconPresentationState currentTrayPresentationState = TrayIconPresentationState.Neutral;
+    private TrayIconPresentation currentTrayPresentation = new(TrayHealthRing.Neutral, IsActive: false);
+    private TrayIconRingAnimator? trayIconAnimator;
     private ProjectHealthSnapshot? currentTrayHeadline;
     private int exitRequested;
     private readonly object pendingHealthUiSync = new();
@@ -127,6 +128,14 @@ public partial class App : System.Windows.Application
         EnsureHoverPanel();
         ApplyThemeToUi();
         notifyIcon = BuildNotifyIcon();
+        trayIconAnimator = new TrayIconRingAnimator(icon =>
+        {
+            if (notifyIcon is not null)
+            {
+                notifyIcon.Icon = icon;
+            }
+        }, Dispatcher);
+        trayIconAnimator.SetPresentation(currentTrayPresentation);
         notifyIcon.Visible = true;
         displayChangeWatcher = new WindowDisplayChangeWatcher(
             Dispatcher,
@@ -773,6 +782,9 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        trayIconAnimator?.Stop();
+        trayIconAnimator?.Dispose();
+        trayIconAnimator = null;
         displayChangeWatcher?.Dispose();
         displayChangeWatcher = null;
         dispatcherHealthProbe?.Dispose();
@@ -800,7 +812,7 @@ public partial class App : System.Windows.Application
         var icon = new Forms.NotifyIcon
         {
             Text = string.Empty,
-            Icon = TrayIconFactory.GetIcon(TrayIconPresentationState.Neutral)
+            Icon = TrayIconFactory.GetStaticIcon(TrayHealthRing.Neutral)
         };
 
         trayContextMenu = new Forms.ContextMenuStrip();
@@ -1729,6 +1741,9 @@ public partial class App : System.Windows.Application
         {
             await Dispatcher.InvokeAsync(() =>
             {
+                trayIconAnimator?.Stop();
+                trayIconAnimator?.Dispose();
+                trayIconAnimator = null;
                 if (notifyIcon is not null)
                 {
                     notifyIcon.ContextMenuStrip = null;
@@ -1985,8 +2000,21 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        currentTrayPresentationState = TrayIconPresentationMapper.Resolve(activeSnapshots);
-        ApplyTrayIcon();
+        currentTrayPresentation = TrayIconPresentationMapper.Resolve(activeSnapshots);
+        if (trayIconAnimator is not null)
+        {
+            trayIconAnimator.SetPresentation(currentTrayPresentation);
+        }
+        else
+        {
+            ApplyTrayIcon();
+        }
+
+        notifyIcon.Text = string.Empty;
+        if (hoverPanel is { IsVisible: true })
+        {
+            RefreshStatusPanelIfVisible();
+        }
     }
 
     private void ApplyTrayIcon()
@@ -1996,7 +2024,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (!TrayIconFactory.TryGetIcon(currentTrayPresentationState, out var icon) || icon is null)
+        if (!TrayIconFactory.TryGetIcon(currentTrayPresentation, animationFrame: 0, out var icon) || icon is null)
         {
 #pragma warning disable CS0618
             icon = TrafficLightIconFactory.GetIcon(MonitorHealth.Unknown);

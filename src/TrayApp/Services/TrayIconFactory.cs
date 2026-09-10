@@ -5,67 +5,72 @@ using BuildMonitor.Core.Models;
 namespace BuildMonitor.TrayApp.Services;
 
 /// <summary>
-/// Loads committed builder-duck tray icons (#95). Static embedded assets only — no runtime drawing.
+/// Loads committed tray health-ring icons (#129). Static + pre-rendered active frames — no runtime drawing.
+/// Cache owns all <see cref="Icon"/> instances.
 /// </summary>
 public static class TrayIconFactory
 {
-    private static readonly Dictionary<TrayIconPresentationState, Icon> Cache = new();
+    public const int ActiveFrameCount = 12;
 
-    public static Icon GetIcon(TrayIconPresentationState state)
+    private static readonly Dictionary<string, Icon> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    public static Icon GetStaticIcon(TrayHealthRing health) =>
+        GetCached(GetStaticResourceFileName(health));
+
+    public static Icon GetActiveFrameIcon(TrayHealthRing health, int frame)
     {
-        if (!TryGetIcon(state, out var icon) || icon is null)
+        if (health == TrayHealthRing.Failed)
         {
-            throw new InvalidOperationException($"Tray icon unavailable for state {state}.");
+            return GetStaticIcon(TrayHealthRing.Failed);
         }
 
-        return icon;
+        var index = ((frame % ActiveFrameCount) + ActiveFrameCount) % ActiveFrameCount;
+        return GetCached(GetActiveResourceFileName(health, index));
     }
 
-    public static bool TryGetIcon(TrayIconPresentationState state, out Icon? icon)
+    public static Icon GetIcon(TrayIconPresentation presentation, int animationFrame = 0)
     {
-        if (Cache.TryGetValue(state, out icon))
+        if (!presentation.IsAnimatable)
         {
-            return icon is not null;
+            return GetStaticIcon(presentation.Health);
         }
 
-        var fileName = GetResourceFileName(state);
-        var resourceName = ResolveEmbeddedResourceName(fileName);
-        if (resourceName is null)
-        {
-            icon = null;
-            return false;
-        }
+        return GetActiveFrameIcon(presentation.Health, animationFrame);
+    }
 
-        var assembly = Assembly.GetExecutingAssembly();
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null)
-        {
-            icon = null;
-            return false;
-        }
-
+    public static bool TryGetIcon(TrayIconPresentation presentation, int animationFrame, out Icon? icon)
+    {
         try
         {
-            icon = new Icon(stream);
-            Cache[state] = icon;
+            icon = GetIcon(presentation, animationFrame);
             return true;
         }
-        catch (ArgumentException)
+        catch (InvalidOperationException)
         {
             icon = null;
             return false;
         }
     }
 
-    internal static string GetResourceFileName(TrayIconPresentationState state) =>
-        state switch
+    internal static string GetStaticResourceFileName(TrayHealthRing health) =>
+        health switch
         {
-            TrayIconPresentationState.Healthy => "tray-healthy.ico",
-            TrayIconPresentationState.Building => "tray-building.ico",
-            TrayIconPresentationState.Attention => "tray-attention.ico",
-            TrayIconPresentationState.Failed => "tray-failed.ico",
+            TrayHealthRing.Healthy => "tray-healthy.ico",
+            TrayHealthRing.Attention => "tray-attention.ico",
+            TrayHealthRing.Failed => "tray-failed.ico",
             _ => "tray-neutral.ico"
         };
+
+    internal static string GetActiveResourceFileName(TrayHealthRing health, int frame) =>
+        health switch
+        {
+            TrayHealthRing.Healthy => $"tray-healthy-a{frame:00}.ico",
+            TrayHealthRing.Attention => $"tray-attention-a{frame:00}.ico",
+            TrayHealthRing.Neutral => $"tray-neutral-a{frame:00}.ico",
+            _ => GetStaticResourceFileName(TrayHealthRing.Failed)
+        };
+
+    internal static int CachedIconCountForTests => Cache.Count;
 
     internal static void ClearCacheForTests()
     {
@@ -75,6 +80,31 @@ public static class TrayIconFactory
         }
 
         Cache.Clear();
+    }
+
+    private static Icon GetCached(string fileName)
+    {
+        if (Cache.TryGetValue(fileName, out var cached))
+        {
+            return cached;
+        }
+
+        var resourceName = ResolveEmbeddedResourceName(fileName);
+        if (resourceName is null)
+        {
+            throw new InvalidOperationException($"Tray icon resource not found: {fileName}");
+        }
+
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            throw new InvalidOperationException($"Tray icon stream missing: {fileName}");
+        }
+
+        var icon = new Icon(stream);
+        Cache[fileName] = icon;
+        return icon;
     }
 
     private static string? ResolveEmbeddedResourceName(string fileName)

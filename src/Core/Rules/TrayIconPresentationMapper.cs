@@ -3,41 +3,30 @@ using BuildMonitor.Core.Models;
 namespace BuildMonitor.Core.Rules;
 
 /// <summary>
-/// Maps composite project health snapshots to tray icon presentation states.
-/// Precedence: Failed &gt; Building &gt; Attention &gt; Healthy &gt; Neutral.
+/// Maps composite project health snapshots to tray health-ring presentation (#129).
+/// Health from existing rollup; activity from <see cref="HasTrayBuildingActivity"/>.
 /// Does not alter health evaluation — presentation only.
 /// </summary>
 public static class TrayIconPresentationMapper
 {
-    public static TrayIconPresentationState Resolve(IReadOnlyList<ProjectHealthSnapshot> activeSnapshots)
+    public static TrayIconPresentation Resolve(IReadOnlyList<ProjectHealthSnapshot> activeSnapshots)
     {
         if (activeSnapshots.Count == 0)
         {
-            return TrayIconPresentationState.Neutral;
+            return new TrayIconPresentation(TrayHealthRing.Neutral, IsActive: false);
         }
 
         var rollup = LocalTrayIconRollupEvaluator.Rollup(activeSnapshots);
-        if (rollup == MonitorHealth.Red)
+        var health = rollup switch
         {
-            return TrayIconPresentationState.Failed;
-        }
+            MonitorHealth.Red => TrayHealthRing.Failed,
+            MonitorHealth.Amber => TrayHealthRing.Attention,
+            MonitorHealth.Green => TrayHealthRing.Healthy,
+            _ => TrayHealthRing.Neutral
+        };
 
-        if (activeSnapshots.Any(HasTrayBuildingActivity))
-        {
-            return TrayIconPresentationState.Building;
-        }
-
-        if (rollup == MonitorHealth.Amber)
-        {
-            return TrayIconPresentationState.Attention;
-        }
-
-        if (rollup == MonitorHealth.Green)
-        {
-            return TrayIconPresentationState.Healthy;
-        }
-
-        return TrayIconPresentationState.Neutral;
+        var isActive = activeSnapshots.Any(HasTrayBuildingActivity);
+        return new TrayIconPresentation(health, isActive);
     }
 
     /// <summary>
