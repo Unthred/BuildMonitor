@@ -74,12 +74,13 @@ public static class TrayIconFactory
 
     internal static void ClearCacheForTests()
     {
-        foreach (var icon in Cache.Values)
+        // Snapshot first: a DispatcherTimer tick from another test can load icons while we clear.
+        var icons = Cache.Values.ToArray();
+        Cache.Clear();
+        foreach (var icon in icons)
         {
             icon.Dispose();
         }
-
-        Cache.Clear();
     }
 
     private static Icon GetCached(string fileName)

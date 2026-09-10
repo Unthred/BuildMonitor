@@ -46,6 +46,8 @@ public partial class App : System.Windows.Application
     private bool statusPanelDismissScheduled;
     private DateTimeOffset? statusPanelDismissAtUtc;
     private DateTimeOffset trayHoverStatusPanelSuppressedUntil = DateTimeOffset.MinValue;
+    /// <summary>#132 — deliberate dismiss suppresses activity auto-show until the hold cycle settles.</summary>
+    private readonly StatusPanelActivityAutoShowCycle statusPanelActivityAutoShowCycle = new();
     private readonly Dictionary<string, bool> previousEditGatingActive =
         new(StringComparer.OrdinalIgnoreCase);
     private WindowDisplayChangeWatcher? displayChangeWatcher;
@@ -412,9 +414,12 @@ public partial class App : System.Windows.Application
             behavior.KeepStatusVisibleDuringLocalBuildActivity,
             behavior.KeepStatusVisibleDuringAzureBuildActivity);
 
+        statusPanelActivityAutoShowCycle.ObserveActivityHold(hasHold);
+
         if (hasHold)
         {
-            if (hoverPanel is not { IsVisible: true })
+            if (hoverPanel is not { IsVisible: true }
+                && statusPanelActivityAutoShowCycle.ShouldAutoShowForActivityHold(hasHold))
             {
                 ShowStatusPanel();
                 statusPanelAutoShownForBuild = true;
@@ -431,6 +436,15 @@ public partial class App : System.Windows.Application
             HideAutoStatusPanel();
             statusPanelAutoShownForBuild = false;
         }
+    }
+
+    /// <summary>
+    /// User closed the panel on purpose while a #94 activity hold is active (#132).
+    /// Does not apply to hover leave, site-ready timeout, or other automatic hides.
+    /// </summary>
+    private void NoteDeliberateStatusPanelDismissForActivityCycle()
+    {
+        statusPanelActivityAutoShowCycle.OnDeliberateDismiss(HasActiveBuildVisibilityHold());
     }
 
     private bool HasActiveBuildVisibilityHold()
@@ -717,6 +731,7 @@ public partial class App : System.Windows.Application
 
     private void OnStatusPanelCloseRequested()
     {
+        NoteDeliberateStatusPanelDismissForActivityCycle();
         HideAutoStatusPanel(suppressTrayHover: true);
         statusPanelAutoShownForBuild = false;
         statusPanelAutoShownForEditGating = false;
@@ -965,12 +980,14 @@ public partial class App : System.Windows.Application
 
         if (hoverPanel is { IsVisible: true })
         {
+            NoteDeliberateStatusPanelDismissForActivityCycle();
             HideAutoStatusPanel();
             statusPanelAutoShownForBuild = false;
             statusPanelAutoShownForEditGating = false;
             return;
         }
 
+        // Manual open while suppressed is allowed; does not clear the activity-cycle gate.
         hoverPanel!.Update(ResolveStatusPanelSnapshots(), statusPanelDismissAtUtc);
         ShowStatusPanelNearTray();
     }
