@@ -1,11 +1,19 @@
 namespace BuildMonitor.Core.Models;
 
-/// <summary>Tray notify-icon presentation states for the builder-duck asset family (#95).</summary>
-public enum TrayIconPresentationState
+/// <summary>Tray health-ring colour (#129). Orthogonal to activity animation.</summary>
+public enum TrayHealthRing
 {
     Neutral = 0,
     Healthy = 1,
-    Building = 2,
-    Attention = 3,
-    Failed = 4
+    Attention = 2,
+    Failed = 3
+}
+
+/// <summary>
+/// Tray notify-icon presentation: ring colour + whether activity animation may run.
+/// Failed always renders static red even when <see cref="IsActive"/> is true.
+/// </summary>
+public readonly record struct TrayIconPresentation(TrayHealthRing Health, bool IsActive)
+{
+    public bool IsAnimatable => IsActive && Health != TrayHealthRing.Failed;
 }

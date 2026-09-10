@@ -5,32 +5,38 @@ internal static class Program
     public static int Main(string[] args)
     {
         var repoRoot = ResolveRepoRoot(args);
-        var masterPath = Path.Combine(repoRoot, "docs", "assets", "tray-icon-production-masters.png");
+        var duckBasePath = Path.Combine(repoRoot, "docs", "assets", "tray-duck-base-badge-less.png");
         var runtimeDir = Path.Combine(repoRoot, "src", "TrayApp", "Assets", "tray", "runtime");
         var pngDir = Path.Combine(repoRoot, "src", "TrayApp", "Assets", "tray", "png");
+        var sheetsDir = Path.Combine(repoRoot, "docs", "assets", "tray-ring-129");
+        var legacyMasterPath = Path.Combine(repoRoot, "docs", "assets", "tray-icon-production-masters.png");
 
         if (args.Any(a => string.Equals(a, "--inspect", StringComparison.OrdinalIgnoreCase)))
         {
-            var report = ProductionMasterExtractor.Inspect(masterPath);
-            Console.WriteLine($"Master: {report.MasterPath}");
-            Console.WriteLine($"Size: {report.MasterSize.Width}x{report.MasterSize.Height}");
-            Console.WriteLine($"Normalized square: {report.NormalizedSquareSize}px");
-            Console.WriteLine($"Badge-less duck in master: {report.BadgeLessDuckAvailable}");
-            foreach (var cell in report.Cells)
+            Console.WriteLine($"Badge-less duck base: {duckBasePath}");
+            Console.WriteLine($"Exists: {File.Exists(duckBasePath)}");
+            if (File.Exists(legacyMasterPath))
             {
-                Console.WriteLine(
-                    $"{cell.AssetName} [{cell.StateLabel}] cell={cell.SourceCell} content={cell.ContentBounds} placement={cell.NormalizedPlacement}");
+                var report = ProductionMasterExtractor.Inspect(legacyMasterPath);
+                Console.WriteLine($"Legacy glyph master: {report.MasterPath} ({report.MasterSize.Width}x{report.MasterSize.Height})");
+                Console.WriteLine($"Badge-less duck in legacy master: {report.BadgeLessDuckAvailable}");
             }
 
+            Console.WriteLine($"Ring frames: {HealthRingAssetComposer.FrameCount}, arc: {HealthRingAssetComposer.ArcDegrees}°");
             return 0;
         }
 
-        ProductionMasterExtractor.GenerateAssets(masterPath, runtimeDir, pngDir);
+        if (args.Any(a => string.Equals(a, "--legacy-glyph-master", StringComparison.OrdinalIgnoreCase)))
+        {
+            ProductionMasterExtractor.GenerateAssets(legacyMasterPath, runtimeDir, pngDir);
+            Console.WriteLine("Regenerated legacy glyph assets (not used by #129 runtime).");
+            return 0;
+        }
 
-        Console.WriteLine();
+        HealthRingAssetComposer.Generate(duckBasePath, runtimeDir, pngDir, sheetsDir);
         Console.WriteLine($"PNG previews: {pngDir}");
         Console.WriteLine($"ICO runtime assets: {runtimeDir}");
-        Console.WriteLine("Application icon unchanged — master sheet has no badge-less duck.");
+        Console.WriteLine($"Acceptance sheets: {sheetsDir}");
         return 0;
     }
 
