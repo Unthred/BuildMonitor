@@ -182,7 +182,7 @@ Local + Azure coexistence:
 
 When BuildMonitor exposes Azure state for a monitored project, treat `GET /projects` as the **authoritative current Azure run/status**. Prefer it over independently querying Azure or inferring “latest” from history. Only query Azure independently if BuildMonitor has no Azure facet for that project, or the user asks for deeper history/details.
 
-Treat `activities` as the **authoritative “what is happening now?”** answer for agents — same #112 model as the tray — not a second evaluator.
+Treat `activities` as the **authoritative “what is happening now?”** answer for agents. It projects the same #112 activity model used by the status UI; tray presentation remains a separate coarse indicator and is not activity authority.
 
 ## Build-control modes (per project)
 
