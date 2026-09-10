@@ -215,6 +215,291 @@ public sealed class ControlPlaneProjectStatusMapperTests
         Assert.Contains("failed", dto.AttentionSummary ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Map_settled_project_has_empty_activities_and_no_idle()
+    {
+        var info = ControlPlaneProjectStatusMapper.Map(
+            "wc",
+            "Demo",
+            @"C:\src\Demo",
+            "Demo.csproj",
+            true,
+            true,
+            false,
+            Snapshot(MonitorHealth.Green, ProjectLifecycleState.BuildOk, 0, 0, 0),
+            session: null,
+            DateTimeOffset.UtcNow);
+
+        Assert.Empty(info.Activities);
+        Assert.Null(info.ActivitySummary);
+        Assert.DoesNotContain(info.Activities, a => a.Phase == ActivityPhaseKind.Idle);
+    }
+
+    [Fact]
+    public void Map_null_snapshot_has_empty_activities()
+    {
+        var info = ControlPlaneProjectStatusMapper.Map(
+            "wc",
+            "Demo",
+            @"C:\src\Demo",
+            "Demo.csproj",
+            true,
+            true,
+            false,
+            snapshot: null,
+            session: null,
+            DateTimeOffset.UtcNow);
+
+        Assert.Empty(info.Activities);
+        Assert.Null(info.ActivitySummary);
+    }
+
+    [Fact]
+    public void Map_local_building_exposes_one_local_build_activity()
+    {
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Building,
+            progressSteps: [new BuildProgressStep("Restore packages", BuildStepStatus.Active)]);
+
+        var info = MapWith(snap);
+
+        Assert.Single(info.Activities);
+        Assert.Equal(ActivitySourceKind.Local, info.Activities[0].Source);
+        Assert.Equal(ActivityPhaseKind.Building, info.Activities[0].Phase);
+        Assert.Equal("Restoring", info.Activities[0].Summary);
+        Assert.Equal("Restoring", info.ActivitySummary);
+        Assert.Null(info.Activities[0].Progress);
+    }
+
+    [Fact]
+    public void Map_local_testing_current_only_progress_from_TestProgress_not_summary()
+    {
+        var started = DateTimeOffset.Parse("2026-09-10T08:59:00Z");
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Testing,
+            testProgress: new TestRunLiveProgress(318, started));
+
+        var info = MapWith(snap);
+
+        Assert.Single(info.Activities);
+        Assert.Equal(ActivityPhaseKind.Testing, info.Activities[0].Phase);
+        Assert.Equal("Running tests · 318 completed", info.Activities[0].Summary);
+        Assert.Equal(started, info.Activities[0].StartedAtUtc);
+        Assert.NotNull(info.Activities[0].Progress);
+        Assert.Equal(318, info.Activities[0].Progress!.Current);
+        Assert.Null(info.Activities[0].Progress.Total);
+    }
+
+    [Fact]
+    public void Map_local_testing_authoritative_total()
+    {
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Testing,
+            testProgress: new TestRunLiveProgress(318, DateTimeOffset.UtcNow, Total: 940));
+
+        var info = MapWith(snap);
+
+        Assert.Equal(new ControlPlaneActivityProgressInfo(318, 940), info.Activities[0].Progress);
+        Assert.Equal("Running tests · 318 / 940", info.ActivitySummary);
+    }
+
+    [Fact]
+    public void Map_testing_without_counters_omits_progress()
+    {
+        var info = MapWith(ActivitySnapshot(ProjectLifecycleState.Testing));
+
+        Assert.Equal("Running tests", info.Activities[0].Summary);
+        Assert.Null(info.Activities[0].Progress);
+    }
+
+    [Fact]
+    public void Map_azure_activity_exposes_azure_fields()
+    {
+        var info = MapWith(
+            ActivitySnapshot(ProjectLifecycleState.Watching, azure: AzureActivityFacet()),
+            azureAttached: true);
+
+        Assert.Single(info.Activities);
+        var a = info.Activities[0];
+        Assert.Equal(ActivitySourceKind.Azure, a.Source);
+        Assert.Equal(ActivityPhaseKind.AzureInProgress, a.Phase);
+        Assert.Equal("CI Pipeline · in progress", a.Summary);
+        Assert.Equal("552", a.OperationId);
+        Assert.Equal(552, a.AzureRunId);
+        Assert.Equal("552", a.AzureBuildNumber);
+    }
+
+    [Fact]
+    public void Map_agent_ship_check_retains_agent_source()
+    {
+        var cp = ProjectControlPlaneSnapshot.Unused with
+        {
+            ShipCheckInProgress = true,
+            ShipCheckPhase = ControlPlaneShipCheckPhase.Building
+        };
+        var info = MapWith(ActivitySnapshot(ProjectLifecycleState.Building, controlPlane: cp));
+
+        Assert.Single(info.Activities);
+        Assert.Equal(ActivitySourceKind.Agent, info.Activities[0].Source);
+        Assert.Equal(ActivityPhaseKind.ShipCheck, info.Activities[0].Phase);
+        Assert.Equal("Ship check — building", info.ActivitySummary);
+    }
+
+    [Fact]
+    public void Map_local_and_azure_coexistence_preserves_builder_order_and_summary()
+    {
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Testing,
+            testProgress: new TestRunLiveProgress(12, DateTimeOffset.UtcNow),
+            azure: AzureActivityFacet());
+
+        var expected = ProjectActivityBuilder.Build(snap, DateTimeOffset.Parse("2026-09-10T12:00:00Z"));
+        var info = MapWith(snap, azureAttached: true, utcNow: DateTimeOffset.Parse("2026-09-10T12:00:00Z"));
+
+        Assert.Equal(2, info.Activities.Count);
+        Assert.Equal(ActivitySourceKind.Local, info.Activities[0].Source);
+        Assert.Equal(ActivitySourceKind.Azure, info.Activities[1].Source);
+        Assert.Equal(expected.PrimaryStatusText, info.ActivitySummary);
+        Assert.Equal(
+            expected.Activities.Where(a => a.IsActive).Select(a => a.Source).ToArray(),
+            info.Activities.Select(a => a.Source).ToArray());
+    }
+
+    [Fact]
+    public void Map_failed_health_can_coexist_with_current_activity()
+    {
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Building,
+            health: MonitorHealth.Red,
+            errorCount: 3,
+            progressSteps: [new BuildProgressStep("App", BuildStepStatus.Active)]);
+
+        var info = MapWith(snap);
+
+        Assert.Equal(MonitorHealth.Red, info.OverallHealth);
+        Assert.Single(info.Activities);
+        Assert.Equal(ActivityPhaseKind.Building, info.Activities[0].Phase);
+    }
+
+    [Fact]
+    public void Map_does_not_reconstruct_activity_from_failed_history_lifecycle()
+    {
+        var snap = ActivitySnapshot(ProjectLifecycleState.TestFailed, health: MonitorHealth.Red, errorCount: 2);
+        var info = MapWith(snap);
+
+        Assert.Empty(info.Activities);
+        Assert.Equal(MonitorHealth.Red, info.OverallHealth);
+        Assert.Equal(ProjectLifecycleState.TestFailed, info.Local!.LifecycleState);
+    }
+
+    [Fact]
+    public void Map_does_not_leak_prior_run_total_without_live_TestProgress()
+    {
+        // Settled after a prior run — no TestProgress on snapshot.
+        var info = MapWith(ActivitySnapshot(ProjectLifecycleState.BuildOk));
+
+        Assert.Empty(info.Activities);
+        Assert.All(info.Activities, a => Assert.Null(a.Progress));
+    }
+
+    [Fact]
+    public void Serialized_activities_are_additive_omit_nulls_and_forbid_v1_extras()
+    {
+        var snap = ActivitySnapshot(
+            ProjectLifecycleState.Testing,
+            testProgress: new TestRunLiveProgress(318, DateTimeOffset.Parse("2026-09-10T08:59:00Z")));
+
+        var info = MapWith(snap);
+        var json = JsonSerializer.Serialize(info, JsonOptions);
+
+        Assert.Contains("\"activities\":[", json, StringComparison.Ordinal);
+        Assert.Contains("\"activitySummary\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"source\":\"local\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"phase\":\"testing\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"progress\":{\"current\":318}", json, StringComparison.Ordinal);
+        Assert.Contains("\"lifecycleState\":\"testing\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("updatedAtUtc", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("activityCoexistenceSummary", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"total\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"fraction\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"eta\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"percent\"", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Serialized_settled_always_includes_empty_activities_array()
+    {
+        var info = MapWith(ActivitySnapshot(ProjectLifecycleState.BuildOk));
+        var json = JsonSerializer.Serialize(info, JsonOptions);
+
+        Assert.Contains("\"activities\":[]", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("activitySummary", json, StringComparison.Ordinal);
+    }
+
+    private static ControlPlaneProjectInfo MapWith(
+        ProjectHealthSnapshot snap,
+        bool azureAttached = false,
+        DateTimeOffset? utcNow = null) =>
+        ControlPlaneProjectStatusMapper.Map(
+            snap.ProjectId,
+            snap.DisplayName,
+            @"C:\src\Demo",
+            "Demo.csproj",
+            isActiveInSession: true,
+            hasLocal: true,
+            azureAttached,
+            snap,
+            session: null,
+            utcNow ?? DateTimeOffset.UtcNow);
+
+    private static ProjectHealthSnapshot ActivitySnapshot(
+        ProjectLifecycleState state,
+        MonitorHealth health = MonitorHealth.Green,
+        int errorCount = 0,
+        IReadOnlyList<BuildProgressStep>? progressSteps = null,
+        ProjectAzureHealthFacet? azure = null,
+        ProjectControlPlaneSnapshot? controlPlane = null,
+        TestRunLiveProgress? testProgress = null) =>
+        new(
+            "p1",
+            "Demo",
+            health,
+            ProjectHealthEvaluator.ToLabel(health),
+            state,
+            0,
+            null,
+            null,
+            errorCount,
+            0,
+            DateTimeOffset.UtcNow,
+            null,
+            true,
+            progressSteps ?? [],
+            ControlPlane: controlPlane,
+            Azure: azure,
+            TestProgress: testProgress,
+            LocalGit: new LocalGitContext(LocalGitHeadStatus.Branch, "master", []));
+
+    private static ProjectAzureHealthFacet AzureActivityFacet() =>
+        new(
+            AzureMonitoringAvailability.Available,
+            AzureCiMonitoringState.Activity,
+            "refs/heads/main",
+            new AzurePipelineRunInfo(
+                1,
+                "CI Pipeline",
+                552,
+                "552",
+                PipelineRunState.InProgress,
+                PipelineRunResult.Unknown,
+                "refs/heads/main",
+                DateTimeOffset.Parse("2026-09-10T11:00:00Z"),
+                DateTimeOffset.Parse("2026-09-10T11:01:00Z"),
+                null,
+                "https://example/run/552"),
+            [],
+            DateTimeOffset.Parse("2026-09-10T12:00:00Z"));
+
     private static ProjectAzureHealthFacet AvailableFacet(
         AzurePipelineRunInfo primary,
         AzureCiMonitoringState ci = AzureCiMonitoringState.Healthy) =>

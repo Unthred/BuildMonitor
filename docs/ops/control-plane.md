@@ -97,8 +97,78 @@ Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQ
     "runUrl": "https://dev.azure.com/…/_build/results?buildId=458",
     "polledAtUtc": "2026-08-26T07:00:00+00:00",
     "ageSeconds": 5
-  }
+  },
+  "activities": [],
+  "activitySummary": null
 }
+```
+
+(`activitySummary` is omitted when null — shown above only for clarity.)
+
+### Activity / progress (#112)
+
+`activities` and `activitySummary` project the **same** authoritative activity model used by the status UI (`ProjectActivityBuilder` over the coalesced project snapshot). Lifecycle, health, and activity stay separate:
+
+| Concept | Field(s) | Meaning |
+|---------|----------|---------|
+| Lifecycle | `local.lifecycleState` | Machine/watch lifecycle (e.g. `watching`, `building`) — independent of activity |
+| Health | `overallHealth`, local/azure status | Is it healthy? |
+| Activity | `activities`, `activitySummary` | What is happening **now**? |
+
+Rules:
+
+- **`activities: []`** means no current activity. There is **no** synthetic `idle` activity record.
+- **`activitySummary`** is the primary human-readable summary (`ProjectActivitySet.PrimaryStatusText`). Omitted when null.
+- Multiple activities may coexist (e.g. Local tests + Azure CI). Order matches the #112 builder (Local/Agent before Azure when both active). Inspect `activities[]` — there is no coexistence-summary field in V1.
+- **`source`** keeps #112 semantics: `local`, `azure`, `agent`, `system` (do not flatten `agent` into `local`).
+- **`progress`** appears only when trustworthy:
+  - `{ "current": 318, "total": 940 }` when both ends are authoritative
+  - `{ "current": 318 }` when live test progress knows completed count but not total
+  - omitted when nothing trustworthy
+- Do **not** invent a percentage, fraction, or ETA from a missing `total`. Do not reconstruct activity from history, tray colour, or logs.
+
+Settled:
+
+```json
+"activities": []
+```
+
+Local tests with completed-only progress:
+
+```json
+"activities": [
+  {
+    "source": "local",
+    "phase": "testing",
+    "summary": "Running tests · 318 completed",
+    "startedAtUtc": "2026-09-10T08:59:00Z",
+    "progress": { "current": 318 }
+  }
+],
+"activitySummary": "Running tests · 318 completed"
+```
+
+Local + Azure coexistence:
+
+```json
+"activities": [
+  {
+    "source": "local",
+    "phase": "testing",
+    "summary": "Running tests · 12 completed",
+    "progress": { "current": 12 }
+  },
+  {
+    "source": "azure",
+    "phase": "azureInProgress",
+    "summary": "CI Pipeline · in progress",
+    "operationId": "459",
+    "azureRunId": 459,
+    "azureBuildNumber": "20260910.2",
+    "branch": "feature/x"
+  }
+],
+"activitySummary": "Running tests · 12 completed"
 ```
 
 ### Semantics
@@ -111,6 +181,8 @@ Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQ
 ### Agent guidance
 
 When BuildMonitor exposes Azure state for a monitored project, treat `GET /projects` as the **authoritative current Azure run/status**. Prefer it over independently querying Azure or inferring “latest” from history. Only query Azure independently if BuildMonitor has no Azure facet for that project, or the user asks for deeper history/details.
+
+Treat `activities` as the **authoritative “what is happening now?”** answer for agents. It projects the same #112 activity model used by the status UI; tray presentation remains a separate coarse indicator and is not activity authority.
 
 ## Build-control modes (per project)
 

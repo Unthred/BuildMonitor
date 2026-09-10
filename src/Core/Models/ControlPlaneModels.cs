@@ -31,7 +31,33 @@ public sealed record ControlPlaneProjectInfo(
     string? OverallHealthLabel = null,
     ControlPlaneSessionState? SessionState = null,
     ControlPlaneLocalFacetInfo? Local = null,
-    ControlPlaneAzureFacetInfo? Azure = null);
+    ControlPlaneAzureFacetInfo? Azure = null,
+    /// <summary>
+    /// Authoritative current activities from #112 (<c>ProjectActivityBuilder</c>).
+    /// Empty means no current activity (not a synthetic idle record). Always present on the wire.
+    /// </summary>
+    IReadOnlyList<ControlPlaneActivityInfo> Activities = null!,
+    /// <summary>Primary activity summary (<c>ProjectActivitySet.PrimaryStatusText</c>); omitted when null.</summary>
+    string? ActivitySummary = null);
+
+/// <summary>Wire DTO for one #112 activity on <c>GET /projects</c>.</summary>
+public sealed record ControlPlaneActivityInfo(
+    ActivitySourceKind Source,
+    ActivityPhaseKind Phase,
+    string Summary,
+    string? Detail = null,
+    DateTimeOffset? StartedAtUtc = null,
+    ControlPlaneActivityProgressInfo? Progress = null,
+    string? OperationId = null,
+    long? AzureRunId = null,
+    string? AzureBuildNumber = null,
+    string? Branch = null);
+
+/// <summary>
+/// Trustworthy progress only. <see cref="Total"/> omitted when unknown (e.g. mid-run completed count).
+/// Never invent percentages or ETAs from a missing total.
+/// </summary>
+public sealed record ControlPlaneActivityProgressInfo(int Current, int? Total = null);
 
 /// <summary>Local build facet on <c>GET /projects</c> — from the tray snapshot, not a live rebuild.</summary>
 public sealed record ControlPlaneLocalFacetInfo(
