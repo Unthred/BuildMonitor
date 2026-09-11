@@ -110,9 +110,9 @@ public static class StatusPanelPresentationBuilder
             currentAction = activity.CoexistenceSummaryText;
         }
         else if (string.IsNullOrWhiteSpace(currentAction)
-                 && activity.Primary is { Source: ActivitySourceKind.Azure, IsActive: true })
+                 && activity.Primary is { Source: ActivitySourceKind.Azure, IsActive: true } azureActivity)
         {
-            currentAction = activity.Primary.StatusText;
+            currentAction = FormatAzureCurrentAction(azureActivity, snapshot, utcNow);
         }
 
         return new StatusPanelCardPresentation(
@@ -298,6 +298,44 @@ public static class StatusPanelPresentationBuilder
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Compact multi-line Azure “now” text: stage/job (or concurrency), optional Stage N of M, elapsed.
+    /// </summary>
+    private static string FormatAzureCurrentAction(
+        ProjectActivitySnapshot azureActivity,
+        ProjectHealthSnapshot snapshot,
+        DateTimeOffset utcNow)
+    {
+        var lines = new List<string> { azureActivity.StatusText };
+        if (!string.IsNullOrWhiteSpace(azureActivity.Detail))
+        {
+            lines.Add(azureActivity.Detail!);
+        }
+
+        string? elapsed = null;
+        var run = snapshot.Azure?.PrimaryRun;
+        if (run is not null && AzureRunSelector.IsActive(run.State))
+        {
+            elapsed = AzureStatusPresentationBuilder.FormatDuration(
+                utcNow - (run.StartedAtUtc ?? run.QueuedAtUtc));
+        }
+
+        if (azureActivity.Progress is { Total: > 0 } progress)
+        {
+            var caption = $"Stage {progress.Current} of {progress.Total}";
+            lines.Add(string.IsNullOrWhiteSpace(elapsed) ? caption : $"{caption} · {elapsed}");
+        }
+        else if (!string.IsNullOrWhiteSpace(elapsed)
+                 && !azureActivity.StatusText.Contains(" · ", StringComparison.Ordinal))
+        {
+            // Enriched stage/job lines already omit the coarse "Pipeline · verb" form;
+            // keep elapsed on its own line. Coarse fallback already includes verb.
+            lines.Add(elapsed!);
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string? ResolveCurrentAction(

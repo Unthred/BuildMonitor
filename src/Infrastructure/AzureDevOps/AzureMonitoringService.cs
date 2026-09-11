@@ -23,24 +23,34 @@ public sealed class AzureMonitoringService : IDisposable
     public static readonly TimeSpan FailureBackoffMax = TimeSpan.FromSeconds(45);
 
     private readonly IAzureBuildPollClient pollClient;
+    private readonly IAzureBuildTimelineClient timelineClient;
     private readonly IAzureConnectionSecretStore secretStore;
     private readonly CachedLocalGitContextReader gitReader;
     private readonly Action onFacetUpdated;
     private readonly ConcurrentDictionary<string, ProjectAzureHealthFacet> facets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, TimelineCacheEntry> timelineCache = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Last primary RunId for which a timeline attach was started (stale-response discard).</summary>
+    private readonly ConcurrentDictionary<string, long> timelineRequestRunId = new(StringComparer.OrdinalIgnoreCase);
     private readonly object settingsSync = new();
     private AppSettings settings = new();
     private CancellationTokenSource? loopCts;
     private Task? loopTask;
     private int failureStreak;
     private bool disposed;
+    private readonly bool ownsTimelineClient;
+
+    private sealed record TimelineCacheEntry(long RunId, int? ChangeId, AzureRunExecutionDetail? Detail);
 
     public AzureMonitoringService(
         IAzureBuildPollClient pollClient,
         IAzureConnectionSecretStore secretStore,
         ILocalGitContextReader gitReader,
-        Action onFacetUpdated)
+        Action onFacetUpdated,
+        IAzureBuildTimelineClient? timelineClient = null)
     {
         this.pollClient = pollClient;
+        ownsTimelineClient = timelineClient is null;
+        this.timelineClient = timelineClient ?? new AzureBuildTimelineClient();
         this.secretStore = secretStore;
         this.gitReader = gitReader as CachedLocalGitContextReader
             ?? new CachedLocalGitContextReader(gitReader);
@@ -166,6 +176,11 @@ public sealed class AzureMonitoringService : IDisposable
         if (pollClient is IDisposable d)
         {
             d.Dispose();
+        }
+
+        if (ownsTimelineClient && timelineClient is IDisposable timelineDisposable)
+        {
+            timelineDisposable.Dispose();
         }
     }
 
@@ -351,7 +366,7 @@ public sealed class AzureMonitoringService : IDisposable
             }
         }
 
-        return AzureFacetComposer.FromPipelineRuns(
+        var facet = AzureFacetComposer.FromPipelineRuns(
             azure,
             displayRepresentatives,
             focusBranch,
@@ -365,6 +380,96 @@ public sealed class AzureMonitoringService : IDisposable
                 adoProject,
                 azure.RepositoryName,
                 azure.RepositoryId));
+
+        return await AttachActiveRunExecutionAsync(
+            project.Id,
+            facet,
+            connection.OrganizationUrl,
+            adoProject,
+            pat,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Fetches Builds timeline only for an active primary run. Never invents stage state on failure.
+    /// Discards results that no longer match the facet primary RunId.
+    /// </summary>
+    internal async Task<ProjectAzureHealthFacet> AttachActiveRunExecutionAsync(
+        string projectId,
+        ProjectAzureHealthFacet facet,
+        string organizationUrl,
+        string adoProjectIdOrName,
+        string pat,
+        CancellationToken cancellationToken)
+    {
+        var primary = facet.PrimaryRun;
+        if (primary is null || !AzureRunSelector.IsActive(primary.State))
+        {
+            timelineCache.TryRemove(projectId, out _);
+            timelineRequestRunId.TryRemove(projectId, out _);
+            return facet.ExecutionDetail is null ? facet : facet with { ExecutionDetail = null };
+        }
+
+        var requestedRunId = primary.RunId;
+        timelineRequestRunId[projectId] = requestedRunId;
+        if (timelineCache.TryGetValue(projectId, out var cached) && cached.RunId != requestedRunId)
+        {
+            timelineCache.TryRemove(projectId, out _);
+        }
+
+        AzureBuildTimelineResult timeline;
+        try
+        {
+            timeline = await timelineClient.GetTimelineAsync(
+                organizationUrl,
+                adoProjectIdOrName,
+                requestedRunId,
+                pat,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            timelineCache.TryRemove(projectId, out _);
+            return facet with { ExecutionDetail = null };
+        }
+
+        // Stale-run guard: a newer primary attach superseded this in-flight timeline.
+        if (!timelineRequestRunId.TryGetValue(projectId, out var latestRequested)
+            || latestRequested != requestedRunId
+            || !AzureRunSelector.IsActive(facet.PrimaryRun!.State)
+            || facet.PrimaryRun.RunId != requestedRunId)
+        {
+            timelineCache.TryRemove(projectId, out _);
+            return facet with { ExecutionDetail = null };
+        }
+
+        if (timeline.Outcome != AzureBuildTimelineOutcome.Ok)
+        {
+            return facet with { ExecutionDetail = null };
+        }
+
+        if (timelineCache.TryGetValue(projectId, out cached)
+            && cached.RunId == requestedRunId
+            && cached.ChangeId is not null
+            && cached.ChangeId == timeline.ChangeId
+            && cached.Detail is not null)
+        {
+            return facet with { ExecutionDetail = cached.Detail };
+        }
+
+        var detail = AzureRunExecutionProjector.TryCreateDetail(requestedRunId, timeline);
+        if (detail is null || detail.RunId != requestedRunId)
+        {
+            timelineCache.TryRemove(projectId, out _);
+            return facet with { ExecutionDetail = null };
+        }
+
+        timelineCache[projectId] = new TimelineCacheEntry(requestedRunId, timeline.ChangeId, detail);
+        return facet with { ExecutionDetail = detail };
     }
 
     public static IReadOnlyList<MonitoredProjectSettings> GetEligibleProjects(AppSettings settings) =>

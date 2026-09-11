@@ -29,7 +29,9 @@ public sealed record ProjectAzureHealthFacet(
     DateTimeOffset PolledAtUtc,
     string? StatusMessage = null,
     bool HasSelectedPipelines = true,
-    AzureBuildNavigationContext? NavigationContext = null);
+    AzureBuildNavigationContext? NavigationContext = null,
+    /// <summary>Active-run Builds timeline projection; null when settled or timeline unavailable.</summary>
+    AzureRunExecutionDetail? ExecutionDetail = null);
 
 /// <summary>One compact Azure table row in the hover status panel.</summary>
 public sealed record AzureStatusTableRow(

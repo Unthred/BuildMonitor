@@ -72,10 +72,46 @@ public sealed record AzureBuildNavigationContext(
     string RepositoryName,
     string RepositoryId);
 
-/// <summary>One timeline record used to pick a failed job/task deep link.</summary>
+/// <summary>One timeline record used for failure deep links and active-run stage/job projection.</summary>
 public sealed record AzureBuildTimelineRecord(
     Guid Id,
     Guid? ParentId,
     string Type,
     string? Result,
-    string? Name);
+    string? Name,
+    string? State = null,
+    int? Order = null,
+    DateTimeOffset? StartedAtUtc = null,
+    DateTimeOffset? FinishedAtUtc = null);
+
+/// <summary>Structured stage row from a Builds timeline (authoritative names/state only).</summary>
+public sealed record AzureTimelineStageInfo(
+    Guid Id,
+    string Name,
+    string? State,
+    string? Result,
+    int? Order,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? FinishedAtUtc);
+
+/// <summary>Structured job row with parent stage association.</summary>
+public sealed record AzureTimelineJobInfo(
+    Guid Id,
+    Guid? StageId,
+    string Name,
+    string? StageName,
+    string? State,
+    string? Result,
+    int? Order,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? FinishedAtUtc);
+
+/// <summary>
+/// Authoritative timeline-derived execution facts for one primary run.
+/// Presentation policy lives in <c>AzureRunExecutionProjector</c>, not here.
+/// </summary>
+public sealed record AzureRunExecutionDetail(
+    long RunId,
+    int? TimelineChangeId,
+    IReadOnlyList<AzureTimelineStageInfo> Stages,
+    IReadOnlyList<AzureTimelineJobInfo> Jobs);

@@ -372,11 +372,12 @@ public sealed class AzureMonitoringTimelinePollIsolationTests
     [Fact]
     public void Poll_client_does_not_fetch_timeline()
     {
+        // Builds poll stays run-list only; active-run timeline is a separate client used by monitoring.
         Assert.DoesNotContain(
             "timeline",
             typeof(AzureBuildPollClient).GetMethods()
                 .SelectMany(m => m.GetParameters().Select(p => p.Name ?? string.Empty))
-                .Concat(typeof(AzureMonitoringService).GetMethods().Select(m => m.Name)),
+                .Concat(typeof(AzureBuildPollClient).GetMethods().Select(m => m.Name)),
             StringComparer.OrdinalIgnoreCase);
     }
 

@@ -221,8 +221,24 @@ public static class ProjectActivityBuilder
         var pipeline = string.IsNullOrWhiteSpace(run.PipelineDisplayName)
             ? "Azure"
             : run.PipelineDisplayName.Trim();
-        // Stage/job names require timeline fetch (failure navigation only) — do not invent here.
-        var status = $"{pipeline} · {verb}";
+        var fallbackStatus = $"{pipeline} · {verb}";
+        var buildNumberDetail = string.IsNullOrWhiteSpace(run.BuildNumber) ? null : $"#{run.BuildNumber}";
+
+        string status = fallbackStatus;
+        string? detail = buildNumberDetail;
+        ActivityProgress? progress = null;
+
+        if (azure.ExecutionDetail is { } execution
+            && execution.RunId == run.RunId)
+        {
+            var presentation = AzureRunExecutionProjector.Present(execution);
+            if (!string.IsNullOrWhiteSpace(presentation.Summary))
+            {
+                status = presentation.Summary!;
+                detail = presentation.Detail ?? buildNumberDetail;
+                progress = presentation.Progress;
+            }
+        }
 
         activities.Add(Create(
             snapshot.ProjectId,
@@ -232,8 +248,9 @@ public static class ProjectActivityBuilder
             utcNow,
             isActive: true,
             startedAtUtc: run.StartedAtUtc ?? run.QueuedAtUtc,
+            progress: progress,
             operationId: run.RunId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            detail: string.IsNullOrWhiteSpace(run.BuildNumber) ? null : $"#{run.BuildNumber}",
+            detail: detail,
             azureRunId: run.RunId,
             azureBuildNumber: run.BuildNumber,
             branch: string.IsNullOrWhiteSpace(run.Branch) ? azure.FocusBranch : run.Branch));

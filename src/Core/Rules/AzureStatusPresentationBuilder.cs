@@ -59,7 +59,7 @@ public static class AzureStatusPresentationBuilder
                 attention: FormatAttention(facet.AttentionRuns));
         }
 
-        var rows = new List<AzureStatusTableRow> { ToTableRow(facet.PrimaryRun, utcNow) };
+        var rows = new List<AzureStatusTableRow> { ToTableRow(facet.PrimaryRun, utcNow, facet.ExecutionDetail) };
         foreach (var attentionRun in facet.AttentionRuns)
         {
             if (!ShouldShowAttentionAsRow(attentionRun))
@@ -94,18 +94,33 @@ public static class AzureStatusPresentationBuilder
             Emphasis: rows[0].Emphasis);
     }
 
-    public static AzureStatusTableRow ToTableRow(AzurePipelineRunInfo run, DateTimeOffset utcNow)
+    public static AzureStatusTableRow ToTableRow(
+        AzurePipelineRunInfo run,
+        DateTimeOffset utcNow,
+        AzureRunExecutionDetail? executionDetail = null)
     {
         var (glyph, emphasis, stateLabel) = DescribeRun(run);
+        var statusText = stateLabel;
+        if (executionDetail is not null
+            && executionDetail.RunId == run.RunId
+            && AzureRunSelector.IsActive(run.State))
+        {
+            var presentation = AzureRunExecutionProjector.Present(executionDetail);
+            if (!string.IsNullOrWhiteSpace(presentation.Summary))
+            {
+                statusText = $"{stateLabel} · {presentation.Summary}";
+            }
+        }
+
         return new AzureStatusTableRow(
             Pipeline: run.PipelineDisplayName,
             StatusGlyph: glyph,
-            StatusText: stateLabel,
+            StatusText: statusText,
             Branch: run.Branch,
             RunDisplay: FormatRunId(run.RunId),
             BuildNumberDisplay: FormatBuildNumber(run.BuildNumber),
             PullRequestDisplay: FormatPullRequest(run.PullRequestNumber),
-            TimingText: FormatTiming(run, utcNow),
+            TimingText: FormatTiming(run, utcNow, executionDetail),
             RunUrl: string.IsNullOrWhiteSpace(run.RunUrl) ? null : run.RunUrl,
             Emphasis: emphasis);
     }
@@ -149,7 +164,10 @@ public static class AzureStatusPresentationBuilder
         return ("○", StatusPanelRowEmphasis.Normal, "Unknown");
     }
 
-    public static string? FormatTiming(AzurePipelineRunInfo run, DateTimeOffset utcNow)
+    public static string? FormatTiming(
+        AzurePipelineRunInfo run,
+        DateTimeOffset utcNow,
+        AzureRunExecutionDetail? executionDetail = null)
     {
         if (!AzureRunSelector.IsActive(run.State))
         {
@@ -157,7 +175,26 @@ public static class AzureStatusPresentationBuilder
         }
 
         var start = run.StartedAtUtc ?? run.QueuedAtUtc;
-        return "Running " + FormatDuration(utcNow - start);
+        var elapsed = "Running " + FormatDuration(utcNow - start);
+        if (executionDetail is null || executionDetail.RunId != run.RunId)
+        {
+            return elapsed;
+        }
+
+        var presentation = AzureRunExecutionProjector.Present(executionDetail);
+        if (!string.IsNullOrWhiteSpace(presentation.ProgressCaption))
+        {
+            return $"{presentation.ProgressCaption} · {FormatDuration(utcNow - start)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(presentation.Detail)
+            && !string.IsNullOrWhiteSpace(presentation.Summary)
+            && !presentation.Summary!.Contains("running", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{presentation.Detail} · {FormatDuration(utcNow - start)}";
+        }
+
+        return elapsed;
     }
 
     public static string FormatDuration(TimeSpan elapsed)
