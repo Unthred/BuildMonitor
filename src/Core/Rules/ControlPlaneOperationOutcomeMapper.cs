@@ -24,14 +24,15 @@ public static class ControlPlaneOperationOutcomeMapper
     {
         ArgumentNullException.ThrowIfNull(evidence);
 
-        if (evidence.LifecycleTestOk)
-        {
-            return ControlPlaneOperationOutcome.Succeeded;
-        }
-
+        // Structured zero-target evidence wins over lifecycle — stale TestOk must not mask noTests.
         if (evidence.NoTargetsConfigured)
         {
             return ControlPlaneOperationOutcome.NoTests;
+        }
+
+        if (evidence.LifecycleTestOk)
+        {
+            return ControlPlaneOperationOutcome.Succeeded;
         }
 
         if (evidence.Counts is { Failed: > 0 })

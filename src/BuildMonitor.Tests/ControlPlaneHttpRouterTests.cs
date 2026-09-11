@@ -187,7 +187,8 @@ public sealed class ControlPlaneHttpRouterTests
                 "Demo.csproj",
                 new ControlPlaneTestCounts(Failed: 0, Passed: 1083, Skipped: 0),
                 [],
-                @"C:\logs\last-test.log")
+                @"C:\logs\last-test.log",
+                ControlPlaneOperationOutcome.Succeeded)
         };
         var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
         var response = await ControlPlaneHttpRouter.DispatchAsync(
@@ -216,7 +217,8 @@ public sealed class ControlPlaneHttpRouterTests
                 "Demo.csproj",
                 Tests: null,
                 Failures: [ControlPlaneTestResultMapper.CountsUnavailableMessage],
-                Log: null)
+                Log: null,
+                Outcome: ControlPlaneOperationOutcome.Succeeded)
         };
         var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
         var response = await ControlPlaneHttpRouter.DispatchAsync(

@@ -133,7 +133,7 @@ public sealed record ControlPlaneRebuildResult(
     int ExitCode,
     IReadOnlyList<string> Failures,
     string? Log,
-    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
+    ControlPlaneOperationOutcome Outcome);
 
 public sealed record ControlPlaneRunTestsRequest(
     string ProjectId,
@@ -146,7 +146,7 @@ public sealed record ControlPlaneRunTestsResult(
     ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
     string? Log,
-    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
+    ControlPlaneOperationOutcome Outcome);
 
 public sealed record ControlPlaneRunStopResult(
     bool Ok,
@@ -171,7 +171,7 @@ public sealed record ControlPlaneShipCheckResult(
     ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
     string? Log,
-    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
+    ControlPlaneOperationOutcome Outcome);
 
 public enum ControlPlaneShipCheckPhase
 {
