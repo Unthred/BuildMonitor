@@ -252,6 +252,42 @@ internal static class ControlPlaneHttpRouter
             return Ok(ToRunStopJson(result), projectId);
         }
 
+        if (method == "POST" && path == "/run/cancel")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            if (!TryGetProjectId(url, payload, out var projectId, out var error))
+            {
+                return BadRequest(error!);
+            }
+
+            if (!actions.ProjectExists(projectId!))
+            {
+                return NotFound(projectId!);
+            }
+
+            string? operationId = null;
+            if (payload is not null
+                && payload.Value.TryGetProperty("operationId", out var opEl)
+                && opEl.ValueKind == JsonValueKind.String)
+            {
+                operationId = opEl.GetString();
+            }
+
+            try
+            {
+                var result = await actions.CancelAsync(
+                    new ControlPlaneCancelRequest(projectId!, operationId),
+                    cancellationToken).ConfigureAwait(false);
+                return Ok(ToCancelJson(result), projectId);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("No cancellable", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("does not match", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ControlPlaneHttpResponse(409, new { error = ex.Message, cancelRequested = false }, projectId);
+            }
+        }
+
         if (method == "POST" && path == "/run/ship-check")
         {
             var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
@@ -408,6 +444,25 @@ internal static class ControlPlaneHttpRouter
         watch = WatchJson(result.Watch)
     };
 
+    private static object ToCancelJson(ControlPlaneCancelResult result) => new
+    {
+        ok = result.Ok,
+        project = result.Project,
+        operationId = result.OperationId,
+        operationKind = ToOperationKindWire(result.OperationKind),
+        cancelRequested = result.CancelRequested,
+        alreadyRequested = result.AlreadyRequested
+    };
+
+    private static string ToOperationKindWire(ControlPlaneOperationKind kind) =>
+        kind switch
+        {
+            ControlPlaneOperationKind.Rebuild => "rebuild",
+            ControlPlaneOperationKind.Tests => "tests",
+            ControlPlaneOperationKind.ShipCheck => "shipCheck",
+            _ => "rebuild"
+        };
+
     private static object ToRunTestsJson(ControlPlaneRunTestsResult result)
     {
         if (result.Tests is null)
@@ -479,6 +534,7 @@ internal static class ControlPlaneHttpRouter
             ControlPlaneOperationOutcome.TestsFailed => "testsFailed",
             ControlPlaneOperationOutcome.NoTests => "noTests",
             ControlPlaneOperationOutcome.ExecutionFailed => "executionFailed",
+            ControlPlaneOperationOutcome.Cancelled => "cancelled",
             _ => "executionFailed"
         };
 

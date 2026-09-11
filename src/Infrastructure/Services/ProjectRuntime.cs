@@ -255,8 +255,14 @@ internal sealed partial class ProjectRuntime : IDisposable
         OperationalEventSource source,
         string actionName,
         string summary,
-        out string operationId) =>
-        history.TryBeginCallerOwnedOperation(source, actionName, summary, out operationId);
+        out string operationId,
+        string? preferredOperationId = null) =>
+        history.TryBeginCallerOwnedOperation(
+            source,
+            actionName,
+            summary,
+            out operationId,
+            preferredOperationId);
 
     /// <summary>
     /// Ends a caller-owned history operation started via <see cref="TryBeginHistoryOperation"/>.

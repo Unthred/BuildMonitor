@@ -209,6 +209,19 @@ public sealed partial class ProjectOrchestrator
         }
     }
 
+    public ControlPlaneCancelResult CancelControlPlaneOperation(string projectId, string? operationId)
+    {
+        var runtime = EnsureControlPlaneRuntime(projectId);
+        try
+        {
+            return runtime.RequestCancelControlPlaneOperation(operationId);
+        }
+        finally
+        {
+            healthCoalescer.Request(immediate: true);
+        }
+    }
+
     public async Task<ControlPlaneRunTestsResult> RunControlPlaneTestsAsync(
         ControlPlaneRunTestsRequest request,
         CancellationToken cancellationToken)

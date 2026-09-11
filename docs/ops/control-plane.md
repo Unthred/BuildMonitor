@@ -39,6 +39,7 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | POST | `/session/idle` | Edit burst done — **File Watching** may auto-build; **AI Controlled** does **not** |
 | GET | `/session?projectId=` | `{ "state": "busy"\|"idle", "since", "idleCause": "none"\|"agent"\|"timeout", "lastActivity" }` |
 | POST | `/run/stop` | Explicit stop: sets **desired host state Stopped**; watch reports **stopped** (not paused). Ship-check/rebuild/tests must not auto-resume |
+| POST | `/run/cancel` | Signal cancel of the current exclusive `/run/rebuild|tests|ship-check` for the project (optional `operationId`). Does **not** stop the run host |
 | POST | `/run/rebuild` | Mark idle → pause watch (exit run host) → build → resume watch **only if desired state is Running** |
 | POST | `/run/tests` | Mark idle → run tests (`filter` optional) — no full ship-check |
 | POST | `/run/ship-check` | Pause watch → build → test (if any) → resume **only if desired state is Running** |
@@ -265,7 +266,7 @@ Omit `filter` to run the full configured test project/solution.
 | Desired | Today | Workaround |
 |---------|-------|------------|
 | Disable file watcher entirely | Not available | `busy` holds builds; changes may still queue |
-| Cancel in-flight build/test | Not available | Wait for 409 conflict to clear; avoid overlapping `/run/*` |
+| Cancel in-flight build/test/ship-check | `POST /run/cancel` | Optional `operationId` from `/projects.activities`; original `/run/*` returns `outcome:"cancelled"` |
 | Stream live build log over HTTP | Not available | Read `log` path from ship-check/rebuild/tests JSON response |
 | Build without pausing watch (explicit) | No `/run/build` | Use `idle` + debounced auto-build |
 | Guaranteed fresh build + filtered tests in one call | Not combined | `/run/ship-check` (full suite) or `/run/rebuild` then `/run/tests` |
@@ -296,7 +297,40 @@ HTTP status is **request disposition**. Terminal **operation classification** is
 | Layer | How | Examples |
 |-------|-----|----------|
 | Disposition | HTTP status | **200** accepted + terminal body; **409** busy (op did not start); **400** invalid; **404** unknown project; **500** host failure |
-| Outcome | JSON `outcome` on **200** only | `succeeded`, `buildFailed`, `testsFailed`, `noTests`, `executionFailed` |
+| Outcome | JSON `outcome` on **200** only | `succeeded`, `buildFailed`, `testsFailed`, `noTests`, `executionFailed`, `cancelled` |
+
+### Cancel vs stop
+
+| Endpoint | Controls |
+|----------|----------|
+| `POST /run/cancel` | Active exclusive control-plane **rebuild / tests / ship-check** (lease-owned). Signal returns immediately (`cancelRequested`); the original long-lived `/run/*` completes with `outcome:"cancelled"` when cancel owns termination. **`ok:true` on cancel = signal accepted**, not operation success. |
+| `POST /run/stop` | Supervised **run/watch host** desired state → Stopped. Does not cancel an in-flight rebuild/tests/ship-check. |
+
+Client HTTP disconnect does **not** cancel an in-flight `/run/*` operation. Intentional cancel is not a health failure (not Red / failure-details solely from cancel).
+
+Optional body: `{ "projectId", "operationId?" }`. Omit `operationId` to target the single current lease; supply it to require an exact match (**409** on mismatch or when nothing is cancellable).
+
+#### Failure vs cancel precedence
+
+A late `/run/cancel` after a phase process has **already completed normally** must not overwrite that phase’s real outcome.
+
+| Situation | Outcome |
+|-----------|---------|
+| Lease cancel **and** the build/test process ended due to the lease token (`endedByTokenCancel`) | `cancelled` |
+| Build/test completed with failure, then `CancelRequested` flips before classification | `buildFailed` / `testsFailed` |
+| Build/test completed successfully, then late cancel | keep `succeeded` (or ship-check continue) |
+| Ship-check: successful build finished, cancel before tests start | tests never start → `cancelled` |
+
+In-phase classification uses token-owned termination evidence, not `CancelRequested` alone. Between ship-check phases, `CancelRequested` may still skip the next phase.
+
+#### Lease retirement
+
+Terminal `/run/*` finalization uses two ownership boundaries:
+
+1. **Retire cancellability** — clear `activeControlPlaneLease` under sync (exclusive in-progress flag stays `1`). `/run/cancel` → **409**; a new `/run/*` → **409**/busy. Allowed intermediate state: `lease == null` with exclusivity still held.
+2. **Release exclusivity** — only after resume/history/completion cleanup: clear the in-progress flag, dispose the retired lease, notify. Then a new operation may acquire.
+
+Never leave `exclusive flag == 0` with an old lease still installed, and never install a new lease while the previous operation’s `finally` is still mutating project state. Duplicate cancel while the same lease is still active remains **200** with `alreadyRequested: true`.
 
 **Invariant:** `ok == true` if and only if `outcome == "succeeded"`. HTTP **200** can still mean `ok: false` (operation ran and failed).
 

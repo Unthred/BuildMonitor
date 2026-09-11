@@ -43,6 +43,19 @@ public static class ProjectActivityBuilder
 
         if (controlPlane.AgentTestsInProgress)
         {
+            if (controlPlane.OperationCancelRequested)
+            {
+                activities.Add(Create(
+                    snapshot.ProjectId,
+                    ActivitySourceKind.Agent,
+                    ActivityPhaseKind.Cancelling,
+                    "Cancelling tests…",
+                    utcNow,
+                    isActive: true,
+                    operationId: controlPlane.ActiveOperationId));
+                return;
+            }
+
             var testing = ResolveTestingPresentation(snapshot);
             activities.Add(Create(
                 snapshot.ProjectId,
@@ -52,13 +65,27 @@ public static class ProjectActivityBuilder
                 utcNow,
                 isActive: true,
                 startedAtUtc: testing.StartedAtUtc,
-                progress: testing.Progress));
+                progress: testing.Progress,
+                operationId: controlPlane.ActiveOperationId));
             return;
         }
 
         if (controlPlane.AgentRebuildInProgress
             || controlPlane.AgentRebuildPhase != ControlPlaneShipCheckPhase.None)
         {
+            if (controlPlane.OperationCancelRequested)
+            {
+                activities.Add(Create(
+                    snapshot.ProjectId,
+                    ActivitySourceKind.Agent,
+                    ActivityPhaseKind.Cancelling,
+                    "Cancelling rebuild…",
+                    utcNow,
+                    isActive: true,
+                    operationId: controlPlane.ActiveOperationId));
+                return;
+            }
+
             var (phase, text) = controlPlane.AgentRebuildPhase switch
             {
                 ControlPlaneShipCheckPhase.Preparing => (ActivityPhaseKind.AgentRebuild, "Rebuild — preparing"),
@@ -66,13 +93,33 @@ public static class ProjectActivityBuilder
                 ControlPlaneShipCheckPhase.ResumingWatch => (ActivityPhaseKind.AgentRebuild, "Rebuild — resuming watch"),
                 _ => (ActivityPhaseKind.AgentRebuild, "Rebuild — running")
             };
-            activities.Add(Create(snapshot.ProjectId, ActivitySourceKind.Agent, phase, text, utcNow, isActive: true));
+            activities.Add(Create(
+                snapshot.ProjectId,
+                ActivitySourceKind.Agent,
+                phase,
+                text,
+                utcNow,
+                isActive: true,
+                operationId: controlPlane.ActiveOperationId));
             return;
         }
 
         if (controlPlane.ShipCheckPhase != ControlPlaneShipCheckPhase.None
             || controlPlane.ShipCheckInProgress)
         {
+            if (controlPlane.OperationCancelRequested)
+            {
+                activities.Add(Create(
+                    snapshot.ProjectId,
+                    ActivitySourceKind.Agent,
+                    ActivityPhaseKind.Cancelling,
+                    "Cancelling ship check…",
+                    utcNow,
+                    isActive: true,
+                    operationId: controlPlane.ActiveOperationId));
+                return;
+            }
+
             var (phase, text) = controlPlane.ShipCheckPhase switch
             {
                 ControlPlaneShipCheckPhase.Preparing => (ActivityPhaseKind.ShipCheck, "Ship check — preparing"),
@@ -83,7 +130,14 @@ public static class ProjectActivityBuilder
                 ControlPlaneShipCheckPhase.ResumingWatch => (ActivityPhaseKind.ShipCheck, "Ship check — resuming watch"),
                 _ => (ActivityPhaseKind.ShipCheck, "Ship check — running")
             };
-            activities.Add(Create(snapshot.ProjectId, ActivitySourceKind.Agent, phase, text, utcNow, isActive: true));
+            activities.Add(Create(
+                snapshot.ProjectId,
+                ActivitySourceKind.Agent,
+                phase,
+                text,
+                utcNow,
+                isActive: true,
+                operationId: controlPlane.ActiveOperationId));
             return;
         }
 

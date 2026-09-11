@@ -75,7 +75,7 @@ Live counters flow: `OnTestOutputLine` → `DotNetTestLiveProgressTracker` → `
 | Failure | Timeline failure keeps run-level Azure activity/health; does not invent stage state |
 | `/projects` | Enriched `summary` / `detail` / `progress` on the existing Azure activity — **no** new wire fields |
 
-Status panel stays compact (stage, optional job, optional `Stage N of M · elapsed`). Tray icon remains coarse.
+During cancellation, Agent activity may show `Cancelling rebuild…` / `Cancelling tests…` / `Cancelling ship check…` (`ActivityPhaseKind.Cancelling`) with the lease-owned `operationId` for `POST /run/cancel`.
 
 ## Non-goals
 

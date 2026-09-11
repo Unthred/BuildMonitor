@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using BuildMonitor.Core.Models;
 using BuildMonitor.Infrastructure.ControlPlane;
 
@@ -408,6 +409,72 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.False(actions.QuitRequested);
     }
 
+    [Fact]
+    public async Task Post_run_cancel_returns_cancelRequested_body()
+    {
+        var actions = new FakeActions { Exists = true };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc","operationId":"op1"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/cancel"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("op1", actions.LastCancelOperationId);
+        var json = JsonSerializer.Serialize(response.Body);
+        Assert.Contains("cancelRequested", json, StringComparison.Ordinal);
+        Assert.Contains("\"tests\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"outcome\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_run_cancel_mismatch_returns_409()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            CancelException = new InvalidOperationException(
+                "operationId does not match the current control-plane operation.")
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc","operationId":"stale"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/cancel"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(409, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_run_cancel_when_nothing_active_returns_409()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            CancelException = new InvalidOperationException(
+                "No cancellable control-plane operation is active for this project.")
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/cancel"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(409, response.StatusCode);
+        var json = JsonSerializer.Serialize(response.Body);
+        Assert.Contains("cancelRequested", json, StringComparison.Ordinal);
+        Assert.Contains("false", json, StringComparison.Ordinal);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
@@ -524,6 +591,29 @@ public sealed class ControlPlaneHttpRouterTests
                 WasRunning: true,
                 ExitCode: 0,
                 new ControlPlaneWatchStatus(ControlPlaneWatchState.Paused, null)));
+        }
+
+        public ControlPlaneCancelResult? CancelResult { get; set; }
+        public Exception? CancelException { get; set; }
+        public string? LastCancelOperationId { get; private set; }
+
+        public Task<ControlPlaneCancelResult> CancelAsync(
+            ControlPlaneCancelRequest request,
+            CancellationToken cancellationToken)
+        {
+            LastCancelOperationId = request.OperationId;
+            if (CancelException is not null)
+            {
+                throw CancelException;
+            }
+
+            return Task.FromResult(CancelResult ?? new ControlPlaneCancelResult(
+                true,
+                "Demo.csproj",
+                "op1",
+                ControlPlaneOperationKind.Tests,
+                CancelRequested: true,
+                AlreadyRequested: false));
         }
 
         public Task<ControlPlaneRunTestsResult> RunTestsAsync(

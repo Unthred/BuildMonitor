@@ -62,6 +62,9 @@ public static class ControlPlaneOperationOutcomeMapper
         return FromTests(testEvidence);
     }
 
+    public static ControlPlaneOperationOutcome Cancelled() =>
+        ControlPlaneOperationOutcome.Cancelled;
+
     public static bool IsOkConsistent(bool ok, ControlPlaneOperationOutcome outcome) =>
         ok == (outcome == ControlPlaneOperationOutcome.Succeeded);
 }

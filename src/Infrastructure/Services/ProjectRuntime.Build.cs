@@ -159,7 +159,8 @@ internal sealed partial class ProjectRuntime
 
             if (result.WasCancelled)
             {
-                await HandleCancelledBuildAsync(buildReason, result, buildBanner, cancellationToken);
+                await DispatchCancelledBuildAsync(buildReason, result, buildBanner, cancellationToken)
+                    .ConfigureAwait(false);
                 return;
             }
 
@@ -185,7 +186,8 @@ internal sealed partial class ProjectRuntime
                 result = await RunBuildAttemptAsync(args, buildToken, retryBanner);
                 if (result.WasCancelled)
                 {
-                    await HandleCancelledBuildAsync(buildReason, result, retryBanner, cancellationToken);
+                    await DispatchCancelledBuildAsync(buildReason, result, retryBanner, cancellationToken)
+                        .ConfigureAwait(false);
                     return;
                 }
             }
@@ -219,7 +221,8 @@ internal sealed partial class ProjectRuntime
                     result = await RunBuildAttemptAsync(args, buildToken, repairBanner);
                     if (result.WasCancelled)
                     {
-                        await HandleCancelledBuildAsync(buildReason, result, repairBanner, cancellationToken);
+                        await DispatchCancelledBuildAsync(buildReason, result, repairBanner, cancellationToken)
+                            .ConfigureAwait(false);
                         return;
                     }
                 }
@@ -399,6 +402,96 @@ internal sealed partial class ProjectRuntime
                 _ = WaitForEditQuietThenBuildAsync(nextReason);
             }
         }
+    }
+
+    private Task DispatchCancelledBuildAsync(
+        string buildReason,
+        CliRunResult result,
+        string? buildBanner,
+        CancellationToken cancellationToken)
+    {
+        if (activeControlPlaneLease?.CancelRequested == true)
+        {
+            return HandleAgentCancelledBuildAsync(buildReason, result, cancellationToken);
+        }
+
+        if (activeControlPlaneLease is not null)
+        {
+            return HandleAgentAbortBuildAsync(buildReason, result, cancellationToken);
+        }
+
+        return HandleCancelledBuildAsync(buildReason, result, buildBanner, cancellationToken);
+    }
+
+    /// <summary>
+    /// Explicit <c>/run/cancel</c> during an agent control-plane build — not edit-gating supersession.
+    /// </summary>
+    private async Task HandleAgentCancelledBuildAsync(
+        string buildReason,
+        CliRunResult result,
+        CancellationToken cancellationToken)
+    {
+        lastBuildExitCode = result.ExitCode;
+        lastExitCode = result.ExitCode;
+        lastDuration = result.Duration;
+        agentBuildEndedByTokenCancel = true;
+
+        var cancelBanner = "[BuildMonitor] Build cancelled — control-plane operation cancelled.";
+        var logText = result.Output;
+        if (!string.IsNullOrWhiteSpace(logText) && !logText.EndsWith('\n'))
+        {
+            logText += Environment.NewLine;
+        }
+
+        logText += cancelBanner;
+
+        await logStore.SaveAsync(
+            projectSettings.Id,
+            BuildLogKind.Build,
+            result.CommandLine,
+            result.ExitCode,
+            DateTimeOffset.UtcNow - result.Duration,
+            logText,
+            CancellationToken.None);
+
+        // Terminal Cancelled history is recorded once by the control-plane operation finally.
+
+        progressSteps = [];
+        buildProgressTracker = null;
+        SetState(ProjectLifecycleState.Idle);
+        SetProjectCurrentAction("Cancelled");
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
+    }
+
+    /// <summary>
+    /// Agent build aborted by host/app token without lease CancelRequested — not agent cancelled.
+    /// </summary>
+    private async Task HandleAgentAbortBuildAsync(
+        string buildReason,
+        CliRunResult result,
+        CancellationToken cancellationToken)
+    {
+        lastBuildExitCode = result.ExitCode;
+        lastExitCode = result.ExitCode;
+        lastDuration = result.Duration;
+        agentBuildEndedByTokenCancel = true;
+
+        await logStore.SaveAsync(
+            projectSettings.Id,
+            BuildLogKind.Build,
+            result.CommandLine,
+            result.ExitCode,
+            DateTimeOffset.UtcNow - result.Duration,
+            result.Output,
+            CancellationToken.None);
+
+        progressSteps = [];
+        buildProgressTracker = null;
+        SetState(ProjectLifecycleState.Idle);
+        SetProjectCurrentAction("Build aborted");
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
     }
 
     private async Task HandleCancelledBuildAsync(

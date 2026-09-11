@@ -25,6 +25,10 @@ internal sealed partial class ProjectRuntime
     private DateTimeOffset? lastAgentRebuildCompletedUtc;
     private DateTimeOffset? lastAgentTestsCompletedUtc;
     private ControlPlaneSessionState? lastPublishedSessionState;
+    private ControlPlaneOperationLease? activeControlPlaneLease;
+    private bool agentBuildEndedByTokenCancel;
+    private bool agentTestEndedByTokenCancel;
+    private readonly object controlPlaneOperationSync = new();
 
     public void NotifyControlPlaneChanged(bool immediate = true)
     {
@@ -45,6 +49,7 @@ internal sealed partial class ProjectRuntime
             effectiveState);
         var inShipCheck = Volatile.Read(ref shipCheckInProgress) != 0;
         var inRebuild = Volatile.Read(ref agentRebuildInProgress) != 0;
+        var lease = activeControlPlaneLease;
 
         return new ProjectControlPlaneSnapshot(
             SessionApiUsed: sessionApiUsed,
@@ -70,7 +75,10 @@ internal sealed partial class ProjectRuntime
             LastAgentTestsOutcome: lastAgentTestsOutcome,
             LastAgentTestsCompletedUtc: lastAgentTestsCompletedUtc,
             BuildControlMode: Local.BuildControlMode,
-            AutoBuildEnabled: autoBuildEnabled);
+            AutoBuildEnabled: autoBuildEnabled,
+            ActiveOperationId: lease?.OperationId,
+            ActiveOperationKind: lease?.Kind,
+            OperationCancelRequested: lease?.CancelRequested == true);
     }
 
     internal void RefreshControlPlaneHealthIfNeeded()
@@ -151,22 +159,14 @@ internal sealed partial class ProjectRuntime
         string? configuration,
         CancellationToken cancellationToken)
     {
-        EnsureNoOtherControlPlaneRun(
-            Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress),
-            Volatile.Read(ref agentTestsInProgress));
-
-        if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
-        {
-            throw new InvalidOperationException("Rebuild already running for this project.");
-        }
-
+        var lease = TryAcquireControlPlaneLease(ControlPlaneOperationKind.Rebuild);
         var shouldResume = RunHostLifecyclePolicy.ShouldResumeHostAfterOperation(
             desiredRunHostState,
             Local.RunOptions.RunMode);
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         ControlPlaneRebuildResult? result = null;
         string? historyOpId = null;
+        agentBuildEndedByTokenCancel = false;
 
         try
         {
@@ -178,12 +178,19 @@ internal sealed partial class ProjectRuntime
                 await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledRebuildResult(Local.ProjectFile);
+                return result;
+            }
+
             // Begin correlation only after any prior build has finished so we do not steal its OperationId.
             if (!TryBeginHistoryOperation(
                     OperationalEventSource.Agent,
                     "rebuild",
                     "Rebuild requested",
-                    out var begunOp))
+                    out var begunOp,
+                    preferredOperationId: lease.OperationId))
             {
                 throw new InvalidOperationException(
                     "Another operational history operation is already active for this project.");
@@ -193,9 +200,35 @@ internal sealed partial class ProjectRuntime
 
             await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
 
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledRebuildResult(Local.ProjectFile);
+                return result;
+            }
+
             SetAgentRebuildPhase(ControlPlaneShipCheckPhase.Building);
             PrepareBuild("agent rebuild");
-            await BuildAsync(cancellationToken).ConfigureAwait(false);
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                       lease.Token,
+                       cancellationToken))
+            {
+                await BuildAsync(linked.Token).ConfigureAwait(false);
+            }
+
+            // Late CancelRequested after a normal process exit must not overwrite success/failure.
+            if (ControlPlaneCancelClassification.TryClassifyCancelledBuild(
+                    lease.CancelRequested,
+                    agentBuildEndedByTokenCancel) is not null)
+            {
+                result = CreateCancelledRebuildResult(Local.ProjectFile);
+                return result;
+            }
+
+            if (agentBuildEndedByTokenCancel)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             var buildOk = lastBuildExitCode == 0;
             var projectLabel = Local.ProjectFile;
@@ -222,9 +255,19 @@ internal sealed partial class ProjectRuntime
                 Outcome: ControlPlaneOperationOutcomeMapper.FromRebuild(buildOk));
             return result;
         }
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentBuildEndedByTokenCancel || result is null))
+        {
+            result = CreateCancelledRebuildResult(Local.ProjectFile);
+            return result;
+        }
         finally
         {
             shipCheckConfiguration = null;
+
+            // Step 1: terminal — no longer cancellable; keep exclusivity through finalization.
+            RetireControlPlaneCancellationTarget(lease);
 
             if (shouldResume)
             {
@@ -236,10 +279,230 @@ internal sealed partial class ProjectRuntime
                 watchPausedByControlPlane = false;
             }
 
-            Interlocked.Exchange(ref agentRebuildInProgress, 0);
-            CompleteAgentRebuild(result?.Ok == true);
+            CompleteAgentRebuildForOutcome(result?.Outcome);
+            if (historyOpId is not null && result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
+            {
+                history.RecordExplicit(
+                    OperationalEventSource.Agent,
+                    "rebuild",
+                    "Rebuild cancelled",
+                    OperationalEventOutcome.Cancelled);
+            }
+
             EndHistoryOperation(historyOpId);
+
+            // Step 3: fully finalized — release exclusivity so a new /run/* may start.
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.Rebuild);
         }
+    }
+
+    public ControlPlaneCancelResult RequestCancelControlPlaneOperation(string? operationId)
+    {
+        ControlPlaneOperationLease lease;
+        lock (controlPlaneOperationSync)
+        {
+            lease = activeControlPlaneLease
+                    ?? throw new InvalidOperationException(
+                        "No cancellable control-plane operation is active for this project.");
+
+            if (!string.IsNullOrWhiteSpace(operationId)
+                && !string.Equals(operationId.Trim(), lease.OperationId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "operationId does not match the current control-plane operation.");
+            }
+
+            var already = lease.RequestCancel();
+            // Also cancel in-flight edit-gating-linked build CTS when this lease owns the build.
+            RequestBuildCancellation();
+            NotifyControlPlaneChanged(immediate: true);
+            return new ControlPlaneCancelResult(
+                Ok: true,
+                Project: Local.ProjectFile,
+                OperationId: lease.OperationId,
+                OperationKind: lease.Kind,
+                CancelRequested: true,
+                AlreadyRequested: already);
+        }
+    }
+
+    private ControlPlaneOperationLease TryAcquireControlPlaneLease(ControlPlaneOperationKind kind)
+    {
+        lock (controlPlaneOperationSync)
+        {
+            if (activeControlPlaneLease is not null)
+            {
+                throw new InvalidOperationException(
+                    "A control-plane operation lease is still active for this project.");
+            }
+
+            EnsureNoOtherControlPlaneRun(
+                Volatile.Read(ref shipCheckInProgress),
+                Volatile.Read(ref agentRebuildInProgress),
+                Volatile.Read(ref agentTestsInProgress));
+
+            switch (kind)
+            {
+                case ControlPlaneOperationKind.Rebuild:
+                    if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Rebuild already running for this project.");
+                    }
+
+                    break;
+                case ControlPlaneOperationKind.Tests:
+                    if (Volatile.Read(ref buildInProgress) != 0)
+                    {
+                        throw new InvalidOperationException("Build already running for this project.");
+                    }
+
+                    if (Interlocked.CompareExchange(ref agentTestsInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Tests already running for this project.");
+                    }
+
+                    break;
+                case ControlPlaneOperationKind.ShipCheck:
+                    if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Ship-check already running for this project.");
+                    }
+
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+            }
+
+            var lease = new ControlPlaneOperationLease(kind);
+            activeControlPlaneLease = lease;
+            NotifyControlPlaneChanged(immediate: true);
+            return lease;
+        }
+    }
+
+    /// <summary>
+    /// Step 1 of terminal finalization: clear the cancel target so <c>/run/cancel</c> returns 409,
+    /// while keeping the exclusive in-progress flag so a new <c>/run/*</c> cannot start yet.
+    /// Allowed intermediate state: <c>lease == null</c> and exclusive flag still <c>1</c>.
+    /// </summary>
+    private void RetireControlPlaneCancellationTarget(ControlPlaneOperationLease? lease)
+    {
+        lock (controlPlaneOperationSync)
+        {
+            if (lease is not null && ReferenceEquals(activeControlPlaneLease, lease))
+            {
+                activeControlPlaneLease = null;
+            }
+        }
+
+        NotifyControlPlaneChanged(immediate: true);
+    }
+
+    /// <summary>
+    /// Step 3 of terminal finalization: after resume/history/completion work, clear exclusivity
+    /// and dispose the retired lease so a new operation may acquire.
+    /// </summary>
+    private void ReleaseControlPlaneOperationExclusivity(
+        ControlPlaneOperationLease? lease,
+        ControlPlaneOperationKind kind)
+    {
+        lock (controlPlaneOperationSync)
+        {
+            // Never leave an old lease installed once exclusivity is released.
+            if (lease is not null && ReferenceEquals(activeControlPlaneLease, lease))
+            {
+                activeControlPlaneLease = null;
+            }
+
+            switch (kind)
+            {
+                case ControlPlaneOperationKind.Rebuild:
+                    Interlocked.Exchange(ref agentRebuildInProgress, 0);
+                    break;
+                case ControlPlaneOperationKind.Tests:
+                    Interlocked.Exchange(ref agentTestsInProgress, 0);
+                    break;
+                case ControlPlaneOperationKind.ShipCheck:
+                    Interlocked.Exchange(ref shipCheckInProgress, 0);
+                    break;
+            }
+        }
+
+        lease?.Dispose();
+        NotifyControlPlaneChanged(immediate: true);
+    }
+
+    private static ControlPlaneRebuildResult CreateCancelledRebuildResult(string projectLabel) =>
+        new(
+            Ok: false,
+            Project: projectLabel,
+            Build: "cancelled",
+            ExitCode: -1,
+            Failures: [],
+            Log: null,
+            Outcome: ControlPlaneOperationOutcomeMapper.Cancelled());
+
+    private static ControlPlaneRunTestsResult CreateCancelledTestsResult(string projectLabel, string? log) =>
+        new(
+            Ok: false,
+            Project: projectLabel,
+            Tests: null,
+            Failures: [],
+            Log: log,
+            Outcome: ControlPlaneOperationOutcomeMapper.Cancelled());
+
+    private static ControlPlaneShipCheckResult CreateCancelledShipCheckResult(
+        string projectLabel,
+        string build,
+        string? log) =>
+        new(
+            Ok: false,
+            Project: projectLabel,
+            Build: build,
+            Tests: null,
+            Failures: [],
+            Log: log,
+            Outcome: ControlPlaneOperationOutcomeMapper.Cancelled());
+
+    private void CompleteAgentRebuildForOutcome(ControlPlaneOperationOutcome? outcome)
+    {
+        if (outcome == ControlPlaneOperationOutcome.Cancelled)
+        {
+            lastAgentRebuildOutcome = ControlPlaneShipCheckOutcome.None;
+            lastAgentRebuildCompletedUtc = null;
+            agentRebuildPhase = ControlPlaneShipCheckPhase.None;
+            NotifyControlPlaneChanged(immediate: true);
+            return;
+        }
+
+        CompleteAgentRebuild(outcome == ControlPlaneOperationOutcome.Succeeded);
+    }
+
+    private void CompleteAgentTestsForOutcome(ControlPlaneOperationOutcome? outcome)
+    {
+        if (outcome == ControlPlaneOperationOutcome.Cancelled)
+        {
+            lastAgentTestsOutcome = ControlPlaneShipCheckOutcome.None;
+            lastAgentTestsCompletedUtc = null;
+            NotifyControlPlaneChanged(immediate: true);
+            return;
+        }
+
+        CompleteAgentTests(outcome == ControlPlaneOperationOutcome.Succeeded);
+    }
+
+    private void CompleteShipCheckForOutcome(ControlPlaneOperationOutcome? outcome)
+    {
+        if (outcome == ControlPlaneOperationOutcome.Cancelled)
+        {
+            lastShipCheckOutcome = ControlPlaneShipCheckOutcome.None;
+            lastShipCheckCompletedUtc = null;
+            shipCheckPhase = ControlPlaneShipCheckPhase.None;
+            NotifyControlPlaneChanged(immediate: true);
+            return;
+        }
+
+        CompleteShipCheck(outcome == ControlPlaneOperationOutcome.Succeeded);
     }
 
     public void SetSessionStore(ControlPlaneSessionStore store) => sessionStore = store;
@@ -340,16 +603,7 @@ internal sealed partial class ProjectRuntime
         string? filter,
         CancellationToken cancellationToken)
     {
-        EnsureNoOtherControlPlaneRun(
-            Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress),
-            Volatile.Read(ref agentTestsInProgress));
-
-        if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
-        {
-            throw new InvalidOperationException("Ship-check already running for this project.");
-        }
-
+        var lease = TryAcquireControlPlaneLease(ControlPlaneOperationKind.ShipCheck);
         var shouldResume = RunHostLifecyclePolicy.ShouldResumeHostAfterOperation(
             desiredRunHostState,
             Local.RunOptions.RunMode);
@@ -357,6 +611,8 @@ internal sealed partial class ProjectRuntime
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         ControlPlaneShipCheckResult? result = null;
         string? historyOpId = null;
+        agentBuildEndedByTokenCancel = false;
+        agentTestEndedByTokenCancel = false;
 
         try
         {
@@ -368,11 +624,18 @@ internal sealed partial class ProjectRuntime
                 await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledShipCheckResult(Local.ProjectFile, "cancelled", null);
+                return result;
+            }
+
             if (!TryBeginHistoryOperation(
                     OperationalEventSource.Agent,
                     "ship-check",
                     "Ship-check requested",
-                    out var begunOp))
+                    out var begunOp,
+                    preferredOperationId: lease.OperationId))
             {
                 throw new InvalidOperationException(
                     "Another operational history operation is already active for this project.");
@@ -382,9 +645,37 @@ internal sealed partial class ProjectRuntime
 
             await PauseWatchAsync(cancellationToken).ConfigureAwait(false);
 
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledShipCheckResult(Local.ProjectFile, "cancelled", null);
+                return result;
+            }
+
             SetShipCheckPhase(ControlPlaneShipCheckPhase.Building);
             PrepareBuild("ship-check");
-            await BuildAsync(cancellationToken).ConfigureAwait(false);
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                       lease.Token,
+                       cancellationToken))
+            {
+                await BuildAsync(linked.Token).ConfigureAwait(false);
+            }
+
+            if (ControlPlaneCancelClassification.TryClassifyCancelledBuild(
+                    lease.CancelRequested,
+                    agentBuildEndedByTokenCancel) is not null)
+            {
+                result = CreateCancelledShipCheckResult(
+                    Local.ProjectFile,
+                    "cancelled",
+                    logStore.GetLogPath(projectSettings.Id, BuildLogKind.Build));
+                return result;
+            }
+
+            if (agentBuildEndedByTokenCancel)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             var buildOk = lastBuildExitCode == 0;
             var projectLabel = Local.ProjectFile;
@@ -409,6 +700,13 @@ internal sealed partial class ProjectRuntime
                 return result;
             }
 
+            // Between phases: cancel may skip tests without token-owned build termination.
+            if (ControlPlaneCancelClassification.ShouldSkipNextPhaseDueToCancel(lease.CancelRequested))
+            {
+                result = CreateCancelledShipCheckResult(projectLabel, "pass", buildLogPath);
+                return result;
+            }
+
             var resolution = TestProjectDiscovery.Resolve(
                 Local.RootFolder,
                 Local.ProjectFile,
@@ -430,9 +728,37 @@ internal sealed partial class ProjectRuntime
                 return result;
             }
 
+            if (ControlPlaneCancelClassification.ShouldSkipNextPhaseDueToCancel(lease.CancelRequested))
+            {
+                result = CreateCancelledShipCheckResult(projectLabel, "pass", buildLogPath);
+                return result;
+            }
+
             SetShipCheckPhase(ControlPlaneShipCheckPhase.Testing);
             PrepareTest("ship-check");
-            await TestAsync(cancellationToken).ConfigureAwait(false);
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                       lease.Token,
+                       cancellationToken))
+            {
+                await TestAsync(linked.Token).ConfigureAwait(false);
+            }
+
+            if (ControlPlaneCancelClassification.TryClassifyCancelledTests(
+                    lease.CancelRequested,
+                    agentTestEndedByTokenCancel) is not null)
+            {
+                result = CreateCancelledShipCheckResult(
+                    projectLabel,
+                    "pass",
+                    logStore.GetLogPath(projectSettings.Id, BuildLogKind.Test));
+                return result;
+            }
+
+            if (agentTestEndedByTokenCancel)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             var meta = await logStore.LoadMetadataAsync(projectSettings.Id, BuildLogKind.Test, cancellationToken)
                 .ConfigureAwait(false);
@@ -467,10 +793,19 @@ internal sealed partial class ProjectRuntime
                     testEvidence: evidence));
             return result;
         }
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentBuildEndedByTokenCancel || agentTestEndedByTokenCancel || result is null))
+        {
+            result = CreateCancelledShipCheckResult(Local.ProjectFile, "cancelled", null);
+            return result;
+        }
         finally
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
+
+            RetireControlPlaneCancellationTarget(lease);
 
             if (shouldResume)
             {
@@ -482,20 +817,31 @@ internal sealed partial class ProjectRuntime
                 watchPausedByControlPlane = false;
             }
 
-            Interlocked.Exchange(ref shipCheckInProgress, 0);
-            CompleteShipCheck(result?.Ok == true);
+            CompleteShipCheckForOutcome(result?.Outcome);
             if (historyOpId is not null)
             {
-                history.RecordExplicit(
-                    OperationalEventSource.Agent,
-                    "ship-check",
-                    result?.Ok == true ? "Ship-check completed" : "Ship-check completed with failure",
-                    result?.Ok == true
-                        ? OperationalEventOutcome.Succeeded
-                        : OperationalEventOutcome.Failed);
+                if (result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
+                {
+                    history.RecordExplicit(
+                        OperationalEventSource.Agent,
+                        "ship-check",
+                        "Ship-check cancelled",
+                        OperationalEventOutcome.Cancelled);
+                }
+                else
+                {
+                    history.RecordExplicit(
+                        OperationalEventSource.Agent,
+                        "ship-check",
+                        result?.Ok == true ? "Ship-check completed" : "Ship-check completed with failure",
+                        result?.Ok == true
+                            ? OperationalEventOutcome.Succeeded
+                            : OperationalEventOutcome.Failed);
+                }
             }
 
             EndHistoryOperation(historyOpId);
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.ShipCheck);
         }
     }
 
@@ -513,33 +859,27 @@ internal sealed partial class ProjectRuntime
         string? filter,
         CancellationToken cancellationToken)
     {
-        EnsureNoOtherControlPlaneRun(
-            Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress),
-            Volatile.Read(ref agentTestsInProgress));
-
-        if (Volatile.Read(ref buildInProgress) != 0)
-        {
-            throw new InvalidOperationException("Build already running for this project.");
-        }
-
-        if (Interlocked.CompareExchange(ref agentTestsInProgress, 1, 0) != 0)
-        {
-            throw new InvalidOperationException("Tests already running for this project.");
-        }
-
+        var lease = TryAcquireControlPlaneLease(ControlPlaneOperationKind.Tests);
         shipCheckConfiguration = string.IsNullOrWhiteSpace(configuration) ? null : configuration.Trim();
         shipCheckFilter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         ControlPlaneRunTestsResult? result = null;
         string? historyOpId = null;
+        agentTestEndedByTokenCancel = false;
 
         try
         {
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledTestsResult(Local.ProjectFile, null);
+                return result;
+            }
+
             if (!TryBeginHistoryOperation(
                     OperationalEventSource.Agent,
                     "tests",
                     "Tests requested",
-                    out var begunOp))
+                    out var begunOp,
+                    preferredOperationId: lease.OperationId))
             {
                 throw new InvalidOperationException(
                     "Another operational history operation is already active for this project.");
@@ -555,8 +895,35 @@ internal sealed partial class ProjectRuntime
                 Local.TestProjectFile);
             var noTargetsConfigured = resolution.Targets.Count == 0;
 
+            if (lease.CancelRequested)
+            {
+                result = CreateCancelledTestsResult(Local.ProjectFile, null);
+                return result;
+            }
+
             PrepareTest("agent tests");
-            await TestAsync(cancellationToken).ConfigureAwait(false);
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                       lease.Token,
+                       cancellationToken))
+            {
+                await TestAsync(linked.Token).ConfigureAwait(false);
+            }
+
+            if (ControlPlaneCancelClassification.TryClassifyCancelledTests(
+                    lease.CancelRequested,
+                    agentTestEndedByTokenCancel) is not null)
+            {
+                result = CreateCancelledTestsResult(
+                    Local.ProjectFile,
+                    logStore.GetLogPath(projectSettings.Id, BuildLogKind.Test));
+                return result;
+            }
+
+            if (agentTestEndedByTokenCancel)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             var projectLabel = Local.ProjectFile;
             var testLogPath = logStore.GetLogPath(projectSettings.Id, BuildLogKind.Test);
@@ -589,13 +956,30 @@ internal sealed partial class ProjectRuntime
                 Outcome: ControlPlaneOperationOutcomeMapper.FromTests(evidence));
             return result;
         }
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentTestEndedByTokenCancel || result is null))
+        {
+            result = CreateCancelledTestsResult(Local.ProjectFile, null);
+            return result;
+        }
         finally
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
-            Interlocked.Exchange(ref agentTestsInProgress, 0);
-            CompleteAgentTests(result?.Ok == true);
+            RetireControlPlaneCancellationTarget(lease);
+            CompleteAgentTestsForOutcome(result?.Outcome);
+            if (historyOpId is not null && result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
+            {
+                history.RecordExplicit(
+                    OperationalEventSource.Agent,
+                    "tests",
+                    "Tests cancelled",
+                    OperationalEventOutcome.Cancelled);
+            }
+
             EndHistoryOperation(historyOpId);
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.Tests);
         }
     }
 
