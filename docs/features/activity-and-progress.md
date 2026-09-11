@@ -71,7 +71,7 @@ Live counters flow: `OnTestOutputLine` → `DotNetTestLiveProgressTracker` → `
 | Projection | `AzureRunExecutionProjector` over `AzureRunExecutionDetail` on `ProjectAzureHealthFacet` |
 | One activity | Still **one** #112 Azure activity — not one per job |
 | Concurrency | Multiple active stages/jobs → compact truthful summary (`2 stages running` / `3 jobs running`); never pick the first arbitrarily |
-| Progress | Sequential stage `current`/`total` only when the stage set is complete + ordered and exactly one stage is active; **never** use `order`, `percentComplete`, elapsed time, or ETA as progress |
+| Progress | Sequential stage progress only when ordered states are a completed prefix + exactly one active stage (no later completed/in-progress; no duplicate orders); `current` = 1-based position in that ordered list — **never** raw `order`, `completedCount+1`, `percentComplete`, elapsed time, or ETA |
 | Failure | Timeline failure keeps run-level Azure activity/health; does not invent stage state |
 | `/projects` | Enriched `summary` / `detail` / `progress` on the existing Azure activity — **no** new wire fields |
 

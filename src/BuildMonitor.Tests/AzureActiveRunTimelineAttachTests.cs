@@ -94,28 +94,44 @@ public sealed class AzureActiveRunTimelineAttachTests
     }
 
     [Fact]
-    public async Task Timeline_response_for_superseded_RunId_is_discarded()
+    public async Task Timeline_response_for_superseded_RunId_is_discarded_without_clearing_newer_cache()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var delayed = new DelayedTimelineClient(gate);
-        delayed.Result = OkTimeline(Guid.NewGuid(), "Old Stage", "inProgress");
+        delayed.Result = OkTimeline(Guid.NewGuid(), "Old Stage", "inProgress", changeId: 1);
         var service = CreateService(delayed);
 
         var firstTask = service.AttachActiveRunExecutionAsync(
             "p1", ActiveFacet(100), "https://dev.azure.com/org", "proj", "pat", CancellationToken.None);
 
         await delayed.Entered.Task;
-        delayed.Result = OkTimeline(Guid.NewGuid(), "New Stage", "inProgress");
+        delayed.Result = OkTimeline(Guid.NewGuid(), "New Stage", "inProgress", changeId: 7);
         var second = await service.AttachActiveRunExecutionAsync(
             "p1", ActiveFacet(101), "https://dev.azure.com/org", "proj", "pat", CancellationToken.None);
+
+        Assert.Equal(101, second.ExecutionDetail!.RunId);
+        Assert.Contains(second.ExecutionDetail.Stages, s => s.Name == "New Stage");
 
         gate.SetResult();
         var first = await firstTask;
 
         Assert.Null(first.ExecutionDetail);
-        Assert.Equal(101, second.ExecutionDetail!.RunId);
-        Assert.Contains(second.ExecutionDetail.Stages, s => s.Name == "New Stage");
-        Assert.DoesNotContain(second.ExecutionDetail.Stages, s => s.Name == "Old Stage");
+        Assert.DoesNotContain(
+            second.ExecutionDetail.Stages,
+            s => s.Name == "Old Stage");
+
+        // If stale N had cleared the cache, this poison timeline would be projected.
+        // Same changeId must still hit the intact N+1 cache entry.
+        delayed.Result = OkTimeline(Guid.NewGuid(), "Poison Stage", "inProgress", changeId: 7);
+        var callsBeforeReuse = delayed.CallCount;
+        var reused = await service.AttachActiveRunExecutionAsync(
+            "p1", ActiveFacet(101), "https://dev.azure.com/org", "proj", "pat", CancellationToken.None);
+
+        Assert.Equal(101, reused.ExecutionDetail!.RunId);
+        Assert.Contains(reused.ExecutionDetail.Stages, s => s.Name == "New Stage");
+        Assert.DoesNotContain(reused.ExecutionDetail.Stages, s => s.Name == "Poison Stage");
+        Assert.DoesNotContain(reused.ExecutionDetail.Stages, s => s.Name == "Old Stage");
+        Assert.Equal(callsBeforeReuse + 1, delayed.CallCount);
     }
 
     [Fact]
@@ -201,11 +217,15 @@ public sealed class AzureActiveRunTimelineAttachTests
             [],
             DateTimeOffset.UtcNow);
 
-    private static AzureBuildTimelineResult OkTimeline(Guid stageId, string name, string state) =>
+    private static AzureBuildTimelineResult OkTimeline(
+        Guid stageId,
+        string name,
+        string state,
+        int changeId = 9) =>
         new(
             AzureBuildTimelineOutcome.Ok,
             [new AzureBuildTimelineRecord(stageId, null, "Stage", null, name, state, 1)],
-            ChangeId: 9);
+            ChangeId: changeId);
 
     private sealed class CountingTimelineClient : IAzureBuildTimelineClient
     {
@@ -240,6 +260,7 @@ public sealed class AzureActiveRunTimelineAttachTests
     private sealed class DelayedTimelineClient(TaskCompletionSource gate) : IAzureBuildTimelineClient
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int CallCount => Volatile.Read(ref callCount);
         public AzureBuildTimelineResult Result { get; set; } =
             new(AzureBuildTimelineOutcome.Ok, [], ChangeId: 1);
         private int callCount;

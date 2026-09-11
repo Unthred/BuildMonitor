@@ -72,7 +72,7 @@ public sealed class AzureRunExecutionProjectorTests
     }
 
     [Fact]
-    public void Sequential_stages_derive_current_from_completed_plus_active_not_order()
+    public void Sequential_stages_use_ordered_position_not_raw_order_or_completed_count()
     {
         var timeline = Timeline(
             Stage(Guid.NewGuid(), "Build", "completed", order: 10),
@@ -88,6 +88,45 @@ public sealed class AzureRunExecutionProjectorTests
         Assert.Equal(3, progress!.Current);
         Assert.Equal(5, progress.Total);
         Assert.NotEqual(30, progress.Current);
+    }
+
+    [Fact]
+    public void Later_stage_already_completed_suppresses_progress()
+    {
+        var stages = new[]
+        {
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Build", "completed", null, 10, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Deploy", "inProgress", null, 20, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Smoke", "completed", null, 30, null, null)
+        };
+
+        Assert.Null(AzureRunExecutionProjector.TryCreateSequentialStageProgress(stages));
+    }
+
+    [Fact]
+    public void Earlier_stage_still_pending_suppresses_progress()
+    {
+        var stages = new[]
+        {
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Build", "pending", null, 10, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Deploy", "inProgress", null, 20, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "Smoke", "pending", null, 30, null, null)
+        };
+
+        Assert.Null(AzureRunExecutionProjector.TryCreateSequentialStageProgress(stages));
+    }
+
+    [Fact]
+    public void Duplicate_order_values_suppress_progress()
+    {
+        var stages = new[]
+        {
+            new AzureTimelineStageInfo(Guid.NewGuid(), "A", "completed", null, 1, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "B", "inProgress", null, 1, null, null),
+            new AzureTimelineStageInfo(Guid.NewGuid(), "C", "pending", null, 2, null, null)
+        };
+
+        Assert.Null(AzureRunExecutionProjector.TryCreateSequentialStageProgress(stages));
     }
 
     [Fact]

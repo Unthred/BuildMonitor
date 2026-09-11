@@ -414,7 +414,8 @@ public sealed class AzureMonitoringService : IDisposable
         timelineRequestRunId[projectId] = requestedRunId;
         if (timelineCache.TryGetValue(projectId, out var cached) && cached.RunId != requestedRunId)
         {
-            timelineCache.TryRemove(projectId, out _);
+            // Current primary owns the transition: drop only the superseded run's entry.
+            TryRemoveTimelineCacheIfRun(projectId, cached.RunId);
         }
 
         AzureBuildTimelineResult timeline;
@@ -433,17 +434,18 @@ public sealed class AzureMonitoringService : IDisposable
         }
         catch (Exception)
         {
-            timelineCache.TryRemove(projectId, out _);
+            TryRemoveTimelineCacheIfRun(projectId, requestedRunId);
             return facet with { ExecutionDetail = null };
         }
 
         // Stale-run guard: a newer primary attach superseded this in-flight timeline.
+        // Must not clear a newer run's cache entry.
         if (!timelineRequestRunId.TryGetValue(projectId, out var latestRequested)
             || latestRequested != requestedRunId
             || !AzureRunSelector.IsActive(facet.PrimaryRun!.State)
             || facet.PrimaryRun.RunId != requestedRunId)
         {
-            timelineCache.TryRemove(projectId, out _);
+            TryRemoveTimelineCacheIfRun(projectId, requestedRunId);
             return facet with { ExecutionDetail = null };
         }
 
@@ -464,12 +466,27 @@ public sealed class AzureMonitoringService : IDisposable
         var detail = AzureRunExecutionProjector.TryCreateDetail(requestedRunId, timeline);
         if (detail is null || detail.RunId != requestedRunId)
         {
-            timelineCache.TryRemove(projectId, out _);
+            TryRemoveTimelineCacheIfRun(projectId, requestedRunId);
             return facet with { ExecutionDetail = null };
         }
 
         timelineCache[projectId] = new TimelineCacheEntry(requestedRunId, timeline.ChangeId, detail);
         return facet with { ExecutionDetail = detail };
+    }
+
+    /// <summary>
+    /// Removes a timeline cache entry only when it still belongs to <paramref name="expectedRunId"/>.
+    /// Obsolete in-flight requests must never wipe a newer primary's cache.
+    /// </summary>
+    private bool TryRemoveTimelineCacheIfRun(string projectId, long expectedRunId)
+    {
+        if (!timelineCache.TryGetValue(projectId, out var entry) || entry.RunId != expectedRunId)
+        {
+            return false;
+        }
+
+        return timelineCache.TryRemove(
+            new KeyValuePair<string, TimelineCacheEntry>(projectId, entry));
     }
 
     public static IReadOnlyList<MonitoredProjectSettings> GetEligibleProjects(AppSettings settings) =>

@@ -117,7 +117,8 @@ public static class AzureRunExecutionProjector
     }
 
     /// <summary>
-    /// Sequential progress: current = completed stages + one active stage; never uses Order as current.
+    /// Sequential progress only when ordered stage states form a simple prefix of completed
+    /// stages followed by exactly one active stage. Never uses raw Order as current.
     /// </summary>
     public static ActivityProgress? TryCreateSequentialStageProgress(
         IReadOnlyList<AzureTimelineStageInfo> stages,
@@ -128,26 +129,56 @@ public static class AzureRunExecutionProjector
             return null;
         }
 
-        activeStages ??= stages.Where(s => IsInProgress(s.State)).ToList();
-        if (activeStages.Count != 1)
-        {
-            return null;
-        }
-
         // Require an order on every stage so the set is a coherent sequence.
         if (stages.Any(s => s.Order is null))
         {
             return null;
         }
 
-        var completed = stages.Count(s => IsCompleted(s.State));
-        var current = completed + 1;
-        if (current < 1 || current > stages.Count)
+        // Duplicate orders are ambiguous — do not guess.
+        if (stages.Select(s => s.Order!.Value).Distinct().Count() != stages.Count)
         {
             return null;
         }
 
-        return ActivityProgress.TryCreate(current, stages.Count);
+        var ordered = stages
+            .OrderBy(s => s.Order!.Value)
+            .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        activeStages ??= ordered.Where(s => IsInProgress(s.State)).ToList();
+        if (activeStages.Count != 1)
+        {
+            return null;
+        }
+
+        var active = activeStages[0];
+        var activeIndex = ordered.FindIndex(s => s.Id == active.Id);
+        if (activeIndex < 0)
+        {
+            return null;
+        }
+
+        // All stages before the active one must be completed/terminal.
+        for (var i = 0; i < activeIndex; i++)
+        {
+            if (!IsCompleted(ordered[i].State))
+            {
+                return null;
+            }
+        }
+
+        // No stage after the active one may already be completed or in progress.
+        for (var i = activeIndex + 1; i < ordered.Count; i++)
+        {
+            if (IsCompleted(ordered[i].State) || IsInProgress(ordered[i].State))
+            {
+                return null;
+            }
+        }
+
+        // current = 1-based position in the ordered eligible list — not Order, not completed+1.
+        return ActivityProgress.TryCreate(activeIndex + 1, ordered.Count);
     }
 
     public static bool IsInProgress(string? state) =>
