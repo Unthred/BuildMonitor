@@ -7,7 +7,9 @@ using BuildMonitor.Core.Rules;
 
 namespace BuildMonitor.Infrastructure.AzureDevOps;
 
-/// <summary>On-demand build timeline fetch for lazy failure navigation only.</summary>
+/// <summary>
+/// Builds timeline HTTP client shared by failure-log navigation and active-run execution attach.
+/// </summary>
 public sealed class AzureBuildTimelineClient : IAzureBuildTimelineClient, IDisposable
 {
     private readonly HttpClient httpClient;
@@ -83,7 +85,7 @@ public sealed class AzureBuildTimelineClient : IAzureBuildTimelineClient, IDispo
                     Truncate($"HTTP {(int)response.StatusCode}: {StripSecrets(body)}", 160));
             }
 
-            return ParseTimeline(body);
+            return AzureBuildTimelineParser.Parse(body);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -103,51 +105,6 @@ public sealed class AzureBuildTimelineClient : IAzureBuildTimelineClient, IDispo
                 [],
                 "Malformed Azure DevOps timeline response.");
         }
-    }
-
-    private static AzureBuildTimelineResult ParseTimeline(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("records", out var recordsEl)
-            || recordsEl.ValueKind != JsonValueKind.Array)
-        {
-            return new AzureBuildTimelineResult(
-                AzureBuildTimelineOutcome.Unavailable,
-                [],
-                "Malformed Azure DevOps timeline response.");
-        }
-
-        var records = new List<AzureBuildTimelineRecord>();
-        foreach (var record in recordsEl.EnumerateArray())
-        {
-            if (!record.TryGetProperty("id", out var idEl)
-                || !Guid.TryParse(idEl.GetString(), out var id))
-            {
-                continue;
-            }
-
-            Guid? parentId = null;
-            if (record.TryGetProperty("parentId", out var parentEl)
-                && parentEl.ValueKind == JsonValueKind.String
-                && Guid.TryParse(parentEl.GetString(), out var parsedParent))
-            {
-                parentId = parsedParent;
-            }
-
-            var type = record.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String
-                ? typeEl.GetString() ?? string.Empty
-                : string.Empty;
-            var result = record.TryGetProperty("result", out var resultEl) && resultEl.ValueKind == JsonValueKind.String
-                ? resultEl.GetString()
-                : null;
-            var name = record.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String
-                ? nameEl.GetString()
-                : null;
-
-            records.Add(new AzureBuildTimelineRecord(id, parentId, type, result, name));
-        }
-
-        return new AzureBuildTimelineResult(AzureBuildTimelineOutcome.Ok, records);
     }
 
     private static string SanitizePat(string pat)

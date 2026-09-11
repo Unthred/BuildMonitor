@@ -184,6 +184,8 @@ When BuildMonitor exposes Azure state for a monitored project, treat `GET /proje
 
 Treat `activities` as the **authoritative “what is happening now?”** answer for agents. It projects the same #112 activity model used by the status UI; tray presentation remains a separate coarse indicator and is not activity authority.
 
+When an Azure primary run is active and timeline detail is available, the **existing** Azure activity fields (`summary`, `detail`, `progress`, `azureRunId`, …) carry stage/job text and trustworthy sequential stage progress — **no** extra `stage`/`job` wire fields (#138 / #134).
+
 ## Build-control modes (per project)
 
 Each project stores `buildControlMode` in settings (`file-watching` default):

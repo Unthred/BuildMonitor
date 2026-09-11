@@ -13,9 +13,13 @@ public enum AzureBuildTimelineOutcome
 public sealed record AzureBuildTimelineResult(
     AzureBuildTimelineOutcome Outcome,
     IReadOnlyList<AzureBuildTimelineRecord> Records,
-    string? Message = null);
+    string? Message = null,
+    int? ChangeId = null);
 
-/// <summary>Fetches a build timeline on demand (never during normal Azure polling).</summary>
+/// <summary>
+/// Fetches a Builds timeline. Shared by lazy failure navigation and active-primary-run
+/// execution attach (at most one GET per active primary per Azure poll cycle).
+/// </summary>
 public interface IAzureBuildTimelineClient
 {
     Task<AzureBuildTimelineResult> GetTimelineAsync(

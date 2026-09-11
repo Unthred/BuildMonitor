@@ -22,7 +22,7 @@ Feature: [#112](https://github.com/Unthred/BuildMonitor/issues/112).
 - Local and Azure activity may coexist; Local/Agent is primary for the accent rail; coexistence text can list both.
 - Activity must not hide Red/Failed health.
 - Reuse existing Local lifecycle, control-plane phases, and Azure poll facets — no parallel polling.
-- Azure stage/job names require timeline fetch (failure navigation only). Until that data is already on the facet, Azure activity uses pipeline + run state (`queued` / `in progress` / `canceling`), not invented stage labels.
+- Azure stage/job names come from the Builds **timeline** attached to the **primary active run** only ([#138](https://github.com/Unthred/BuildMonitor/issues/138)). Until that projection is on the facet (or timeline fails), Azure activity uses pipeline + run state (`queued` / `in progress` / `canceling`), not invented stage labels.
 
 ## Model
 
@@ -60,10 +60,29 @@ Builder: `ProjectActivityBuilder.Build(snapshot, utcNow)`.
 
 Live counters flow: `OnTestOutputLine` → `DotNetTestLiveProgressTracker` → `ProjectHealthSnapshot.TestProgress` → `ProjectActivityBuilder` (via existing `RequestHealthCoalesce(immediate: false)`). No operational-history events per progress tick.
 
+## Azure stage / job on active run (#138)
+
+| Rule | Behaviour |
+|------|-----------|
+| Authority | `GET …/_apis/build/builds/{buildId}/timeline` for the **PrimaryRun** only |
+| When | Primary run active (`NotStarted` / `InProgress` / `Canceling`); max **one** timeline GET per active Azure poll cycle; **no** second timer; **none** when settled |
+| Cache | Per project + `RunId` (+ timeline `changeId` to skip reprojection) |
+| Stale guard | Primary `RunId` is authoritative — N’s stage/job never merges into N+1; in-flight timeline for a superseded RunId is discarded |
+| Projection | `AzureRunExecutionProjector` over `AzureRunExecutionDetail` on `ProjectAzureHealthFacet` |
+| One activity | Still **one** #112 Azure activity — not one per job |
+| Concurrency | Multiple active stages/jobs → compact truthful summary (`2 stages running` / `3 jobs running`); never pick the first arbitrarily |
+| Progress | Sequential stage progress only when ordered states are a completed prefix + exactly one active stage (no later completed/in-progress; no duplicate orders); `current` = 1-based position in that ordered list — **never** raw `order`, `completedCount+1`, `percentComplete`, elapsed time, or ETA |
+| Failure | Timeline failure keeps run-level Azure activity/health; does not invent stage state |
+| `/projects` | Enriched `summary` / `detail` / `progress` on the existing Azure activity — **no** new wire fields |
+
+Status panel stays compact (stage, optional job, optional `Stage N of M · elapsed`). Tray icon remains coarse.
 
 ## Non-goals
 
 - Changing health rollup or tray-icon semantics.
-- Timeline polling for live Azure stages.
+- Classic Release / environment approvals / cancel-retry.
+- ETA, percentage, historical duration prediction.
+- Stage/job log streaming or full stage-tree UI.
+- Failure-card stage/job redesign (follow-up).
 - Duplicating operational history.
 - Source-label polish (`L Local` / `U User`) — optional later with history UI.

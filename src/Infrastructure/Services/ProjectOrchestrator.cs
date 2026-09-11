@@ -78,7 +78,8 @@ public sealed partial class ProjectOrchestrator : IDisposable
             new AzureBuildPollClient(),
             secretStore,
             localGitReader,
-            () => notifyFacetUpdated?.Invoke());
+            () => notifyFacetUpdated?.Invoke(),
+            timelineClient);
         healthCoalescer = new HealthCoalescer(
             GetCoalescerState,
             azureMonitoring.TryGetFacet,
