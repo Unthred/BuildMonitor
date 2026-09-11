@@ -310,6 +310,23 @@ Client HTTP disconnect does **not** cancel an in-flight `/run/*` operation. Inte
 
 Optional body: `{ "projectId", "operationId?" }`. Omit `operationId` to target the single current lease; supply it to require an exact match (**409** on mismatch or when nothing is cancellable).
 
+#### Failure vs cancel precedence
+
+A late `/run/cancel` after a phase process has **already completed normally** must not overwrite that phase’s real outcome.
+
+| Situation | Outcome |
+|-----------|---------|
+| Lease cancel **and** the build/test process ended due to the lease token (`endedByTokenCancel`) | `cancelled` |
+| Build/test completed with failure, then `CancelRequested` flips before classification | `buildFailed` / `testsFailed` |
+| Build/test completed successfully, then late cancel | keep `succeeded` (or ship-check continue) |
+| Ship-check: successful build finished, cancel before tests start | tests never start → `cancelled` |
+
+In-phase classification uses token-owned termination evidence, not `CancelRequested` alone. Between ship-check phases, `CancelRequested` may still skip the next phase.
+
+#### Lease retirement
+
+Once the terminal `/run/*` result is committed, finalization **retires the active lease under the same lock as clearing the exclusive-operation flag** (then notifies). After retirement, `/run/cancel` returns **409** — there is no window where the exclusivity flag is clear while an old lease remains cancellable, and a new operation cannot install a lease until the old one is retired. Duplicate cancel while the same lease is still active remains **200** with `alreadyRequested: true`.
+
 **Invariant:** `ok == true` if and only if `outcome == "succeeded"`. HTTP **200** can still mean `ok: false` (operation ran and failed).
 
 | `outcome` | Meaning |

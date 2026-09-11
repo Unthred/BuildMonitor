@@ -451,6 +451,30 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Equal(409, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Post_run_cancel_when_nothing_active_returns_409()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            CancelException = new InvalidOperationException(
+                "No cancellable control-plane operation is active for this project.")
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/cancel"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(409, response.StatusCode);
+        var json = JsonSerializer.Serialize(response.Body);
+        Assert.Contains("cancelRequested", json, StringComparison.Ordinal);
+        Assert.Contains("false", json, StringComparison.Ordinal);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }

@@ -28,6 +28,7 @@ internal sealed partial class ProjectRuntime
     private ControlPlaneOperationLease? activeControlPlaneLease;
     private bool agentBuildEndedByTokenCancel;
     private bool agentTestEndedByTokenCancel;
+    private readonly object controlPlaneOperationSync = new();
 
     public void NotifyControlPlaneChanged(bool immediate = true)
     {
@@ -214,7 +215,10 @@ internal sealed partial class ProjectRuntime
                 await BuildAsync(linked.Token).ConfigureAwait(false);
             }
 
-            if (lease.CancelRequested)
+            // Late CancelRequested after a normal process exit must not overwrite success/failure.
+            if (ControlPlaneCancelClassification.TryClassifyCancelledBuild(
+                    lease.CancelRequested,
+                    agentBuildEndedByTokenCancel) is not null)
             {
                 result = CreateCancelledRebuildResult(Local.ProjectFile);
                 return result;
@@ -251,7 +255,9 @@ internal sealed partial class ProjectRuntime
                 Outcome: ControlPlaneOperationOutcomeMapper.FromRebuild(buildOk));
             return result;
         }
-        catch (OperationCanceledException) when (lease.CancelRequested)
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentBuildEndedByTokenCancel || result is null))
         {
             result = CreateCancelledRebuildResult(Local.ProjectFile);
             return result;
@@ -259,6 +265,9 @@ internal sealed partial class ProjectRuntime
         finally
         {
             shipCheckConfiguration = null;
+
+            // Retire lease before resume/notify so cancel cannot target a terminal operation.
+            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.Rebuild);
 
             if (shouldResume)
             {
@@ -270,7 +279,6 @@ internal sealed partial class ProjectRuntime
                 watchPausedByControlPlane = false;
             }
 
-            Interlocked.Exchange(ref agentRebuildInProgress, 0);
             CompleteAgentRebuildForOutcome(result?.Outcome);
             if (historyOpId is not null && result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
             {
@@ -282,96 +290,123 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
-            ReleaseControlPlaneLease(lease);
         }
     }
 
     public ControlPlaneCancelResult RequestCancelControlPlaneOperation(string? operationId)
     {
-        var lease = activeControlPlaneLease;
-        if (lease is null)
+        ControlPlaneOperationLease lease;
+        lock (controlPlaneOperationSync)
         {
-            throw new InvalidOperationException("No cancellable control-plane operation is active for this project.");
-        }
+            lease = activeControlPlaneLease
+                    ?? throw new InvalidOperationException(
+                        "No cancellable control-plane operation is active for this project.");
 
-        if (!string.IsNullOrWhiteSpace(operationId)
-            && !string.Equals(operationId.Trim(), lease.OperationId, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "operationId does not match the current control-plane operation.");
-        }
+            if (!string.IsNullOrWhiteSpace(operationId)
+                && !string.Equals(operationId.Trim(), lease.OperationId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "operationId does not match the current control-plane operation.");
+            }
 
-        var already = lease.RequestCancel();
-        // Also cancel in-flight edit-gating-linked build CTS when this lease owns the build.
-        RequestBuildCancellation();
-        NotifyControlPlaneChanged(immediate: true);
-        return new ControlPlaneCancelResult(
-            Ok: true,
-            Project: Local.ProjectFile,
-            OperationId: lease.OperationId,
-            OperationKind: lease.Kind,
-            CancelRequested: true,
-            AlreadyRequested: already);
+            var already = lease.RequestCancel();
+            // Also cancel in-flight edit-gating-linked build CTS when this lease owns the build.
+            RequestBuildCancellation();
+            NotifyControlPlaneChanged(immediate: true);
+            return new ControlPlaneCancelResult(
+                Ok: true,
+                Project: Local.ProjectFile,
+                OperationId: lease.OperationId,
+                OperationKind: lease.Kind,
+                CancelRequested: true,
+                AlreadyRequested: already);
+        }
     }
 
     private ControlPlaneOperationLease TryAcquireControlPlaneLease(ControlPlaneOperationKind kind)
     {
-        EnsureNoOtherControlPlaneRun(
-            Volatile.Read(ref shipCheckInProgress),
-            Volatile.Read(ref agentRebuildInProgress),
-            Volatile.Read(ref agentTestsInProgress));
-
-        switch (kind)
+        lock (controlPlaneOperationSync)
         {
-            case ControlPlaneOperationKind.Rebuild:
-                if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
-                {
-                    throw new InvalidOperationException("Rebuild already running for this project.");
-                }
+            if (activeControlPlaneLease is not null)
+            {
+                throw new InvalidOperationException(
+                    "A control-plane operation lease is still active for this project.");
+            }
 
-                break;
-            case ControlPlaneOperationKind.Tests:
-                if (Volatile.Read(ref buildInProgress) != 0)
-                {
-                    throw new InvalidOperationException("Build already running for this project.");
-                }
+            EnsureNoOtherControlPlaneRun(
+                Volatile.Read(ref shipCheckInProgress),
+                Volatile.Read(ref agentRebuildInProgress),
+                Volatile.Read(ref agentTestsInProgress));
 
-                if (Interlocked.CompareExchange(ref agentTestsInProgress, 1, 0) != 0)
-                {
-                    throw new InvalidOperationException("Tests already running for this project.");
-                }
+            switch (kind)
+            {
+                case ControlPlaneOperationKind.Rebuild:
+                    if (Interlocked.CompareExchange(ref agentRebuildInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Rebuild already running for this project.");
+                    }
 
-                break;
-            case ControlPlaneOperationKind.ShipCheck:
-                if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
-                {
-                    throw new InvalidOperationException("Ship-check already running for this project.");
-                }
+                    break;
+                case ControlPlaneOperationKind.Tests:
+                    if (Volatile.Read(ref buildInProgress) != 0)
+                    {
+                        throw new InvalidOperationException("Build already running for this project.");
+                    }
 
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+                    if (Interlocked.CompareExchange(ref agentTestsInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Tests already running for this project.");
+                    }
+
+                    break;
+                case ControlPlaneOperationKind.ShipCheck:
+                    if (Interlocked.CompareExchange(ref shipCheckInProgress, 1, 0) != 0)
+                    {
+                        throw new InvalidOperationException("Ship-check already running for this project.");
+                    }
+
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+            }
+
+            var lease = new ControlPlaneOperationLease(kind);
+            activeControlPlaneLease = lease;
+            NotifyControlPlaneChanged(immediate: true);
+            return lease;
         }
-
-        var lease = new ControlPlaneOperationLease(kind);
-        activeControlPlaneLease = lease;
-        NotifyControlPlaneChanged(immediate: true);
-        return lease;
     }
 
-    private void ReleaseControlPlaneLease(ControlPlaneOperationLease? lease)
+    /// <summary>
+    /// Clears the active lease then the exclusive-operation flag under one lock so a terminal
+    /// operation is never cancellable and a new op cannot overlap an old lease.
+    /// </summary>
+    private void RetireControlPlaneOperation(
+        ControlPlaneOperationLease? lease,
+        ControlPlaneOperationKind kind)
     {
-        if (lease is null)
+        lock (controlPlaneOperationSync)
         {
-            return;
+            if (lease is not null && ReferenceEquals(activeControlPlaneLease, lease))
+            {
+                activeControlPlaneLease = null;
+            }
+
+            switch (kind)
+            {
+                case ControlPlaneOperationKind.Rebuild:
+                    Interlocked.Exchange(ref agentRebuildInProgress, 0);
+                    break;
+                case ControlPlaneOperationKind.Tests:
+                    Interlocked.Exchange(ref agentTestsInProgress, 0);
+                    break;
+                case ControlPlaneOperationKind.ShipCheck:
+                    Interlocked.Exchange(ref shipCheckInProgress, 0);
+                    break;
+            }
         }
 
-        if (ReferenceEquals(activeControlPlaneLease, lease))
-        {
-            activeControlPlaneLease = null;
-        }
-
-        lease.Dispose();
+        lease?.Dispose();
         NotifyControlPlaneChanged(immediate: true);
     }
 
@@ -603,7 +638,9 @@ internal sealed partial class ProjectRuntime
                 await BuildAsync(linked.Token).ConfigureAwait(false);
             }
 
-            if (lease.CancelRequested)
+            if (ControlPlaneCancelClassification.TryClassifyCancelledBuild(
+                    lease.CancelRequested,
+                    agentBuildEndedByTokenCancel) is not null)
             {
                 result = CreateCancelledShipCheckResult(
                     Local.ProjectFile,
@@ -641,7 +678,8 @@ internal sealed partial class ProjectRuntime
                 return result;
             }
 
-            if (lease.CancelRequested)
+            // Between phases: cancel may skip tests without token-owned build termination.
+            if (ControlPlaneCancelClassification.ShouldSkipNextPhaseDueToCancel(lease.CancelRequested))
             {
                 result = CreateCancelledShipCheckResult(projectLabel, "pass", buildLogPath);
                 return result;
@@ -668,7 +706,7 @@ internal sealed partial class ProjectRuntime
                 return result;
             }
 
-            if (lease.CancelRequested)
+            if (ControlPlaneCancelClassification.ShouldSkipNextPhaseDueToCancel(lease.CancelRequested))
             {
                 result = CreateCancelledShipCheckResult(projectLabel, "pass", buildLogPath);
                 return result;
@@ -683,7 +721,9 @@ internal sealed partial class ProjectRuntime
                 await TestAsync(linked.Token).ConfigureAwait(false);
             }
 
-            if (lease.CancelRequested)
+            if (ControlPlaneCancelClassification.TryClassifyCancelledTests(
+                    lease.CancelRequested,
+                    agentTestEndedByTokenCancel) is not null)
             {
                 result = CreateCancelledShipCheckResult(
                     projectLabel,
@@ -731,7 +771,9 @@ internal sealed partial class ProjectRuntime
                     testEvidence: evidence));
             return result;
         }
-        catch (OperationCanceledException) when (lease.CancelRequested)
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentBuildEndedByTokenCancel || agentTestEndedByTokenCancel || result is null))
         {
             result = CreateCancelledShipCheckResult(Local.ProjectFile, "cancelled", null);
             return result;
@@ -740,6 +782,8 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
+
+            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.ShipCheck);
 
             if (shouldResume)
             {
@@ -751,7 +795,6 @@ internal sealed partial class ProjectRuntime
                 watchPausedByControlPlane = false;
             }
 
-            Interlocked.Exchange(ref shipCheckInProgress, 0);
             CompleteShipCheckForOutcome(result?.Outcome);
             if (historyOpId is not null)
             {
@@ -776,7 +819,6 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
-            ReleaseControlPlaneLease(lease);
         }
     }
 
@@ -844,7 +886,9 @@ internal sealed partial class ProjectRuntime
                 await TestAsync(linked.Token).ConfigureAwait(false);
             }
 
-            if (lease.CancelRequested)
+            if (ControlPlaneCancelClassification.TryClassifyCancelledTests(
+                    lease.CancelRequested,
+                    agentTestEndedByTokenCancel) is not null)
             {
                 result = CreateCancelledTestsResult(
                     Local.ProjectFile,
@@ -889,7 +933,9 @@ internal sealed partial class ProjectRuntime
                 Outcome: ControlPlaneOperationOutcomeMapper.FromTests(evidence));
             return result;
         }
-        catch (OperationCanceledException) when (lease.CancelRequested)
+        catch (OperationCanceledException) when (
+            lease.CancelRequested
+            && (agentTestEndedByTokenCancel || result is null))
         {
             result = CreateCancelledTestsResult(Local.ProjectFile, null);
             return result;
@@ -898,7 +944,7 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
-            Interlocked.Exchange(ref agentTestsInProgress, 0);
+            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.Tests);
             CompleteAgentTestsForOutcome(result?.Outcome);
             if (historyOpId is not null && result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
             {
@@ -910,7 +956,6 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
-            ReleaseControlPlaneLease(lease);
         }
     }
 
