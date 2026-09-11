@@ -218,7 +218,8 @@ internal sealed partial class ProjectRuntime
                 Build: buildOk ? "pass" : "fail",
                 ExitCode: lastBuildExitCode,
                 Failures: failures,
-                Log: buildLogPath);
+                Log: buildLogPath,
+                Outcome: ControlPlaneOperationOutcomeMapper.FromRebuild(buildOk));
             return result;
         }
         finally
@@ -403,7 +404,8 @@ internal sealed partial class ProjectRuntime
                     Build: "fail",
                     Tests: null,
                     Failures: failures,
-                    Log: buildLogPath);
+                    Log: buildLogPath,
+                    Outcome: ControlPlaneOperationOutcomeMapper.FromShipCheckBuildOnly(buildOk: false));
                 return result;
             }
 
@@ -420,7 +422,11 @@ internal sealed partial class ProjectRuntime
                     Build: "pass",
                     Tests: null,
                     Failures: [],
-                    Log: buildLogPath);
+                    Log: buildLogPath,
+                    Outcome: ControlPlaneOperationOutcomeMapper.FromShipCheck(
+                        buildOk: true,
+                        noTestTargetsConfigured: true,
+                        testEvidence: null));
                 return result;
             }
 
@@ -443,17 +449,22 @@ internal sealed partial class ProjectRuntime
                 failures.Add(issue.Text);
             }
 
-            var (testsOk, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+            var (testsOk, counts, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
                 summary,
                 lifecycleTestOk: Snapshot.State == ProjectLifecycleState.TestOk,
-                failures);
+                failures,
+                noTargetsConfigured: false);
             result = new ControlPlaneShipCheckResult(
                 Ok: testsOk,
                 Project: projectLabel,
                 Build: "pass",
                 Tests: counts,
                 Failures: failures,
-                Log: testLogPath);
+                Log: testLogPath,
+                Outcome: ControlPlaneOperationOutcomeMapper.FromShipCheck(
+                    buildOk: true,
+                    noTestTargetsConfigured: false,
+                    testEvidence: evidence));
             return result;
         }
         finally
@@ -537,6 +548,13 @@ internal sealed partial class ProjectRuntime
             historyOpId = begunOp;
 
             NotifyControlPlaneChanged(immediate: true);
+
+            var resolution = TestProjectDiscovery.Resolve(
+                Local.RootFolder,
+                Local.ProjectFile,
+                Local.TestProjectFile);
+            var noTargetsConfigured = resolution.Targets.Count == 0;
+
             PrepareTest("agent tests");
             await TestAsync(cancellationToken).ConfigureAwait(false);
 
@@ -557,16 +575,18 @@ internal sealed partial class ProjectRuntime
                 failures.Add(issue.Text);
             }
 
-            var (testsOk, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+            var (testsOk, counts, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
                 summary,
                 lifecycleTestOk: Snapshot.State == ProjectLifecycleState.TestOk,
-                failures);
+                failures,
+                noTargetsConfigured);
             result = new ControlPlaneRunTestsResult(
                 Ok: testsOk,
                 Project: projectLabel,
                 Tests: counts,
                 Failures: failures,
-                Log: testLogPath);
+                Log: testLogPath,
+                Outcome: ControlPlaneOperationOutcomeMapper.FromTests(evidence));
             return result;
         }
         finally

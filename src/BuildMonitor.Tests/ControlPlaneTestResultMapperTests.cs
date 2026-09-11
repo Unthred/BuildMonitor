@@ -1,4 +1,5 @@
 using BuildMonitor.Core.Models;
+using BuildMonitor.Core.Rules;
 using BuildMonitor.Infrastructure.ControlPlane;
 using BuildMonitor.Infrastructure.LocalBuild;
 
@@ -12,7 +13,7 @@ public sealed class ControlPlaneTestResultMapperTests
         var summary = new DotNetTestSummary(1083, 1083, 0, 0, "20 s", null);
         var failures = new List<string>();
 
-        var (ok, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+        var (ok, counts, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
             summary,
             lifecycleTestOk: true,
             failures);
@@ -23,6 +24,8 @@ public sealed class ControlPlaneTestResultMapperTests
         Assert.Equal(0, counts.Failed);
         Assert.Equal(0, counts.Skipped);
         Assert.Empty(failures);
+        Assert.False(evidence.NoTargetsConfigured);
+        Assert.True(evidence.LifecycleTestOk);
     }
 
     [Fact]
@@ -31,7 +34,7 @@ public sealed class ControlPlaneTestResultMapperTests
         var summary = new DotNetTestSummary(10, 8, 2, 0, null, null);
         var failures = new List<string> { "SampleTests.FailingTest — assert" };
 
-        var (ok, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+        var (ok, counts, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
             summary,
             lifecycleTestOk: false,
             failures);
@@ -42,6 +45,7 @@ public sealed class ControlPlaneTestResultMapperTests
         Assert.Equal(2, counts.Failed);
         Assert.Equal(0, counts.Skipped);
         Assert.DoesNotContain(ControlPlaneTestResultMapper.CountsUnavailableMessage, failures);
+        Assert.Equal(2, evidence.Counts!.Failed);
     }
 
     [Fact]
@@ -49,13 +53,14 @@ public sealed class ControlPlaneTestResultMapperTests
     {
         var failures = new List<string>();
 
-        var (ok, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+        var (ok, counts, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
             summary: null,
             lifecycleTestOk: true,
             failures);
 
         Assert.True(ok);
         Assert.Null(counts);
+        Assert.Null(evidence.Counts);
         Assert.Contains(ControlPlaneTestResultMapper.CountsUnavailableMessage, failures);
     }
 
@@ -64,7 +69,7 @@ public sealed class ControlPlaneTestResultMapperTests
     {
         var failures = new List<string> { "CS0001" };
 
-        var (ok, counts) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+        var (ok, counts, _) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
             summary: null,
             lifecycleTestOk: false,
             failures);
@@ -86,6 +91,23 @@ public sealed class ControlPlaneTestResultMapperTests
 
         Assert.Equal(run.TestsOk, ship.TestsOk);
         Assert.Equal(run.Counts, ship.Counts);
+        Assert.Equal(run.Evidence, ship.Evidence);
+    }
+
+    [Fact]
+    public void MapCompletedTestPhase_no_targets_flag_is_structural()
+    {
+        var failures = new List<string>();
+        var (_, _, evidence) = ControlPlaneTestResultMapper.MapCompletedTestPhase(
+            summary: null,
+            lifecycleTestOk: false,
+            failures,
+            noTargetsConfigured: true);
+
+        Assert.True(evidence.NoTargetsConfigured);
+        Assert.Equal(
+            ControlPlaneOperationOutcome.NoTests,
+            ControlPlaneOperationOutcomeMapper.FromTests(evidence));
     }
 
     [Fact]

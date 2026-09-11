@@ -18,14 +18,16 @@ public static class ControlPlaneTestResultMapper
             : new ControlPlaneTestCounts(summary.Failed, summary.Passed, summary.Skipped);
 
     /// <summary>
-    /// Builds ok + counts for a completed test phase. When <paramref name="summary"/> is null,
-    /// counts are omitted and a diagnostic is appended; lifecycle success is preserved via
-    /// <paramref name="lifecycleTestOk"/>.
+    /// Builds ok + counts + structured evidence for a completed test phase.
+    /// When <paramref name="summary"/> is null, counts are omitted and a diagnostic is appended;
+    /// lifecycle success is preserved via <paramref name="lifecycleTestOk"/>.
     /// </summary>
-    public static (bool TestsOk, ControlPlaneTestCounts? Counts) MapCompletedTestPhase(
-        DotNetTestSummary? summary,
-        bool lifecycleTestOk,
-        ICollection<string> failures)
+    public static (bool TestsOk, ControlPlaneTestCounts? Counts, ControlPlaneTestPhaseEvidence Evidence)
+        MapCompletedTestPhase(
+            DotNetTestSummary? summary,
+            bool lifecycleTestOk,
+            ICollection<string> failures,
+            bool noTargetsConfigured = false)
     {
         var counts = TryMapCounts(summary);
         if (counts is null)
@@ -35,10 +37,18 @@ public static class ControlPlaneTestResultMapper
                 failures.Add(CountsUnavailableMessage);
             }
 
-            return (lifecycleTestOk, null);
+            var evidenceNoCounts = new ControlPlaneTestPhaseEvidence(
+                lifecycleTestOk,
+                noTargetsConfigured,
+                Counts: null);
+            return (lifecycleTestOk, null, evidenceNoCounts);
         }
 
         var testsOk = lifecycleTestOk && counts.Failed == 0;
-        return (testsOk, counts);
+        var evidence = new ControlPlaneTestPhaseEvidence(
+            lifecycleTestOk,
+            noTargetsConfigured,
+            counts);
+        return (testsOk, counts, evidence);
     }
 }
