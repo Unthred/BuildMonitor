@@ -113,13 +113,27 @@ public sealed record ControlPlaneRebuildRequest(
     string ProjectId,
     string? Configuration);
 
+/// <summary>
+/// Terminal classification for a completed <c>/run/rebuild</c>, <c>/run/tests</c>, or <c>/run/ship-check</c>.
+/// Present only on HTTP 200 result bodies — never on 400/404/409/500 disposition responses.
+/// </summary>
+public enum ControlPlaneOperationOutcome
+{
+    Succeeded = 0,
+    BuildFailed = 1,
+    TestsFailed = 2,
+    NoTests = 3,
+    ExecutionFailed = 4
+}
+
 public sealed record ControlPlaneRebuildResult(
     bool Ok,
     string Project,
     string Build,
     int ExitCode,
     IReadOnlyList<string> Failures,
-    string? Log);
+    string? Log,
+    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
 
 public sealed record ControlPlaneRunTestsRequest(
     string ProjectId,
@@ -131,7 +145,8 @@ public sealed record ControlPlaneRunTestsResult(
     string Project,
     ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
-    string? Log);
+    string? Log,
+    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
 
 public sealed record ControlPlaneRunStopResult(
     bool Ok,
@@ -141,13 +156,22 @@ public sealed record ControlPlaneRunStopResult(
 
 public sealed record ControlPlaneTestCounts(int Failed, int Passed, int Skipped);
 
+/// <summary>
+/// Structured evidence for classifying a completed test phase — not derived from <c>failures[]</c> prose.
+/// </summary>
+public sealed record ControlPlaneTestPhaseEvidence(
+    bool LifecycleTestOk,
+    bool NoTargetsConfigured,
+    ControlPlaneTestCounts? Counts);
+
 public sealed record ControlPlaneShipCheckResult(
     bool Ok,
     string Project,
     string Build,
     ControlPlaneTestCounts? Tests,
     IReadOnlyList<string> Failures,
-    string? Log);
+    string? Log,
+    ControlPlaneOperationOutcome Outcome = ControlPlaneOperationOutcome.Succeeded);
 
 public enum ControlPlaneShipCheckPhase
 {

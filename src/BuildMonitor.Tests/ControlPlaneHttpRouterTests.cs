@@ -70,6 +70,94 @@ public sealed class ControlPlaneHttpRouterTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Equal("abc", actions.LastRebuildProjectId);
+        var rebuildJson = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("\"outcome\":\"succeeded\"", rebuildJson, StringComparison.Ordinal);
+        Assert.Contains("\"ok\":true", rebuildJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_rebuild_busy_returns_409_without_outcome()
+    {
+        var actions = new FakeActions { Exists = true, ThrowBusyOnRebuild = true };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/rebuild"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(409, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.DoesNotContain("outcome", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"ok\"", json, StringComparison.Ordinal);
+        Assert.Contains("error", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_run_invalid_project_returns_400_without_outcome()
+    {
+        var actions = new FakeActions();
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/rebuild"),
+            new MemoryStream(Encoding.UTF8.GetBytes("{}")),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(400, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.DoesNotContain("outcome", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_run_unknown_project_returns_404_without_outcome()
+    {
+        var actions = new FakeActions { Exists = false };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"missing"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/tests"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(404, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.DoesNotContain("outcome", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_tests_json_includes_outcome()
+    {
+        var actions = new FakeActions
+        {
+            Exists = true,
+            TestsResult = new ControlPlaneRunTestsResult(
+                false,
+                "Demo.csproj",
+                new ControlPlaneTestCounts(Failed: 2, Passed: 8, Skipped: 0),
+                ["fail"],
+                null,
+                ControlPlaneOperationOutcome.TestsFailed)
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/run/tests"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(response.Body);
+        Assert.Contains("\"ok\":false", json, StringComparison.Ordinal);
+        Assert.Contains("\"outcome\":\"testsFailed\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"passed\":8", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -152,12 +240,13 @@ public sealed class ControlPlaneHttpRouterTests
         {
             Exists = true,
             ShipCheckResult = new ControlPlaneShipCheckResult(
-                true,
+                false,
                 "Demo.csproj",
                 "pass",
                 new ControlPlaneTestCounts(Failed: 1, Passed: 8, Skipped: 1),
                 ["Sample.Fail"],
-                null)
+                null,
+                ControlPlaneOperationOutcome.TestsFailed)
         };
         var body = Encoding.UTF8.GetBytes("""{"projectId":"abc"}""");
         var response = await ControlPlaneHttpRouter.DispatchAsync(
@@ -392,10 +481,17 @@ public sealed class ControlPlaneHttpRouterTests
                 ProjectBuildControlModeWire.ToWire(previous));
         }
 
+        public bool ThrowBusyOnRebuild { get; set; }
+
         public Task<ControlPlaneRebuildResult> RebuildAsync(
             ControlPlaneRebuildRequest request,
             CancellationToken cancellationToken)
         {
+            if (ThrowBusyOnRebuild)
+            {
+                throw new InvalidOperationException("Rebuild already running for this project.");
+            }
+
             LastRebuildProjectId = request.ProjectId;
             return Task.FromResult(new ControlPlaneRebuildResult(
                 true,
@@ -403,7 +499,8 @@ public sealed class ControlPlaneHttpRouterTests
                 "pass",
                 0,
                 [],
-                null));
+                null,
+                ControlPlaneOperationOutcome.Succeeded));
         }
 
         public ControlPlaneWatchStatus GetWatch(string projectId) =>
@@ -435,7 +532,8 @@ public sealed class ControlPlaneHttpRouterTests
                 "Demo.csproj",
                 new ControlPlaneTestCounts(0, 2, 0),
                 [],
-                null));
+                null,
+                ControlPlaneOperationOutcome.Succeeded));
 
         public Task<ControlPlaneShipCheckResult> ShipCheckAsync(
             ControlPlaneShipCheckRequest request,
@@ -446,6 +544,7 @@ public sealed class ControlPlaneHttpRouterTests
                 "pass",
                 null,
                 [],
-                null));
+                null,
+                ControlPlaneOperationOutcome.Succeeded));
     }
 }

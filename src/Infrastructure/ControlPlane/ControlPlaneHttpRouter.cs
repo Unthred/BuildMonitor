@@ -392,6 +392,7 @@ internal static class ControlPlaneHttpRouter
     private static object ToRebuildJson(ControlPlaneRebuildResult result) => new
     {
         ok = result.Ok,
+        outcome = ToOutcomeWire(result.Outcome),
         project = result.Project,
         build = result.Build,
         exitCode = result.ExitCode,
@@ -414,6 +415,7 @@ internal static class ControlPlaneHttpRouter
             return new
             {
                 ok = result.Ok,
+                outcome = ToOutcomeWire(result.Outcome),
                 project = result.Project,
                 failures = result.Failures,
                 log = result.Log
@@ -423,6 +425,7 @@ internal static class ControlPlaneHttpRouter
         return new
         {
             ok = result.Ok,
+            outcome = ToOutcomeWire(result.Outcome),
             project = result.Project,
             tests = new
             {
@@ -442,6 +445,7 @@ internal static class ControlPlaneHttpRouter
             return new
             {
                 ok = result.Ok,
+                outcome = ToOutcomeWire(result.Outcome),
                 project = result.Project,
                 build = result.Build,
                 failures = result.Failures,
@@ -452,6 +456,7 @@ internal static class ControlPlaneHttpRouter
         return new
         {
             ok = result.Ok,
+            outcome = ToOutcomeWire(result.Outcome),
             project = result.Project,
             build = result.Build,
             tests = new
@@ -464,6 +469,18 @@ internal static class ControlPlaneHttpRouter
             log = result.Log
         };
     }
+
+    /// <summary>Stable camelCase wire values matching <see cref="JsonStringEnumConverter"/> camelCase policy.</summary>
+    private static string ToOutcomeWire(ControlPlaneOperationOutcome outcome) =>
+        outcome switch
+        {
+            ControlPlaneOperationOutcome.Succeeded => "succeeded",
+            ControlPlaneOperationOutcome.BuildFailed => "buildFailed",
+            ControlPlaneOperationOutcome.TestsFailed => "testsFailed",
+            ControlPlaneOperationOutcome.NoTests => "noTests",
+            ControlPlaneOperationOutcome.ExecutionFailed => "executionFailed",
+            _ => "executionFailed"
+        };
 
     private static bool TryGetProjectId(Uri? url, JsonElement? body, out string? projectId, out string? error)
     {

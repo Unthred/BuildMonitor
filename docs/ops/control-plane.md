@@ -281,11 +281,70 @@ Omit `filter` to run the full configured test project/solution.
 
 - Auto-build on file change only when that project's session is **idle** (after `/session/busy` has been used at least once this process lifetime). Until then, existing debounce / agent-transcript gating remains the fallback.
 - Idle does **not** push results to the agent and does not run the full suite when `suppressAutoBuildTests` is effective. That suppress gate applies to both **`OnBuildSuccess`** and **`OnFileChange`** (`After file-triggered build`) automatic post-build tests.
-- **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running.
-- **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first unless `--no-build` hits missing/stale test assemblies, in which case it does **one** full-build recovery and retries tests once. **409** if tests, rebuild, or ship-check is already running. Response `tests.passed` / `failed` / `skipped` come from the final VSTest aggregate (including the multi-line MSBuild footer). When that aggregate cannot be parsed, `tests` is omitted and `failures` includes a counts-unavailable diagnostic — never fabricated `passed: 0` on a successful run.
+- **`POST /run/rebuild`** marks the session **idle**, pauses the watch/run host so DLLs unlock, runs one explicit build, then resumes watch if it was running. Build-only — no tests. Use when you need a clean rebuild without ship-check. **409** if rebuild or ship-check is already running. **200** bodies include additive `outcome` (see below).
+- **`POST /run/tests`** marks idle and runs tests (optional `filter` / `configuration`). Does not rebuild first unless `--no-build` hits missing/stale test assemblies, in which case it does **one** full-build recovery and retries tests once. **409** if tests, rebuild, or ship-check is already running. Response `tests.passed` / `failed` / `skipped` come from the final VSTest aggregate (including the multi-line MSBuild footer). When that aggregate cannot be parsed, `tests` is omitted and `failures` includes a counts-unavailable diagnostic — never fabricated `passed: 0` on a successful run. **200** bodies include additive `outcome`.
 - Busy timeout (default **120s**) is measured from the last **busy POST or file-change while busy**, not from the original busy start. If timeout fires, the status card says **Agent busy timed out · build allowed** (as opposed to **Agent finished editing** when `/session/idle` arrived).
-- Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project.
+- Ship-check cancels an in-flight build for that project, then runs; **409** if a ship-check is already running for that project. **200** bodies include additive `outcome`.
 - Pause = stop the supervised `dotnet run`/`watch` process (preferred over kill-as-default).
+
+## Operation outcome (`/run/rebuild`, `/run/tests`, `/run/ship-check`)
+
+HTTP status is **request disposition**. Terminal **operation classification** is a separate additive field on **200** result bodies only.
+
+| Layer | How | Examples |
+|-------|-----|----------|
+| Disposition | HTTP status | **200** accepted + terminal body; **409** busy (op did not start); **400** invalid; **404** unknown project; **500** host failure |
+| Outcome | JSON `outcome` on **200** only | `succeeded`, `buildFailed`, `testsFailed`, `noTests`, `executionFailed` |
+
+**Invariant:** `ok == true` if and only if `outcome == "succeeded"`. HTTP **200** can still mean `ok: false` (operation ran and failed).
+
+| `outcome` | Meaning |
+|-----------|---------|
+| `succeeded` | Operation completed per endpoint contract (skipped tests allowed when the run is still success). Ship-check with **no configured test targets** is `succeeded` with `build: "pass"` and no `tests`. |
+| `buildFailed` | Build/MSBuild phase ran and failed. |
+| `testsFailed` | Tests executed and structured aggregate shows `failed > 0`. |
+| `noTests` | Structured evidence only: `/run/tests` with zero configured/discovered targets. **Not** classified from `failures[]` prose. |
+| `executionFailed` | Conservative catch-all: execution failed but evidence does not support buildFailed / testsFailed / noTests. |
+
+**409 / 400 / 404 / 500** responses have **no** `outcome` and no fake terminal classification.
+
+`failures[]` remains human/agent diagnostic detail — **not** classifier authority.
+
+Examples:
+
+Successful rebuild:
+
+```json
+{ "ok": true, "outcome": "succeeded", "build": "pass", "exitCode": 0, "failures": [] }
+```
+
+Compile failure:
+
+```json
+{ "ok": false, "outcome": "buildFailed", "build": "fail", "exitCode": 1 }
+```
+
+Assertion failures:
+
+```json
+{
+  "ok": false,
+  "outcome": "testsFailed",
+  "tests": { "passed": 1117, "failed": 2, "skipped": 0 }
+}
+```
+
+Busy (no operation started):
+
+```json
+{ "error": "Ship-check already running for this project." }
+```
+
+Ship-check with no test targets:
+
+```json
+{ "ok": true, "outcome": "succeeded", "build": "pass" }
+```
 
 ## Status panel visibility
 
