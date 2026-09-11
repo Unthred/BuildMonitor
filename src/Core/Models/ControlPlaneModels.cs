@@ -123,7 +123,8 @@ public enum ControlPlaneOperationOutcome
     BuildFailed = 1,
     TestsFailed = 2,
     NoTests = 3,
-    ExecutionFailed = 4
+    ExecutionFailed = 4,
+    Cancelled = 5
 }
 
 public sealed record ControlPlaneRebuildResult(
@@ -153,6 +154,22 @@ public sealed record ControlPlaneRunStopResult(
     bool WasRunning,
     int? ExitCode,
     ControlPlaneWatchStatus Watch);
+
+public sealed record ControlPlaneCancelRequest(
+    string ProjectId,
+    string? OperationId);
+
+/// <summary>
+/// Disposition for <c>POST /run/cancel</c>. <c>Ok</c> means the cancel signal was accepted —
+/// not that the original <c>/run/*</c> operation succeeded.
+/// </summary>
+public sealed record ControlPlaneCancelResult(
+    bool Ok,
+    string Project,
+    string OperationId,
+    ControlPlaneOperationKind OperationKind,
+    bool CancelRequested,
+    bool AlreadyRequested);
 
 public sealed record ControlPlaneTestCounts(int Failed, int Passed, int Skipped);
 
@@ -210,7 +227,10 @@ public sealed record ProjectControlPlaneSnapshot(
     ControlPlaneShipCheckOutcome LastAgentTestsOutcome = ControlPlaneShipCheckOutcome.None,
     DateTimeOffset? LastAgentTestsCompletedUtc = null,
     ProjectBuildControlMode BuildControlMode = ProjectBuildControlMode.FileWatching,
-    bool AutoBuildEnabled = true)
+    bool AutoBuildEnabled = true,
+    string? ActiveOperationId = null,
+    ControlPlaneOperationKind? ActiveOperationKind = null,
+    bool OperationCancelRequested = false)
 {
     public static ProjectControlPlaneSnapshot Unused { get; } = new(
         SessionApiUsed: false,
@@ -232,7 +252,10 @@ public sealed record ProjectControlPlaneSnapshot(
         LastAgentTestsOutcome: ControlPlaneShipCheckOutcome.None,
         LastAgentTestsCompletedUtc: null,
         BuildControlMode: ProjectBuildControlMode.FileWatching,
-        AutoBuildEnabled: true);
+        AutoBuildEnabled: true,
+        ActiveOperationId: null,
+        ActiveOperationKind: null,
+        OperationCancelRequested: false);
 }
 
 public sealed record ControlPlaneModeStatus(

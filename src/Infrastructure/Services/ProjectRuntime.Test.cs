@@ -127,6 +127,21 @@ internal sealed partial class ProjectRuntime
                     releaseLocksSetting,
                     cancellationToken);
 
+                if (targetRun.Result.WasCancelled)
+                {
+                    agentTestEndedByTokenCancel = true;
+                    stoppedAppForTests |= targetRun.StoppedApp;
+                    commandLines.Add(targetRun.Result.CommandLine);
+                    wallDuration += targetRun.Result.Duration;
+                    await FinalizeCancelledTestAsync(
+                        testReason,
+                        commandLines,
+                        startedAtUtc,
+                        wallDuration,
+                        cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
                 stoppedAppForTests |= targetRun.StoppedApp;
                 commandLines.Add(targetRun.Result.CommandLine);
                 wallDuration += targetRun.Result.Duration;
@@ -484,6 +499,42 @@ internal sealed partial class ProjectRuntime
         HeartbeatProjectWorker("test-output");
         // Existing coalescer bounds UI publish rate (immediate: false).
         RequestHealthCoalesce(immediate: false);
+    }
+
+    private async Task FinalizeCancelledTestAsync(
+        string testReason,
+        List<string> commandLines,
+        DateTimeOffset startedAtUtc,
+        TimeSpan wallDuration,
+        CancellationToken cancellationToken)
+    {
+        string logText;
+        lock (liveOutputSync)
+        {
+            var banner = activeControlPlaneLease?.CancelRequested == true
+                ? "[BuildMonitor] Tests cancelled — control-plane operation cancelled."
+                : "[BuildMonitor] Tests aborted.";
+            liveTestOutput.AppendLine(banner);
+            logText = liveTestOutput.ToString();
+        }
+
+        await logStore.SaveAsync(
+            projectSettings.Id,
+            BuildLogKind.Test,
+            string.Join(" && ", commandLines),
+            -1,
+            startedAtUtc,
+            logText,
+            CancellationToken.None);
+
+        // Terminal Cancelled history is recorded once by the control-plane operation finally.
+
+        liveTestProgress.Reset(DateTimeOffset.UtcNow);
+        SetState(ProjectLifecycleState.Idle);
+        SetProjectCurrentAction(
+            activeControlPlaneLease?.CancelRequested == true ? "Cancelled" : "Tests aborted");
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
     }
 
     private List<string> BuildTestArgs(string testTargetPath, bool noBuild = false)

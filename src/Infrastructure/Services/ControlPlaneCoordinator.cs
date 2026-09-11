@@ -113,6 +113,22 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
         return result;
     }
 
+    public Task<ControlPlaneCancelResult> CancelAsync(
+        ControlPlaneCancelRequest request,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        var result = orchestrator.CancelControlPlaneOperation(request.ProjectId, request.OperationId);
+        events.Record(
+            request.ProjectId,
+            ControlPlaneEventKind.Rebuild,
+            result.AlreadyRequested
+                ? "Cancel already requested"
+                : "Cancel requested",
+            $"{result.OperationKind}:{result.OperationId}");
+        return Task.FromResult(result);
+    }
+
     public async Task<ControlPlaneShipCheckResult> ShipCheckAsync(
         ControlPlaneShipCheckRequest request,
         CancellationToken cancellationToken)

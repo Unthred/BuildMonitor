@@ -40,7 +40,8 @@ internal sealed class OperationalHistoryEmitter
         OperationalEventSource source,
         string actionName,
         string summary,
-        out string operationId)
+        out string operationId,
+        string? preferredOperationId = null)
     {
         if (!string.IsNullOrEmpty(activeOperationId))
         {
@@ -48,7 +49,9 @@ internal sealed class OperationalHistoryEmitter
             return false;
         }
 
-        operationId = OperationalHistoryRecorder.NewOperationId();
+        operationId = string.IsNullOrWhiteSpace(preferredOperationId)
+            ? OperationalHistoryRecorder.NewOperationId()
+            : preferredOperationId.Trim();
         activeOperationId = operationId;
         ownership = OperationOwnership.Caller;
         RecordExplicit(source, actionName, summary, OperationalEventOutcome.Started);

@@ -26,7 +26,9 @@ public enum ActivityPhaseKind
     AzureInProgress = 11,
     AzureCanceling = 12,
     Reconnecting = 13,
-    Working = 14
+    Working = 14,
+    /// <summary>Agent/local control-plane operation is cancelling (not Azure).</summary>
+    Cancelling = 15
 }
 
 /// <summary>
