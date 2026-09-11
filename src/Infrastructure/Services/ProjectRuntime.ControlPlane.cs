@@ -266,8 +266,8 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
 
-            // Retire lease before resume/notify so cancel cannot target a terminal operation.
-            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.Rebuild);
+            // Step 1: terminal — no longer cancellable; keep exclusivity through finalization.
+            RetireControlPlaneCancellationTarget(lease);
 
             if (shouldResume)
             {
@@ -290,6 +290,9 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
+
+            // Step 3: fully finalized — release exclusivity so a new /run/* may start.
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.Rebuild);
         }
     }
 
@@ -378,15 +381,34 @@ internal sealed partial class ProjectRuntime
     }
 
     /// <summary>
-    /// Clears the active lease then the exclusive-operation flag under one lock so a terminal
-    /// operation is never cancellable and a new op cannot overlap an old lease.
+    /// Step 1 of terminal finalization: clear the cancel target so <c>/run/cancel</c> returns 409,
+    /// while keeping the exclusive in-progress flag so a new <c>/run/*</c> cannot start yet.
+    /// Allowed intermediate state: <c>lease == null</c> and exclusive flag still <c>1</c>.
     /// </summary>
-    private void RetireControlPlaneOperation(
+    private void RetireControlPlaneCancellationTarget(ControlPlaneOperationLease? lease)
+    {
+        lock (controlPlaneOperationSync)
+        {
+            if (lease is not null && ReferenceEquals(activeControlPlaneLease, lease))
+            {
+                activeControlPlaneLease = null;
+            }
+        }
+
+        NotifyControlPlaneChanged(immediate: true);
+    }
+
+    /// <summary>
+    /// Step 3 of terminal finalization: after resume/history/completion work, clear exclusivity
+    /// and dispose the retired lease so a new operation may acquire.
+    /// </summary>
+    private void ReleaseControlPlaneOperationExclusivity(
         ControlPlaneOperationLease? lease,
         ControlPlaneOperationKind kind)
     {
         lock (controlPlaneOperationSync)
         {
+            // Never leave an old lease installed once exclusivity is released.
             if (lease is not null && ReferenceEquals(activeControlPlaneLease, lease))
             {
                 activeControlPlaneLease = null;
@@ -783,7 +805,7 @@ internal sealed partial class ProjectRuntime
             shipCheckConfiguration = null;
             shipCheckFilter = null;
 
-            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.ShipCheck);
+            RetireControlPlaneCancellationTarget(lease);
 
             if (shouldResume)
             {
@@ -819,6 +841,7 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.ShipCheck);
         }
     }
 
@@ -944,7 +967,7 @@ internal sealed partial class ProjectRuntime
         {
             shipCheckConfiguration = null;
             shipCheckFilter = null;
-            RetireControlPlaneOperation(lease, ControlPlaneOperationKind.Tests);
+            RetireControlPlaneCancellationTarget(lease);
             CompleteAgentTestsForOutcome(result?.Outcome);
             if (historyOpId is not null && result?.Outcome == ControlPlaneOperationOutcome.Cancelled)
             {
@@ -956,6 +979,7 @@ internal sealed partial class ProjectRuntime
             }
 
             EndHistoryOperation(historyOpId);
+            ReleaseControlPlaneOperationExclusivity(lease, ControlPlaneOperationKind.Tests);
         }
     }
 

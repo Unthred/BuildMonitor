@@ -325,7 +325,12 @@ In-phase classification uses token-owned termination evidence, not `CancelReques
 
 #### Lease retirement
 
-Once the terminal `/run/*` result is committed, finalization **retires the active lease under the same lock as clearing the exclusive-operation flag** (then notifies). After retirement, `/run/cancel` returns **409** — there is no window where the exclusivity flag is clear while an old lease remains cancellable, and a new operation cannot install a lease until the old one is retired. Duplicate cancel while the same lease is still active remains **200** with `alreadyRequested: true`.
+Terminal `/run/*` finalization uses two ownership boundaries:
+
+1. **Retire cancellability** — clear `activeControlPlaneLease` under sync (exclusive in-progress flag stays `1`). `/run/cancel` → **409**; a new `/run/*` → **409**/busy. Allowed intermediate state: `lease == null` with exclusivity still held.
+2. **Release exclusivity** — only after resume/history/completion cleanup: clear the in-progress flag, dispose the retired lease, notify. Then a new operation may acquire.
+
+Never leave `exclusive flag == 0` with an old lease still installed, and never install a new lease while the previous operation’s `finally` is still mutating project state. Duplicate cancel while the same lease is still active remains **200** with `alreadyRequested: true`.
 
 **Invariant:** `ok == true` if and only if `outcome == "succeeded"`. HTTP **200** can still mean `ok: false` (operation ran and failed).
 
