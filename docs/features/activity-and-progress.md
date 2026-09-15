@@ -83,6 +83,6 @@ During cancellation, Agent activity may show `Cancelling rebuild…` / `Cancelli
 - Classic Release / environment approvals / cancel-retry.
 - ETA, percentage, historical duration prediction.
 - Stage/job log streaming or full stage-tree UI.
-- Failure-card stage/job redesign (follow-up).
+- Failure-card stage/job redesign (potential future only if usage justifies).
 - Duplicating operational history.
 - Source-label polish (`L Local` / `U User`) — optional later with history UI.

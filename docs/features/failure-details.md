@@ -198,6 +198,6 @@ Manual status-panel checks (prefer non-destructive failures; use fixture present
 
 Do not crash BuildMonitor.TrayApp (`RunMode.None`) to exercise RunHost — use a supervised project (e.g. WitherbyConnect). Do not force risky production Azure pipeline failures solely for QA.
 
-## Deferred
+## Deferred / polish
 
-- Tray tooltip one-liner polish beyond existing `LastErrorPreview`
+- Tray tooltip one-liner polish beyond existing `LastErrorPreview` (presentation only; not required for completeness)

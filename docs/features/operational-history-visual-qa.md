@@ -1,5 +1,8 @@
 # Visual QA — Operational history timeline (#116)
 
+> Historical QA checklist from #116 delivery. Behaviour authority:
+> [operational-history.md](operational-history.md) and [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
+
 Artefacts (illustrative mockups, not pixel screenshots of the live tray):
 
 - Status panel Recent activity (light): see chat asset `qa-status-recent-activity-light.png`

@@ -2,6 +2,7 @@
 
 | Topic | Document |
 |-------|----------|
+| Project status (maintenance mode) | [../PROJECT_STATUS.md](../PROJECT_STATUS.md) |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Settings schema | [SETTINGS.md](SETTINGS.md) |
 | Logs | [LOGS.md](LOGS.md) |

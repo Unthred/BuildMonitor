@@ -32,3 +32,5 @@ Human-facing detail: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 - Isolate child processes from BuildMonitor's own `dotnet watch` host environment
 - Persist last build/run/test logs for quick diagnosis
 - Debounce file changes and avoid blocking child stdout
+
+Product completeness and maintenance policy: [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md).
