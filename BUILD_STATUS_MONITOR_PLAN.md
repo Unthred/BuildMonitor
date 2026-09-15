@@ -1,8 +1,12 @@
 # Local Build Control Tray
 
+> **Historical design document.** Current behaviour and completeness are documented in
+> [PROJECT_STATUS.md](PROJECT_STATUS.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+> and the feature / ops docs under `docs/`. Do not treat this file as an active roadmap.
+
 Windows 11 WPF tasktray app for monitoring and controlling local .NET projects you are actively working on.
 
-## Capabilities (MVP)
+## Capabilities (MVP era — now shipped and extended)
 
 - Configure multiple projects (folder, csproj/sln, launch profile, dotnet args)
 - Select which projects are active in the current session
@@ -14,6 +18,8 @@ Windows 11 WPF tasktray app for monitoring and controlling local .NET projects y
 - Hover status panel (stable show/hide, no flicker)
 - Full last build/test log viewer with error list and jump-to-line
 - Settings apply immediately without restart
+
+Later shipped work (not listed in the original MVP) includes AI Controlled mode, loopback control plane (including `/run/cancel`), operational history, activity/progress, failure details, continuous Azure monitoring, and Azure stage/job projection on active runs. See [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Traffic light
 
@@ -28,7 +34,7 @@ Windows 11 WPF tasktray app for monitoring and controlling local .NET projects y
 
 ## Azure DevOps monitoring
 
-Continuous Azure build polling is **shipped** (connections, discovery, project association, hover BUILDS, tray health, control-plane `/projects`). See [docs/SETTINGS.md](docs/SETTINGS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Toast notifications and stage/job timeline remain deferred.
+Continuous Azure build polling is **shipped** (connections, discovery, project association, hover BUILDS, tray health, control-plane `/projects`, active-run stage/job via timeline). See [docs/SETTINGS.md](docs/SETTINGS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Toast notifications and a full stage-tree UI remain intentional non-goals unless usage demands them.
 
 ## Run from repo root
 
@@ -47,4 +53,4 @@ Or use the convenience scripts:
 
 ## Phases
 
-See Cursor plan `local_build_tray_pivot` for delivery history and backlog.
+Delivery history lived in Cursor plans and GitHub Issues / project board #3. The product is now in **maintenance mode**; an empty Todo board is intentional.

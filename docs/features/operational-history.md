@@ -98,7 +98,7 @@ Started / Succeeded / Failed / Cancelled (when the runtime distinguishes cancell
 
 ### Test lifecycle (`Kind = Tests`, `Source = Local`)
 
-Started / Succeeded / Failed. Failed count and up to **5** failing test names when already parseable from the test log. Cancelled only if the runtime adds a true cancel path later.
+Started / Succeeded / Failed / Cancelled when the runtime distinguishes cancellation (including explicit control-plane `/run/cancel` for Agent-sourced test operations). Failed count and up to **5** failing test names when already parseable from the test log.
 
 ### Run-host lifecycle (`Kind = RunHost`, `Source = Local`)
 

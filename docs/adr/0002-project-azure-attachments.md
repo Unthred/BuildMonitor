@@ -20,7 +20,7 @@ BuildMonitor evolved into a project-centric local build/run/watch tray app (`Mon
 9. Repository **default branch** comes from Azure metadata (last-known retained on refresh failure); no manual override in v1.
 10. Schema **v21** nests former flat local fields under `Local` and introduces `Connections` + `Azure`.
 11. **Session gate (Slice 3B):** Azure polling runs only when `IsActiveInSession` and ≥1 pipeline is selected (same session flag as Local). Azure-only projects use that flag; there is no separate “monitor Azure” toggle.
-12. **Polling state** for Slice 3B is **in-memory** (no `JsonStateStore` for facets); notifications remain deferred.
+12. **Polling state** for Slice 3B is **in-memory** (no `JsonStateStore` for facets); OS notifications remain deferred. Active primary-run timeline fetch for stage/job activity was added later (#138) on the same poll cycle.
 
 ## Consequences
 
@@ -35,7 +35,7 @@ BuildMonitor evolved into a project-centric local build/run/watch tray app (`Mon
 **Trade-offs:**
 
 - Settings UI and orchestrator must understand optional Local (Azure-only has no `ProjectRuntime`; health comes from Azure facets).
-- Azure build notifications and stage/job timeline remain deferred.
+- OS build notifications and a full stage-tree UI remain deferred as product non-goals; **active-run stage/job projection via Builds timeline is shipped** (#138) into #112 Azure activity.
 - In-memory facets reset on restart until the first poll cycle.
 
 ## References

@@ -123,9 +123,9 @@ Full ship: commit → push → PR → squash merge → issue closed → project 
 
 Load `.cursor/skills/feature-ship/SKILL.md` when the user says **ship** or **ship it**.
 
-## Board sync (backlog)
+## Board sync (shipped work)
 
-The board must list **all shipped work (Done)** and **planned work (Todo)**. Run after creating retrospective issues or when the board drifts:
+The board should list **shipped work (Done)**. An empty **Todo** column is intentional while BuildMonitor is in [maintenance mode](../../PROJECT_STATUS.md) — do not invent speculative enhancement cards.
 
 ```powershell
 .\scripts\github\Sync-ProjectBoard.ps1
@@ -133,21 +133,19 @@ The board must list **all shipped work (Done)** and **planned work (Todo)**. Run
 
 Dry run: `.\scripts\github\Sync-ProjectBoard.ps1 -WhatIf`
 
-The script is idempotent (skips issues whose titles already exist) and ensures closed issues **#2**, **#4**, **#6**–**#8**, **#10** are on project #3 with Status **Done**.
+The script is idempotent: it ensures closed retrospective issues are on project #3 with Status **Done**, and backfills any closed issues missing from the board. It does **not** create open Todo enhancement issues.
 
-### Planned work (Todo on board)
+Historical themes that were once listed as planned (all shipped or deferred as non-goals):
 
-| Theme | Issue title (created by sync script if missing) |
-|-------|--------------------------------------------------|
-| Observability | #110 Per-project operational history and timeline (slices #113–#116) |
-| Observability | #111 Actionable failure details from tray/status UI |
-| Observability | #112 Per-project activity and progress model |
-| Tray UX | Open log viewer from tray context menu |
-| Tray UX | WPF tray context menu (Phase 2, if #8 insufficient) |
-| Optional module | Azure DevOps polling (shipped — see SETTINGS / ARCHITECTURE; notifications still deferred) |
-| Diagnostics | Verdict feedback loop for adaptive debounce |
-
-Update this table when adding new planned issues.
+| Theme | Outcome |
+|-------|---------|
+| Operational history (#110 / #113–#116) | Shipped |
+| Failure details (#111) | Shipped |
+| Activity / progress (#112) | Shipped |
+| Azure DevOps polling + active stage/job (#138) | Shipped (notifications / full timeline UI remain non-goals) |
+| Control-plane cancel (#140) | Shipped |
+| Tray context-menu log shortcut / Phase 2 WPF menu | Potential future only if usage justifies |
+| Diagnostics verdict feedback loop | Potential future only if usage justifies |
 
 ## Enforce issue on every commit
 

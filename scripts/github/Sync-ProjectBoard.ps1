@@ -1,6 +1,8 @@
-# Syncs BuildMonitor project board #3 with retrospective (Done) and planned (Todo) issues.
+# Syncs BuildMonitor project board #3 with shipped (Done) retrospective issues.
 # Run from repo root: .\scripts\github\Sync-ProjectBoard.ps1
 # Idempotent: skips issues whose titles already exist (open or closed).
+# Does NOT create speculative Todo enhancement issues — empty Todo is intentional
+# while the product is in maintenance mode (see PROJECT_STATUS.md).
 
 param(
     [switch]$WhatIf
@@ -223,78 +225,9 @@ Failed step in build progress list; prevent double build (watch + file watcher, 
 - [x] Hammer animation on building state
 "@
 
-# --- Planned (Todo) ---
-
-New-BoardIssue -Title "Enhancement: Run tests on file change (OnFileChange mode)" -BoardStatus Todo -Body @"
-## Problem
-``RunTests`` only supports ``Off`` and ``OnBuildSuccess``; ``OnFileChange`` is documented as planned.
-
-## Acceptance criteria
-- [ ] ``OnFileChange`` runs debounced ``dotnet test`` after file-triggered rebuild
-- [ ] Respects same watcher debounce as builds
-- [ ] Documented in ``docs/SETTINGS.md``
-
-## Surfaces
-Infrastructure, Settings, docs
-"@
-
-New-BoardIssue -Title "Enhancement: Open log viewer from tray context menu" -BoardStatus Todo -Body @"
-## Problem
-Log viewer is reachable from hover status panel; tray context menu does not yet expose **View log** per project.
-
-## Acceptance criteria
-- [ ] **View log** under each project in tray menu (both layout modes)
-- [ ] Reuses single window per project
-- [ ] ``docs/LOGS.md`` updated
-
-## Surfaces
-TrayApp, docs
-"@
-
-New-BoardIssue -Title "Enhancement: WPF tray context menu (Phase 2)" -BoardStatus Todo -Body @"
-## Problem
-Phase 1 health coalescing (#8) fixed most tray menu stalls. If menu remains sticky, migrate WinForms ``ContextMenuStrip`` to WPF ``ContextMenu``.
-
-## Acceptance criteria
-- [ ] Only implement if Phase 1 insufficient in production use
-- [ ] Menu responsive during heavy builds
-- [ ] Exit and dismiss behave reliably
-
-## Surfaces
-TrayApp
-
-## Related
-#8 (Done)
-"@
-
-New-BoardIssue -Title "Enhancement: Wire optional Azure DevOps polling module" -BoardStatus Todo -Body @"
-## Problem
-``Infrastructure/AzureDevOps/`` exists but is not wired into tray startup (optional future module per ``BUILD_STATUS_MONITOR_PLAN.md``).
-
-## Acceptance criteria
-- [ ] Settings schema for org URL and pipelines (or remove dead code)
-- [ ] Tray integration behind explicit opt-in
-- [ ] ADR if persistence/auth approach is chosen
-
-## Surfaces
-Infrastructure, TrayApp, docs
-"@
-
-New-BoardIssue -Title "Enhancement: Diagnostics verdict feedback loop for adaptive debounce" -BoardStatus Todo -Body @"
-## Problem
-Adaptive debounce (#7) learns from save bursts; diagnostics verdicts could refine learning (noted out of scope in #7).
-
-## Acceptance criteria
-- [ ] Verdict (helpful / noisy rebuild) stored per trigger journal entry
-- [ ] Optional influence on debounce learning weights
-- [ ] Unit tests for feedback calculator
-
-## Surfaces
-Infrastructure, TrayApp, docs
-
-## Related
-#7 (Done), #10 (Done)
-"@
+# --- Planned Todo enhancements intentionally omitted ---
+# Do not recreate speculative enhancement issues here. New work requires observed
+# friction or a real requirement (PROJECT_STATUS.md maintenance policy).
 
 # --- Ensure existing issues are on the board ---
 

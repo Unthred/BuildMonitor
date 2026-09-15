@@ -36,6 +36,7 @@ After each successful control-plane call (or when skipping), put **one short lin
 | Starting ship-check | `BuildMonitor: /run/ship-check…` |
 | Ship-check finished | `BuildMonitor: /run/ship-check — pass` or `… — fail` (mention build vs tests if known) |
 | Tests only | `BuildMonitor: /run/tests…` then `… — pass` / `… — fail` |
+| Cancel in-flight `/run/*` | `BuildMonitor: /run/cancel…` then note original `/run/*` `outcome:cancelled` when it returns |
 | Unreachable / no project | `BuildMonitor: handshake skipped (unreachable)` or `(no project for this folder)` |
 
 Do **not** stay silent on handshake or `/run/*`. Do **not** invent extra MCP or pretend BuildMonitor streamed into chat — these lines are the signal.
@@ -81,10 +82,11 @@ If the control plane is unreachable, continue editing and announce that the hand
 | Full verification | `/run/ship-check` — before claiming tests pass |
 | Locked DLLs / bad incremental | `/run/rebuild` |
 | Still editing after a pause | `busy` again before more writes |
+| Stop wrong/stuck `/run/*` | `POST /run/cancel` with `projectId` + optional `operationId` from `/projects.activities`; original `/run/*` returns `outcome:"cancelled"` when cancel owns termination |
 
 **Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all).
 
-**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line; long `AwaitShell` after `/run/*` or `dotnet` already finished (see Shell wait rules).
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line; long `AwaitShell` after `/run/*` or `dotnet` already finished (see Shell wait rules); treating `/run/cancel` `ok:true` as operation success (it only means the cancel signal was accepted).
 
 ## Shell wait rules (authoritative)
 

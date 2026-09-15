@@ -1,8 +1,19 @@
 # BuildMonitor
 
-Windows tray app that monitors local .NET projects — build, run, watch, logs, and health at a glance.
+Windows tray app for personal .NET development: authoritative local build / test / run visibility, governed agent control over watched repos, and Azure DevOps CI state in the same status surface.
+
+**Project status:** [Feature-complete / maintenance mode](PROJECT_STATUS.md)
 
 Repo: [github.com/Unthred/BuildMonitor](https://github.com/Unthred/BuildMonitor)
+
+## What it does
+
+- Monitors one or more configured .NET projects from the system tray (traffic-light health)
+- Runs local `dotnet build` / `test` / `run` / `watch` with last-log capture
+- **File Watching** vs **AI Controlled** modes so agents can edit without surprise auto-builds
+- Loopback **control plane** (`http://127.0.0.1:7700/`) for busy/idle, rebuild, tests, ship-check, and explicit cancel
+- Optional **Azure DevOps** monitoring (primary run, tray + `/projects`, stage/job while a run is active)
+- Status panel: activity (“what now?”), failure details (“why unhealthy?”), recent operational history (“what happened?”)
 
 ## Build and run
 
@@ -28,7 +39,9 @@ User settings: `%LocalAppData%/BuildMonitor/settings.json` (not committed). See 
 
 ## Documentation
 
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) — completeness, contracts, maintenance policy
 - [docs/README.md](docs/README.md) — full index
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — projects and flow
+- [docs/ops/control-plane.md](docs/ops/control-plane.md) — agent HTTP API
 - [docs/LOGS.md](docs/LOGS.md) — log storage
 - [docs/ops/github-workflow.md](docs/ops/github-workflow.md) — Issues, Projects board, and PRs
