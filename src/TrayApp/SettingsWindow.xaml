@@ -337,7 +337,7 @@
                                            Margin="0,0,0,2"
                                            TextWrapping="Wrap" />
                                 <TextBlock x:Name="AgentSkillStatusDetail"
-                                           Text="Select a project to see whether the control-plane skill and always-on rule are installed."
+                                           Text="Shows whether the user-level verification-provider adapter matches this BuildMonitor version."
                                            Opacity="0.85"
                                            Margin="0,0,0,6"
                                            TextWrapping="Wrap" />
@@ -346,7 +346,7 @@
                                             Content="Install / Update"
                                             Padding="10,4"
                                             Click="InstallAgentSkillClicked"
-                                            ToolTip="Copies the BuildMonitor skill and an always-on Cursor rule into this project's .cursor folder so agents use busy/idle/ship-check without paste." />
+                                            ToolTip="Copies the BuildMonitor verification-provider adapter into this user's Cursor config (not into the project). Claims only exact configured worktrees." />
                                     <Button Content="Refresh"
                                             Margin="8,0,0,0"
                                             Padding="10,4"

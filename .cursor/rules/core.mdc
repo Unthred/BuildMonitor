@@ -6,7 +6,7 @@ alwaysApply: true
 # Core
 
 - **Credit (mandatory):** See `credit-conservation.mdc` — opt-in skills, minimal tools, Chat for questions.
-- **Build/run (mandatory):** See `no-unapproved-runtime-execution.mdc` — agent never runs `dotnet build`, `dotnet watch`, or `dotnet test` unless the user explicitly asks.
+- **Build/run (mandatory):** See `no-unapproved-runtime-execution.mdc`. If a verification provider claims this exact worktree, it exclusively owns rebuild/tests/ship-check. Otherwise a requested verification may use `direct-dotnet`. Never start watch/run/tray unless asked.
 - **Build warnings:** See `build-warnings.mdc` — no **new** warnings in files you changed.
 - **Work tracking:** See `work-tracking.mdc` — every change needs a card on project board **#3** (issue + `gh project item-add`), and a PR to `main`.
 - Use async/await with `CancellationToken` for I/O in Infrastructure; do not block on asynchronous work.

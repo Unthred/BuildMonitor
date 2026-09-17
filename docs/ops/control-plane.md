@@ -20,8 +20,8 @@ Override `suppressAutoBuildTests` per project via session/ship-check JSON (`supp
 BuildMonitor is multi-project. Every scoped call requires **`projectId`** (query or JSON body).
 
 1. Discover IDs: `GET http://127.0.0.1:7700/projects`
-2. Store the matching `id` (and optionally match `rootFolder` to the repo you are editing)
-3. Pass that `projectId` on session / watch / ship-check calls
+2. Claim a project only when `rootFolder` **exactly** equals the folder being edited (full path; trailing separators ignored; case-insensitive). Parent, child, sibling, and similarly named folders are not a match.
+3. Pass that `projectId` on session / watch / ship-check calls. If there is no exact match, decline and let the product repository use `direct-dotnet`. Do not auto-add the worktree.
 
 The build target is the project's configured **Project file** (same as the tray monitor). Tests use **Test project / solution** or auto-discovery; if none, ship-check omits `tests` and `ok` follows build only.
 
@@ -446,19 +446,20 @@ $result | ConvertTo-Json -Depth 5
 
 ## Agent onboarding (A + C)
 
-Agents in a watched product repo do **not** see BuildMonitor’s docs by default. Install the skill from the tray:
+Agents in a product repo do **not** see BuildMonitor’s docs by default. Install the **user-level** verification-provider adapter (never into the product `.cursor` folder):
 
-- **Settings → Projects** → select project → status line + **Install / Update** (also **Refresh**)
-- Or tray: **Install Cursor agent skill → &lt;project&gt;**
+- **Settings → Projects** → **Install / Update** (also **Refresh**) — copies into `%USERPROFILE%\.cursor\...`
+- Or tray: **Install Cursor agent skill**
+- Or `.\scripts\Install-ControlPlaneAgentSkill.ps1`
 
-Install writes both the skill and an **always-on** Cursor rule so agents use busy/idle/ship-check without the user pasting instructions.
+See [verification-provider-adapter.md](verification-provider-adapter.md).
 
 **Discovery:**
 
 1. Tray writes `%LocalAppData%\BuildMonitor\control-plane.json` when the control plane binds (port, `baseUrl`, project list).
-2. Skill probes that file, else `GET http://127.0.0.1:7700/projects`, matches `rootFolder` to the workspace, then mode → busy → edit → idle → explicit `/run/rebuild` or `/run/ship-check`.
+2. Adapter probes that file, else `GET http://127.0.0.1:7700/projects`, claims only an **exact** `rootFolder` match, then mode → busy → edit → idle → explicit `/run/rebuild`, `/run/tests`, or `/run/ship-check`.
 
-**Chat announcements:** the installed skill and always-on rule require a short `BuildMonitor:` line in the agent reply for mode/busy/idle and each `/run/*` start/result (and when handshake is skipped), so Cursor output shows control-plane activity without a live log stream.
+**Chat announcements:** when claimed, announce `Verification: buildmonitor-control-plane` plus mode/busy/idle and each `/run/*` start/result. When declined, announce `Verification: direct-dotnet` and why.
 
 ## Metrics (Build diagnostics)
 

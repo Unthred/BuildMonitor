@@ -1,3 +1,5 @@
+using BuildMonitor.Core.Rules;
+
 namespace BuildMonitor.Infrastructure.ControlPlane;
 
 public enum ControlPlaneAgentIntegrationState
@@ -12,7 +14,8 @@ public sealed record ControlPlaneAgentSkillInstallResult(
     bool Ok,
     string DestinationPath,
     string? Error,
-    string? RuleDestinationPath = null);
+    string? RuleDestinationPath = null,
+    string? BackupDirectory = null);
 
 public sealed record ControlPlaneAgentIntegrationStatus(
     ControlPlaneAgentIntegrationState State,
@@ -27,30 +30,50 @@ public sealed record ControlPlaneAgentIntegrationStatus(
     bool NeedsInstallOrUpdate);
 
 /// <summary>
-/// Copies the Cursor control-plane skill and always-on rule into a watched project's .cursor folder.
+/// Copies the canonical verification-provider adapter into the current user's Cursor config.
+/// Never writes into product repositories.
 /// </summary>
 public static class ControlPlaneAgentSkillInstaller
 {
     public const string SkillFolderName = "buildmonitor-control-plane";
     public const string SkillFileName = "SKILL.md";
     public const string RuleFileName = "buildmonitor-control-plane.mdc";
+    public const string BackupFolderName = "buildmonitor-adapter-backup";
 
     public static ControlPlaneAgentSkillInstallResult Install(
-        string projectRootFolder,
+        string? projectRootFolder,
         string? explicitSkillSourcePath = null,
-        string? explicitRuleSourcePath = null)
+        string? explicitRuleSourcePath = null) =>
+        InstallToUserCursor(
+            ResolveUserProfileDirectory(),
+            explicitSkillSourcePath,
+            explicitRuleSourcePath);
+
+    public static ControlPlaneAgentSkillInstallResult InstallToUserCursor(
+        string userProfileDirectory,
+        string? explicitSkillSourcePath = null,
+        string? explicitRuleSourcePath = null,
+        bool backupExisting = true)
     {
-        if (string.IsNullOrWhiteSpace(projectRootFolder))
+        if (string.IsNullOrWhiteSpace(userProfileDirectory))
         {
-            return new ControlPlaneAgentSkillInstallResult(false, string.Empty, "Project root folder is empty.");
+            return new ControlPlaneAgentSkillInstallResult(false, string.Empty, "User profile directory is empty.");
         }
 
-        if (!Directory.Exists(projectRootFolder))
+        if (LooksLikeProductRepository(userProfileDirectory))
         {
             return new ControlPlaneAgentSkillInstallResult(
                 false,
                 string.Empty,
-                $"Root folder does not exist: {projectRootFolder}");
+                "Refusing to install into a product repository. Use the user Cursor profile.");
+        }
+
+        if (!Directory.Exists(userProfileDirectory))
+        {
+            return new ControlPlaneAgentSkillInstallResult(
+                false,
+                string.Empty,
+                $"User profile directory does not exist: {userProfileDirectory}");
         }
 
         var skillSource = explicitSkillSourcePath ?? ResolveBundledSkillPath();
@@ -71,17 +94,21 @@ public static class ControlPlaneAgentSkillInstaller
                 "Bundled always-on rule was not found next to BuildMonitor. Reinstall or rebuild the tray app.");
         }
 
-        var skillDestDir = Path.Combine(projectRootFolder, ".cursor", "skills", SkillFolderName);
-        var skillDestPath = Path.Combine(skillDestDir, SkillFileName);
-        var ruleDestDir = Path.Combine(projectRootFolder, ".cursor", "rules");
-        var ruleDestPath = Path.Combine(ruleDestDir, RuleFileName);
+        var skillDestPath = GetSkillPath(userProfileDirectory);
+        var ruleDestPath = GetRulePath(userProfileDirectory);
         try
         {
-            Directory.CreateDirectory(skillDestDir);
-            Directory.CreateDirectory(ruleDestDir);
+            string? backupDirectory = null;
+            if (backupExisting)
+            {
+                backupDirectory = BackupExisting(userProfileDirectory, skillDestPath, ruleDestPath);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(skillDestPath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(ruleDestPath)!);
             File.Copy(skillSource, skillDestPath, overwrite: true);
             File.Copy(ruleSource, ruleDestPath, overwrite: true);
-            return new ControlPlaneAgentSkillInstallResult(true, skillDestPath, null, ruleDestPath);
+            return new ControlPlaneAgentSkillInstallResult(true, skillDestPath, null, ruleDestPath, backupDirectory);
         }
         catch (Exception ex)
         {
@@ -90,18 +117,24 @@ public static class ControlPlaneAgentSkillInstaller
     }
 
     public static ControlPlaneAgentIntegrationStatus Inspect(
-        string projectRootFolder,
+        string? projectRootFolder,
+        string? explicitSkillSourcePath = null,
+        string? explicitRuleSourcePath = null) =>
+        InspectUserCursor(ResolveUserProfileDirectory(), explicitSkillSourcePath, explicitRuleSourcePath);
+
+    public static ControlPlaneAgentIntegrationStatus InspectUserCursor(
+        string userProfileDirectory,
         string? explicitSkillSourcePath = null,
         string? explicitRuleSourcePath = null)
     {
-        var skillPath = GetSkillPath(projectRootFolder);
-        var rulePath = GetRulePath(projectRootFolder);
-        if (string.IsNullOrWhiteSpace(projectRootFolder) || !Directory.Exists(projectRootFolder))
+        var skillPath = GetSkillPath(userProfileDirectory);
+        var rulePath = GetRulePath(userProfileDirectory);
+        if (string.IsNullOrWhiteSpace(userProfileDirectory) || !Directory.Exists(userProfileDirectory))
         {
             return new ControlPlaneAgentIntegrationStatus(
                 ControlPlaneAgentIntegrationState.Missing,
                 "Not installed",
-                "Choose a valid project root folder first.",
+                "User Cursor profile is missing.",
                 false,
                 false,
                 false,
@@ -127,7 +160,7 @@ public static class ControlPlaneAgentSkillInstaller
             return new ControlPlaneAgentIntegrationStatus(
                 ControlPlaneAgentIntegrationState.Missing,
                 "Not installed",
-                "Agents in this repo will ask you to run raw dotnet build/test/watch. Click Install.",
+                "Install the user-level adapter so agents can claim exact worktrees. Product repos keep their own direct fallback.",
                 false,
                 false,
                 false,
@@ -143,7 +176,7 @@ public static class ControlPlaneAgentSkillInstaller
             return new ControlPlaneAgentIntegrationStatus(
                 ControlPlaneAgentIntegrationState.Partial,
                 "Partially installed",
-                $"Missing {missing}. Click Install / Update so agents handshake automatically.",
+                $"Missing {missing}. Update the user-level adapter.",
                 skillPresent,
                 skillCurrent,
                 rulePresent,
@@ -158,7 +191,7 @@ public static class ControlPlaneAgentSkillInstaller
             return new ControlPlaneAgentIntegrationStatus(
                 ControlPlaneAgentIntegrationState.Outdated,
                 "Installed — update available",
-                "Files are present but do not match this BuildMonitor version. Click Update.",
+                "User-level files do not match this BuildMonitor adapter version. Click Update.",
                 true,
                 skillCurrent,
                 true,
@@ -171,7 +204,7 @@ public static class ControlPlaneAgentSkillInstaller
         return new ControlPlaneAgentIntegrationStatus(
             ControlPlaneAgentIntegrationState.Current,
             "Ready",
-            "Skill + always-on rule are current. New agent chats in this folder use BuildMonitor without paste.",
+            $"User-level adapter {VerificationProviderAdapterMetadataParser.AdapterVersion} matches source {VerificationProviderAdapterMetadataParser.AdapterSourcePath}.",
             true,
             true,
             true,
@@ -181,17 +214,50 @@ public static class ControlPlaneAgentSkillInstaller
             NeedsInstallOrUpdate: false);
     }
 
-    public static string GetSkillPath(string projectRootFolder) =>
-        Path.Combine(projectRootFolder ?? string.Empty, ".cursor", "skills", SkillFolderName, SkillFileName);
+    public static string GetSkillPath(string userProfileDirectory) =>
+        Path.Combine(userProfileDirectory ?? string.Empty, ".cursor", "skills", SkillFolderName, SkillFileName);
 
-    public static string GetRulePath(string projectRootFolder) =>
-        Path.Combine(projectRootFolder ?? string.Empty, ".cursor", "rules", RuleFileName);
+    public static string GetRulePath(string userProfileDirectory) =>
+        Path.Combine(userProfileDirectory ?? string.Empty, ".cursor", "rules", RuleFileName);
+
+    public static bool LooksLikeProductRepository(string directory) =>
+        File.Exists(Path.Combine(directory, "WitherbyConnect.csproj"))
+        || File.Exists(Path.Combine(directory, "WitherbyConnect.sln"))
+        || File.Exists(Path.Combine(directory, "WitherbyConnect.slnx"));
+
+    public static string ResolveUserProfileDirectory() =>
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     public static string? ResolveBundledSkillPath() =>
         ResolveBundledPath(SkillFolderName, SkillFileName);
 
     public static string? ResolveBundledRulePath() =>
         ResolveBundledPath(SkillFolderName, "RULE.mdc");
+
+    private static string? BackupExisting(string userProfileDirectory, string skillDestPath, string ruleDestPath)
+    {
+        var skillExists = File.Exists(skillDestPath);
+        var ruleExists = File.Exists(ruleDestPath);
+        if (!skillExists && !ruleExists)
+        {
+            return null;
+        }
+
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var backupDir = Path.Combine(userProfileDirectory, ".cursor", BackupFolderName, stamp);
+        Directory.CreateDirectory(backupDir);
+        if (skillExists)
+        {
+            File.Copy(skillDestPath, Path.Combine(backupDir, SkillFileName), overwrite: true);
+        }
+
+        if (ruleExists)
+        {
+            File.Copy(ruleDestPath, Path.Combine(backupDir, RuleFileName), overwrite: true);
+        }
+
+        return backupDir;
+    }
 
     private static string? ResolveBundledPath(string folderName, string fileName)
     {

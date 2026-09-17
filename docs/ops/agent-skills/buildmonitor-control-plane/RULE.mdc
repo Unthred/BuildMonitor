@@ -1,46 +1,60 @@
 ---
 description: >-
-  When working in this .NET repo, use BuildMonitor's localhost control plane for
-  edit bursts and ship build/test instead of asking the user to run raw
-  dotnet build / test / watch commands. Announce each handshake and /run step
-  in chat so the user can see BuildMonitor activity.
+  Optional verification provider. Claim only the exact configured worktree when
+  BuildMonitor is reachable. Otherwise decline so the product repo fallback can
+  run. Do not install this rule into other product repositories.
 alwaysApply: true
 ---
 
-# BuildMonitor control plane (required in this repo)
+# Optional verification provider (BuildMonitor)
 
-BuildMonitor watches this folder and owns local build / test / watch. **Do not** ask the user to run:
+This user-level rule is an **optional adapter**, not product law. Product
+outcomes live in the repository being edited.
 
-- `dotnet build`
-- `dotnet test`
-- `dotnet watch run`
+## Claim (exact path only)
 
-unless the control plane is unreachable.
+1. Read `%LocalAppData%\BuildMonitor\control-plane.json` when present and
+   `enabled`; else `GET http://127.0.0.1:7700/projects`.
+2. Claim **yes** only when a project `rootFolder` equals the **exact** folder
+   being edited (full path; ignore trailing separators; case-insensitive) **and**
+   BuildMonitor is reachable **and** the project supports the requested
+   operation.
+3. Parent, child, sibling, similarly named, and the chat's original workspace
+   are **not** a claim.
+4. If no exact claim: **do nothing**. Do not handshake. Do not forbid `dotnet`.
+   Announce `Verification: direct-dotnet` and why. Unconfigured worktrees are
+   valid. **Do not auto-configure.**
+5. If exact claim but unreachable or the operation is unsupported: decline and
+   leave fallback to the product repository.
 
-## Handshake (loopback HTTP only — no MCP)
+## When claimed
 
-1. Read `%LocalAppData%\BuildMonitor\control-plane.json` when present; else `GET http://127.0.0.1:7700/projects`.
-2. Match `projectId` by `rootFolder` to this workspace (case-insensitive path; parent/child OK).
-3. `GET /mode?projectId=` — if not `ai-controlled`, `POST /mode` with `{ "projectId", "mode": "ai-controlled" }`. Leave AI Controlled after the task (do not auto-revert).
-4. Before multi-file edits: `POST /session/busy` with `{ "projectId": "…" }`. Stay busy until **all** files for this turn are written. Send busy again if you continue after a pause.
-5. After the full edit burst: `POST /session/idle`. In AI Controlled mode idle **does not** start a build.
-6. When a compile is needed: `POST /run/rebuild`. For final verification: `POST /run/ship-check`. Optional `/run/tests` with `"filter"`.
-7. If `ok` is false, read failures/log and fix — do not claim success.
-8. Prefer pause/ship-check over starting a second `dotnet watch` or killing processes.
-9. Shell / `AwaitShell`: size `block_until_ms` to expected `/run/*` runtime; **never** background a ship-check then park on a multi-minute `AwaitShell`. `/run/*` returns when the process exits (pass or fail). Full rules: skill `buildmonitor-control-plane` → Shell wait rules.
+You exclusively own rebuild, test, status, and final verification.
+Do not also run direct `dotnet build` / `dotnet test`.
 
-## Chat announcements (required)
+1. `GET /mode?projectId=` — if not `ai-controlled`, `POST /mode` with
+   `{ "projectId", "mode": "ai-controlled" }`. Leave AI Controlled after the task.
+2. Before multi-file edits: `POST /session/busy`. Stay busy until all files for
+   this turn are written.
+3. After the edit burst: `POST /session/idle` (does not build in AI Controlled).
+4. Compile: `POST /run/rebuild`. Tests: `POST /run/tests`. Final verification:
+   `POST /run/ship-check` (fresh build and tests).
+5. Wait for JSON. If `ok` is false, read failures/log/outcome.
+6. HTTP **409**: wait, recheck status, retry. Do not overlap `/run/*`.
+7. Shell / `AwaitShell`: size `block_until_ms` to expected `/run/*` runtime.
+   `/run/*` returns when the process exits. Do not use a multi-minute `AwaitShell`
+   after `/run/*` has finished. Full rules: skill
+   `buildmonitor-control-plane` → Shell wait rules.
 
-After each control-plane step, include **one short user-visible line** with the `BuildMonitor:` prefix:
+## Chat announcements
 
-- `BuildMonitor: AI Controlled`
-- `BuildMonitor: busy — editing`
-- `BuildMonitor: idle — awaiting explicit build`
-- `BuildMonitor: /run/rebuild…` then `BuildMonitor: /run/rebuild — pass` or `… — fail`
-- `BuildMonitor: /run/ship-check…` then `… — pass` or `… — fail`
-- `BuildMonitor: /run/tests…` then pass/fail
-- `BuildMonitor: handshake skipped (unreachable)` or `(no project for this folder)`
+Use `Verification: buildmonitor-control-plane` when selected, then:
 
-Do not stay silent on handshake or `/run/*`.
+- `Verification: AI Controlled`
+- `Verification: busy — editing`
+- `Verification: idle — awaiting explicit build`
+- `Verification: rebuild…` then `rebuild — pass` or `fail`
+- `Verification: ship-check…` then `ship-check — pass` or `fail`
+- `Verification: tests…` then `tests — pass` or `fail`
 
-If the control plane cannot be reached, announce the skip and continue with normal editing.
+Do not stay silent on handshake or `/run/*` when this provider is selected.

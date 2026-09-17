@@ -1,12 +1,93 @@
 ---
 name: buildmonitor-control-plane
+verificationProvider: true
+verificationProviderContractVersion: "1"
+adapterVersion: "1.0.0"
+adapterSource: Unthred/BuildMonitor
+adapterSourcePath: docs/ops/agent-skills/buildmonitor-control-plane
 description: >-
-  Handshake with the local BuildMonitor tray app over loopback HTTP before
-  multi-file edits and before claiming build/test success. Use when editing a
-  .NET repo that BuildMonitor may be watching, when starting an edit burst,
-  finishing edits, or running a ship build/test check. Probes
-  http://127.0.0.1:7700 (or %LocalAppData%\BuildMonitor\control-plane.json).
+  Optional verification provider. Claims a worktree only when BuildMonitor is
+  reachable, the configured project root exactly matches the folder being
+  edited, and that project can run the requested operation. Owns rebuild,
+  tests, status, and ship-check for that folder. Probe
+  http://127.0.0.1:7700 or %LocalAppData%\BuildMonitor\control-plane.json.
 ---
+
+# BuildMonitor verification provider
+
+This is the **canonical** optional adapter for the generic verification-provider
+contract (`verificationProvider: true`, contract version **1**). Product repos
+define required outcomes; this skill maps them onto BuildMonitor.
+
+Install at **user** Cursor config only. Do not copy this into WitherbyConnect or
+other product repositories.
+
+## Claim
+
+Handshake once at the start of work **and again whenever the edited root changes**.
+
+1. Resolve the **exact** Git worktree / folder being edited. Do not substitute
+   the chat's original workspace, a parent checkout, a sibling worktree, or a
+   similarly named folder.
+2. Discover BuildMonitor: `%LocalAppData%\BuildMonitor\control-plane.json` when
+   `enabled`, else `GET http://127.0.0.1:7700/projects`.
+3. Claim **yes** only when **all** are true:
+   - BuildMonitor is reachable;
+   - a project `rootFolder` equals that exact path (full path; trailing
+     separators ignored; case-insensitive);
+   - the project can run the requested operation (`/run/rebuild`, `/run/tests`,
+     `/run/ship-check`, or `/projects` for status).
+4. Otherwise **decline cleanly**. Announce `Verification: direct-dotnet` plus
+   why (unreachable / no exact claim / operation unsupported). Do **not**
+   auto-configure the worktree. Unconfigured is valid, not an error.
+
+## Exclusive ownership
+
+When claimed, announce `Verification: buildmonitor-control-plane`. You
+**exclusively** own compilation, tests, status, and final verification.
+Do not also run direct `dotnet build` or `dotnet test`.
+
+| Contract operation | This adapter |
+|--------------------|--------------|
+| begin-session | `POST /mode` `ai-controlled` + `POST /session/busy` |
+| rebuild | `POST /run/rebuild` |
+| tests | `POST /run/tests` (optional `filter`) |
+| ship-check (final local verification) | `POST /run/ship-check` — fresh build **and** tests |
+| status | `GET /projects` |
+| end-session | `POST /session/idle` (does **not** mean tests passed) |
+
+Wait for each HTTP JSON body. Treat `ok: false` or `outcome` other than
+`succeeded` as failure. Do not overlap `/run/*`. HTTP **409** means busy: wait,
+recheck `GET /projects` / `GET /session`, then retry once.
+
+## Lifecycle
+
+```text
+discover + exact claim
+GET /mode → POST /mode ai-controlled if needed
+POST /session/busy
+edit files
+POST /session/idle
+POST /run/rebuild | /run/tests | /run/ship-check
+inspect ok / outcome
+```
+
+- Confirm **AI Controlled** for agent edits; leave it set.
+- `/session/idle` does not build.
+- Final local verification is **`/run/ship-check`**, not a second `dotnet test`.
+
+## Chat announcements
+
+| Event | Announce |
+|-------|----------|
+| Selected | `Verification: buildmonitor-control-plane` |
+| Declined | `Verification: direct-dotnet` plus reason |
+| Mode | `Verification: AI Controlled` |
+| Busy / idle | `Verification: busy — editing` / `idle — awaiting explicit build` |
+| Starting | `Verification: rebuild…` / `tests…` / `ship-check…` |
+| Finished | `Verification: <op> — pass` or `— fail` |
+
+Do **not** stay silent on handshake or `/run/*`. Do **not** invent MCP.
 
 # BuildMonitor control plane handshake
 
@@ -20,71 +101,18 @@ Projects have an explicit **build-control mode**:
 | File Watching | `file-watching` | Yes (debounced; held while busy) |
 | AI Controlled | `ai-controlled` | **Never** — observe only |
 
-For agent work, set **AI Controlled** so idle / busy timeout cannot start a build.
-
-## Chat announcements (required)
-
-After each successful control-plane call (or when skipping), put **one short line** in the user-visible reply so the human can follow BuildMonitor activity. Use this exact prefix and shape:
-
-| Event | Announce |
-|-------|----------|
-| Mode set / confirmed | `BuildMonitor: AI Controlled` (include project display name if known) |
-| Busy | `BuildMonitor: busy — editing` |
-| Idle | `BuildMonitor: idle — awaiting explicit build` |
-| Starting rebuild | `BuildMonitor: /run/rebuild…` |
-| Rebuild finished | `BuildMonitor: /run/rebuild — pass` or `… — fail (exit N)` |
-| Starting ship-check | `BuildMonitor: /run/ship-check…` |
-| Ship-check finished | `BuildMonitor: /run/ship-check — pass` or `… — fail` (mention build vs tests if known) |
-| Tests only | `BuildMonitor: /run/tests…` then `… — pass` / `… — fail` |
-| Unreachable / no project | `BuildMonitor: handshake skipped (unreachable)` or `(no project for this folder)` |
-
-Do **not** stay silent on handshake or `/run/*`. Do **not** invent extra MCP or pretend BuildMonitor streamed into chat — these lines are the signal.
-
-## When to use
-
-| Moment | Action |
-|--------|--------|
-| Start of task | Discover project → `GET /mode` → if not `ai-controlled`, `POST /mode` with `ai-controlled` → `POST /session/busy` |
-| Still editing after a pause | `POST /session/busy` again (extends the hold) |
-| Edit burst finished | `POST /session/idle` — **does not build** in AI Controlled mode |
-| Iterative verify | `POST /run/rebuild` when a rebuild is actually required |
-| Final verification | `POST /run/ship-check` |
-| Run tests only | `POST /run/tests` — optional `"filter"`; does not rebuild first |
-| Stop running app | `POST /run/stop` |
-| Quit BuildMonitor tray (before deploy) | `POST /app/quit` |
-| After task | Leave mode as `ai-controlled` (do **not** auto-switch back) |
-
-**Normal AI workflow:**
-
-```text
-discover project
-GET /mode
-POST /mode ai-controlled   (if needed)   → announce
-POST /session/busy                       → announce
-edit files
-POST /session/idle                       → announce
-POST /run/rebuild or /run/ship-check     → announce start + result
-```
-
-Do **not** treat `/session/idle` as “build now”.
-Do **not** rely on busy timeout to resume builds in AI Controlled mode.
-Do **not** call `/run/rebuild` after every edit burst — only when verification needs a compile.
-
-If the control plane is unreachable, continue editing and announce that the handshake was skipped.
-
 ## Efficient workflows (pick the smallest call)
 
 | Scenario | Workflow |
 |----------|----------|
-| Edit burst (AI Controlled) | ensure mode → `busy` → edit → `idle` → explicit `/run/rebuild` if needed |
-| One or a few tests | `/run/tests` with `filter` — missing/stale assemblies get one recovery rebuild; otherwise no compile first |
-| Full verification | `/run/ship-check` — before claiming tests pass |
+| Edit burst (AI Controlled) | ensure mode → `busy` → edit → `idle` → `/run/rebuild` if needed |
+| One or a few tests | `/run/tests` with `filter` |
+| Full verification | `/run/ship-check` |
 | Locked DLLs / bad incremental | `/run/rebuild` |
-| Still editing after a pause | `busy` again before more writes |
 
 **Test filters:** `FullyQualifiedName=Ns.Class.Method` (one), `FullyQualifiedName~Ns.Class` (class/range), omit `filter` (all).
 
-**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` calls (409); leaving File Watching mode during agent edits; silent handshake/`/run/*` with no chat line; long `AwaitShell` after `/run/*` or `dotnet` already finished (see Shell wait rules).
+**Anti-patterns:** `idle` mid-edit; rebuild every burst; assuming idle means tests passed; overlapping `/run/*` (409); File Watching during agent edits; silent handshake; long `AwaitShell` after `/run/*` finished.
 
 ## Shell wait rules (authoritative)
 
@@ -155,13 +183,15 @@ When the agent itself watches an Azure build (separate from tray polling):
 
 ## Discover base URL and projectId (probe)
 
-Do this once per chat (or again if the workspace root changes).
+Do this once per chat (or again if the worktree root changes).
 
 1. **Discovery file (preferred)** — if it exists, read:
 
    `%LocalAppData%\BuildMonitor\control-plane.json`
 
-   Use `baseUrl` when `enabled` is true. Match a project whose `rootFolder` is the workspace root or a parent/child of it (case-insensitive path compare). Use that project's `id` as `projectId`.
+   Use `baseUrl` when `enabled` is true. Claim a project only when `rootFolder`
+   **exactly** matches the folder being edited. Parent/child/sibling paths are
+   **not** a claim.
 
 2. **Probe (fallback)** — if the file is missing or `enabled` is false:
 
@@ -169,9 +199,9 @@ Do this once per chat (or again if the workspace root changes).
 try { Invoke-RestMethod "http://127.0.0.1:7700/projects" } catch { $null }
 ```
 
-3. **Cache** `baseUrl` and `projectId` for the rest of the session.
+3. **Cache** `baseUrl` and `projectId` for this worktree. Recheck when the root changes.
 
-4. If no matching project: skip the handshake and tell the user BuildMonitor has no project for this folder.
+4. If no exact project: decline. Do not handshake. Product-repo `direct-dotnet` fallback applies.
 
 ## API (all scoped calls need projectId)
 
@@ -191,36 +221,7 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
 
-### PowerShell
-
-```powershell
-$base = "http://127.0.0.1:7700"
-$projectId = "<id>"
-
-$mode = Invoke-RestMethod -Uri "$base/mode?projectId=$projectId"
-if ($mode.mode -ne "ai-controlled") {
-  Invoke-RestMethod -Method Post -Uri "$base/mode" -ContentType "application/json" `
-    -Body (@{ projectId = $projectId; mode = "ai-controlled" } | ConvertTo-Json)
-}
-
-Invoke-RestMethod -Method Post -Uri "$base/session/busy" -ContentType "application/json" `
-  -Body (@{ projectId = $projectId } | ConvertTo-Json)
-
-# ... edit files ...
-
-Invoke-RestMethod -Method Post -Uri "$base/session/idle" -ContentType "application/json" `
-  -Body (@{ projectId = $projectId } | ConvertTo-Json)
-
-# Explicit rebuild when needed (idle does NOT build in AI Controlled):
-$rebuild = Invoke-RestMethod -Method Post -Uri "$base/run/rebuild" -ContentType "application/json" `
-  -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
-
-# Before claiming tests passed:
-$result = Invoke-RestMethod -Method Post -Uri "$base/run/ship-check" -ContentType "application/json" `
-  -Body (@{ projectId = $projectId; configuration = "Debug" } | ConvertTo-Json)
-```
-
-Treat `ok: false` on ship-check as a failed verification — read `failures` / `log` and fix before claiming success.
+Treat `ok: false` as failed verification — read `failures` / `log` / `outcome`. HTTP **409**: wait and recheck status; do not start a parallel `dotnet` command.
 
 ## Authoritative Azure / Local status
 
@@ -244,5 +245,6 @@ Only query Azure independently if `/projects` has no `azure` facet for that proj
 - Prefer `/run/tests` with a filter over a full ship-check when only a subset matters.
 - Prefer `/run/rebuild` only when a clean rebuild is needed; prefer `/run/ship-check` for final verification.
 - Prefer `GET /projects` for current Azure run/status over independent Azure inference.
-- Always announce handshake and `/run/*` in chat (see table above).
+- Always announce handshake and `/run/*` in chat.
 - Never invent MCP tools for BuildMonitor.
+- Never auto-add a worktree to BuildMonitor because an agent needed a build.

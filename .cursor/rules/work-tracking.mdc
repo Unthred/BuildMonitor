@@ -16,7 +16,7 @@ This repo uses **GitHub** ([Unthred/BuildMonitor](https://github.com/Unthred/Bui
 - **Features and enhancements:** GitHub **Issue** with a clear title.
 - **Defects:** Issue with prefix `Bug:` when helpful.
 - **Branches:** `feature/<id>-short-kebab-name` (example: `feature/42-live-build-log`). No direct feature commits on `main`.
-- **Pull requests:** every change lands via PR; body must include `Closes #<id>` (see [.github/pull_request_template.md](../../.github/pull_request_template.md)).
+- **Pull requests:** every change lands via PR; body must reference `#<id>` (see [.github/pull_request_template.md](../../.github/pull_request_template.md)). Use `Related to #<id>` when the issue should stay open. Use `Closes #<id>` only when the current instruction authorizes merge **and** the issue should close.
 - **Commits:** prefix with `#<id>:` when an issue applies (example: `#42: Debounce run log saves`).
 
 ## Every change (mandatory)
@@ -27,8 +27,8 @@ This repo uses **GitHub** ([Unthred/BuildMonitor](https://github.com/Unthred/Bui
 |------|-------------|
 | Start | Issue exists **and is on project #3** (Status **Todo** or **In Progress**) |
 | Work | Branch `feature/<id>-...`; commit with `#<id>:` prefix |
-| Review | PR with `Closes #<id>`; board Status **In Progress** |
-| Done | PR **squash-merged** to `main`; issue **closed**; board Status **Done** |
+| Review | PR that references `#<id>`; board Status **In Progress**; issue stays **open** |
+| Done | Only when the current instruction authorizes **merge** / **complete the ship**: squash-merge; then issue **closed** and board **Done**. **ship** alone is not merge authorization. |
 
 Before `git commit`, `git push`, **ship it**, or **check in** when the user did not give an issue number:
 
@@ -42,7 +42,7 @@ Before `git commit`, `git push`, **ship it**, or **check in** when the user did 
 4. **If several fit or none fit** — **ask** (list candidates with id + title) or offer to **create** a new issue (assigned @me), **`gh project item-add 3`**, then branch. Do not commit until `#` is agreed and the card is on the board.
 5. **Do not** push work to `main` without an issue and PR unless the user explicitly asks for a direct-to-main hotfix.
 
-**After linking:** set project Status to **In Progress** when starting substantial work; **Done** only when the user says ship/merge or work is complete on `main` (issue closed).
+**After linking:** set project Status to **In Progress** when starting substantial work; **Done** only when merge is authorized in the **current** instruction (see `feature-ship` publishing states). Green CI is not human merge approval.
 
 **Board backlog:** run `.\scripts\github\Sync-ProjectBoard.ps1` when retrospective or planned cards are missing; see [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
 
@@ -64,22 +64,20 @@ gh project item-add 3 --owner Unthred --url "https://github.com/Unthred/BuildMon
 
 gh issue view 42 --repo Unthred/BuildMonitor
 gh issue list --repo Unthred/BuildMonitor --state open
-gh pr create --title "#42: ..." --body "Closes #42`n`n..."
-gh pr merge <n> --squash
+gh pr create --title "#42: ..." --body "Related to #42`n`n..."
+# gh pr merge <n> --squash   # only when merge is currently authorized
 ```
 
 Details, project setup, and Status field updates: [docs/ops/github-workflow.md](../../docs/ops/github-workflow.md).
 
 ## “Ship it” (agent)
 
-When the user says **ship** or **ship it**, follow **`feature-ship`** skill:
+When the user says **ship**, **ship it**, **open PR**, or **ready for review**, follow **`feature-ship`**:
 
 1. Commit + push on `feature/<id>-...`
-2. Create PR if none (`Closes #<id>` in body); issue / project **In Progress**
-3. **Merge** the PR into `main` (when user asked for full ship)
-4. Issue **closed**; project Status **Done**
-
-**Ready for review** / **open PR** → commit + push + active PR only; do not merge unless asked.
+2. Create PR if none (`Related to #<id>` unless merge is authorized); issue / project **In Progress**
+3. Wait for GitHub checks; **stop**. Do not merge, enable auto-merge, or close the issue.
+4. **Merge** only when the current instruction says **merge** or **complete the ship**. **ship** alone is not merge authorization. Green CI is not human merge approval.
 
 ## Record of intent
 

@@ -1854,11 +1854,15 @@ public partial class App : System.Windows.Application
         var result = ControlPlaneAgentSkillInstaller.Install(projectRootFolder);
         if (result.Ok)
         {
+            var backup = string.IsNullOrWhiteSpace(result.BackupDirectory)
+                ? string.Empty
+                : $"\nBackup: {result.BackupDirectory}\n";
             System.Windows.MessageBox.Show(
-                $"Installed Cursor agent integration for {displayName}:\n\n"
+                $"Installed the user-level BuildMonitor verification-provider adapter (menu: {displayName}):\n\n"
                 + $"Skill: {result.DestinationPath}\n"
-                + $"Always-on rule: {result.RuleDestinationPath}\n\n"
-                + "New agent chats in that workspace use BuildMonitor automatically — no paste required.",
+                + $"Always-on rule: {result.RuleDestinationPath}\n"
+                + backup
+                + "\nProduct repositories are not modified. Start a new agent chat so Cursor picks up the adapter.",
                 "Control plane skill",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);

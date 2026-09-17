@@ -32,3 +32,4 @@ User settings: `%LocalAppData%/BuildMonitor/settings.json` (not committed). See 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — projects and flow
 - [docs/LOGS.md](docs/LOGS.md) — log storage
 - [docs/ops/github-workflow.md](docs/ops/github-workflow.md) — Issues, Projects board, and PRs
+- [docs/ops/verification-provider-adapter.md](docs/ops/verification-provider-adapter.md) — optional user-level Cursor adapter

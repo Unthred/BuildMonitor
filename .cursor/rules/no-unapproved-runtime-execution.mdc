@@ -1,42 +1,40 @@
 ---
-description: Require explicit approval before build, run, test, or watch
+description: Runtime execution via optional verification provider or explicit fallback
 alwaysApply: true
 ---
 
 # Runtime execution safety
 
-The agent must **never** build, run, test, or watch BuildMonitor unless the user **explicitly asks in the current conversation**.
+Do not start, stop, or redeploy `BuildMonitor.TrayApp`, and do not start `dotnet watch` / `dotnet run`, unless the user explicitly asks in the current conversation.
 
-## Forbidden (always)
+## Verification provider (exclusive when claimed)
 
-Do not invoke, schedule, or run in a terminal:
+A user-installed Cursor skill with `verificationProvider: true` may claim **this exact worktree** when BuildMonitor is reachable and a configured `rootFolder` equals the folder being edited.
 
-- `dotnet build`, `dotnet run`, `dotnet watch`, `dotnet test`
-- `npm run`, `msbuild`, or scripts whose purpose is compile, run, or test
-- Starting or stopping `BuildMonitor.TrayApp` or child `dotnet watch` processes for verification
-- Reading the terminals folder to manage watch output
-- `Await` on watch startup or compile output
+When claimed, that provider **exclusively** owns compilation, tests, status, and final verification. Use `/run/rebuild`, `/run/tests`, and `/run/ship-check`. Do **not** also run direct `dotnet build` or `dotnet test`.
 
-**No exceptions** — not for UI work, ship checklist, or “just verify”. Give the user exact commands and wait for their output.
+When the provider declines (unreachable, no exact root, or unsupported operation), announce `Verification: direct-dotnet` and why. Unconfigured worktrees are valid. Do not auto-configure BuildMonitor.
 
-## Required instead
+## Direct fallback (only when not claimed)
 
-| Situation | Agent does |
-|-----------|------------|
-| Code edited | List files changed; stop when edits are done |
-| User should verify compile | Provide commands below; ask user to paste errors if build fails |
-| User should verify tray UI | Describe what to check in the status panel / settings after user confirms app is running |
-| Tests needed | Print `dotnet test` command; user runs it |
-| Ship / PR | User confirms build + test passed; no new warnings in changed files (`build-warnings.mdc`) |
-
-## Commands (user runs)
+If the user asked for verification and no provider claimed this folder, the agent may run:
 
 ```powershell
-dotnet build BuildMonitor.slnx
-dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj
-dotnet watch run --project src/TrayApp/BuildMonitor.TrayApp.csproj
+dotnet build BuildMonitor.slnx -warnaserror
+dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj --no-build
 ```
+
+Do not overlap these with `/run/*`. Do not invent extra compile/test loops.
+
+## Still forbidden without an explicit ask
+
+- Starting or stopping `BuildMonitor.TrayApp` or child `dotnet watch` processes
+- Reading the terminals folder to manage watch output
+- `Await` on watch startup
+- `npm run` / `msbuild` for this repo
+
+Ordinary implementation without a verification request does not need a local build.
 
 ## Cursor usage
 
-See `credit-conservation.mdc`. Prefer **Chat** for review; **Agent** when files must change. User runs build/test; agent does not “verify” with extra tool rounds.
+See `credit-conservation.mdc`. Prefer **Chat** for review; **Agent** when files must change.

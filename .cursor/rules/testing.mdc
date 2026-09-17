@@ -59,12 +59,16 @@ Any PR that changes behaviour in these areas **must** add or update tests in the
 | “Too hard to test” without extraction | Extract a testable unit first (`code-structure.mdc`) |
 | Manual-only verification for Infrastructure behaviour | Add Tier 2 tests or split the PR |
 
-## Commands (user runs locally; CI runs on PR)
+## Commands
+
+When a verification provider claims this exact worktree, use `/run/rebuild` and `/run/tests` (or `/run/ship-check` for final verification). Otherwise the permitted fallback is:
 
 ```powershell
-dotnet build BuildMonitor.slnx
-dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj
+dotnet build BuildMonitor.slnx -warnaserror
+dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj --no-build
 ```
+
+CI still runs the same build + test on every PR.
 
 ## When tests are genuinely N/A
 
