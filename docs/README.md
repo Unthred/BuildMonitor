@@ -8,6 +8,7 @@
 | GitHub workflow (Issues, Projects, PRs) | [ops/github-workflow.md](ops/github-workflow.md) |
 | Localhost control plane (agent HTTP API) | [ops/control-plane.md](ops/control-plane.md) |
 | Agent skill (busy/idle/ship-check) | [ops/agent-skills/README.md](ops/agent-skills/README.md) |
+| Verification-provider adapter | [ops/verification-provider-adapter.md](ops/verification-provider-adapter.md) |
 | Local release deploy (`C:\Utils\BuildMonitor`) | [ops/local-deploy.md](ops/local-deploy.md) |
 | Features | [features/](features/) (per feature) |
 | ADRs | [adr/](adr/) |

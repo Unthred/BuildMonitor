@@ -31,12 +31,12 @@ Default **Status** field should include **Todo**, **In Progress**, **Done**.
 |-------|-----|-------|----------------|
 | Planned | — | open | **Todo** |
 | In progress | `feature/<id>-...` | open | **In Progress** |
-| In review | PR open | open | **In Progress** |
-| Shipped | merged to `main` | closed (`Closes #N`) | **Done** |
+| In review | PR open (`Related to #N` unless merge is authorized) | open | **In Progress** |
+| Merged | merged to `main` | closed (`Closes #N`) only when merge was authorized | **Done** |
 
-**Ready for review** = PR open, issue open, Status **In Progress**.
+**Ready for review** / **open PR** / **ship** (alone) = PR open, issue open, Status **In Progress**. Stop after green checks.
 
-**Ship it** = squash-merge PR, issue closed, Status **Done** (automation or manual).
+**Merge** / **complete the ship** = squash-merge PR, then issue closed, Status **Done** (automation or manual). **ship** alone is not merge authorization. Green CI is not human merge approval.
 
 ## Issues → project board (mandatory)
 
@@ -97,14 +97,14 @@ Do not land feature work directly on `main` except explicit hotfixes.
 
 ```powershell
 git push -u origin HEAD
-gh pr create --title "#42: Live port probe" --body "Closes #42`n`n## Summary`n- ...`n`n## Test plan`n- [x] dotnet build`n- [x] dotnet test"
+gh pr create --title "#42: Live port probe" --body "Related to #42`n`n## Summary`n- ...`n`n## Test plan`n- [x] verification"
 gh pr view --web
-gh pr merge --squash
+# gh pr merge --squash   # only when the current instruction authorizes merge
 ```
 
 PR template: [.github/pull_request_template.md](../../.github/pull_request_template.md)
 
-`Closes #N` in the PR body links the work item and closes the issue on merge.
+`#N` in the PR title or body links the work item. `Closes #N` also closes the issue on merge — use it only when merge is authorized and the issue should close.
 
 ## Agent: resolve issue before commit
 
@@ -119,9 +119,13 @@ If none match, create an issue, **`gh project item-add 3`**, agree the id, then 
 
 ## Ship it (agent)
 
-Full ship: commit → push → PR → squash merge → issue closed → project **Done**.
+Load `.cursor/skills/feature-ship/SKILL.md` when the user says **ship**, **ship it**, **open PR**, **ready for review**, **merge**, or **complete the ship**.
 
-Load `.cursor/skills/feature-ship/SKILL.md` when the user says **ship** or **ship it**.
+**ship** / **open PR**: commit → push → PR → wait for checks → **stop**. Issue stays open; project **In Progress**.
+
+**merge** / **complete the ship**: then squash-merge → issue closed → project **Done**.
+
+Green CI is not human merge approval.
 
 ## Board sync (backlog)
 
@@ -172,7 +176,7 @@ The `commit-msg` hook rejects commits whose message lacks `#<issue>` unless the 
 
 Runner: **windows-latest** (WPF / `net10.0-windows`). SDK: **10.0.x** (`include-prerelease: true` until .NET 10 GA).
 
-**PRs should pass CI before merge.** Agents do not run build/test locally by default; use CI status on the PR.
+**PRs should pass CI before merge.** Local verification follows `no-unapproved-runtime-execution.mdc` (claimed provider or `direct-dotnet` fallback). Green CI is not merge approval.
 
 Optional: branch protection on `main` → require status check **build-and-test**.
 

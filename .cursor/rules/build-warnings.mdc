@@ -20,8 +20,8 @@ Full solution build should eventually produce **zero** compiler warnings.
 ## Agent
 
 - Do not introduce compiler warnings (nullable, unused, obsolete, etc.).
-- Do not claim "build is clean" — user runs build per `no-unapproved-runtime-execution.mdc`.
-- At ship/PR: remind user to confirm **no new warnings in their diff**.
+- Do not claim "build is clean" without a verification result (`no-unapproved-runtime-execution.mdc`).
+- At ship/PR: confirm **no new warnings in the diff** via the selected verification provider or `direct-dotnet` fallback.
 
 ## User verification
 

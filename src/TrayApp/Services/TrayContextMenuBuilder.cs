@@ -118,7 +118,7 @@ public sealed class TrayContextMenuBuilder
             submenu.DropDownItems.Add(new Forms.ToolStripSeparator());
             var root = project.Local!.RootFolder;
             var name = project.DisplayName;
-            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Install Cursor agent skill…", null, (_, _) =>
+            submenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Install/update user Cursor adapter…", null, (_, _) =>
                 host.RunUi(() => host.InstallControlPlaneAgentSkill(root, name))));
 
             items.Add(submenu);
@@ -296,7 +296,7 @@ public sealed class TrayContextMenuBuilder
         List<MonitoredProjectSettings> active,
         Host host)
     {
-        var menu = new Forms.ToolStripMenuItem("Install Cursor agent skill") { Enabled = active.Count > 0 };
+        var menu = new Forms.ToolStripMenuItem("Install/update user Cursor adapter") { Enabled = active.Count > 0 };
         foreach (var project in active)
         {
             var root = project.Local!.RootFolder;

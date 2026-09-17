@@ -43,7 +43,7 @@ Use this checklist before declaring a feature complete. It complements `core.mdc
    - New config keys documented in `docs/SETTINGS.md` only.
 
 6. **PR**
-   - PR description follows [`.github/pull_request_template.md`](../../.github/pull_request_template.md) and links the issue (`Closes #N`).
+   - PR description follows [`.github/pull_request_template.md`](../../.github/pull_request_template.md) and links the issue (`#N`). Use `Closes #N` only when merge is authorized and the issue should close.
 
 ## Triggers requiring an ADR
 

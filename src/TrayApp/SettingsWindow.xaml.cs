@@ -313,8 +313,8 @@ public partial class SettingsWindow : Window
                 TestProjectCombo.Text = string.Empty;
                 TestTargetEffectiveHint.Text = string.Empty;
                 AgentSkillStatusSummary.Text = "Azure-only project";
-                AgentSkillStatusDetail.Text = "Associate a local folder to enable agent skill install and local build options.";
-                InstallAgentSkillButton.IsEnabled = false;
+                AgentSkillStatusDetail.Text = "Local build options need a folder. The user-level adapter can still be installed for other worktrees.";
+                RefreshAgentSkillStatus();
                 ApplyCapabilityPresentation(project);
             }
 
@@ -960,7 +960,7 @@ public partial class SettingsWindow : Window
             ControlPlaneAgentIntegrationState.Current => "Reinstall",
             _ => "Install / Update"
         };
-        InstallAgentSkillButton.IsEnabled = !string.IsNullOrWhiteSpace(root);
+        InstallAgentSkillButton.IsEnabled = true;
     }
 
     private void InstallAgentSkillClicked(object sender, RoutedEventArgs e)
@@ -975,12 +975,16 @@ public partial class SettingsWindow : Window
         RefreshAgentSkillStatus();
         if (result.Ok)
         {
+            var backup = string.IsNullOrWhiteSpace(result.BackupDirectory)
+                ? string.Empty
+                : $"\nBackup: {result.BackupDirectory}\n";
             System.Windows.MessageBox.Show(
                 this,
-                "Installed Cursor agent integration for this repo:\n\n"
+                "Installed the user-level BuildMonitor verification-provider adapter:\n\n"
                 + $"Skill: {result.DestinationPath}\n"
-                + $"Always-on rule: {result.RuleDestinationPath}\n\n"
-                + "New agent chats in this workspace use BuildMonitor busy/idle/ship-check automatically — no paste required.",
+                + $"Always-on rule: {result.RuleDestinationPath}\n"
+                + backup
+                + "\nProduct repositories are not modified. Start a new agent chat so Cursor picks up the adapter.",
                 "Control plane skill",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
