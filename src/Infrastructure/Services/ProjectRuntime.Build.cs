@@ -96,6 +96,10 @@ internal sealed partial class ProjectRuntime
         pendingBuildReason = "startup";
         var fileChangePaths = triggeredByFileChange ? lastFileChangePaths : null;
         lastFileChangePaths = [];
+        if (!string.Equals(buildReason, "rebuild & restart", StringComparison.OrdinalIgnoreCase))
+        {
+            Interlocked.Exchange(ref suppressAutoOpenLog, 0);
+        }
         RecordBuildTrigger(
             BuildTriggerKindFormatter.FromBuildReason(buildReason, triggeredByFileChange),
             buildReason,
@@ -107,6 +111,7 @@ internal sealed partial class ProjectRuntime
         currentBuildReasonInFlight = buildReason;
         var buildToken = buildCancellationSource.Token;
         var clearRuntimeHistoryAfterBuild = true;
+        var context = CaptureRunContext();
 
         try
         {
@@ -153,9 +158,9 @@ internal sealed partial class ProjectRuntime
             var forceFullRebuild = DotNetBuildArguments.ShouldForceFullRebuild(
                 buildReason,
                 Local.RunOptions.ForceCompleteWarningCounts);
-            var args = BuildProjectArgs(forceFullRebuild);
+            var args = BuildProjectArgs(context, forceFullRebuild);
             Interlocked.Exchange(ref compileInProgress, 1);
-            var result = await RunBuildAttemptAsync(args, buildToken, buildBanner);
+            var result = await RunBuildAttemptAsync(context, args, buildToken, buildBanner);
 
             if (result.WasCancelled)
             {
@@ -183,7 +188,7 @@ internal sealed partial class ProjectRuntime
                 progressSteps = buildProgressTracker.Steps;
                 NotifyProgressChanged(force: true);
 
-                result = await RunBuildAttemptAsync(args, buildToken, retryBanner);
+                result = await RunBuildAttemptAsync(context, args, buildToken, retryBanner);
                 if (result.WasCancelled)
                 {
                     await DispatchCancelledBuildAsync(buildReason, result, retryBanner, cancellationToken)
@@ -218,7 +223,7 @@ internal sealed partial class ProjectRuntime
                     buildProgressTracker.Reset();
                     progressSteps = buildProgressTracker.Steps;
                     NotifyProgressChanged(force: true);
-                    result = await RunBuildAttemptAsync(args, buildToken, repairBanner);
+                    result = await RunBuildAttemptAsync(context, args, buildToken, repairBanner);
                     if (result.WasCancelled)
                     {
                         await DispatchCancelledBuildAsync(buildReason, result, repairBanner, cancellationToken)
@@ -359,7 +364,7 @@ internal sealed partial class ProjectRuntime
                     await Task.Delay(1500, buildToken);
                 }
 
-                StartRunProcess(skipEmbeddedBuild: true);
+                StartRunProcess(skipEmbeddedBuild: true, context);
                 restartedAfterBuild = true;
             }
 
@@ -714,11 +719,12 @@ internal sealed partial class ProjectRuntime
     }
 
     private async Task<CliRunResult> RunBuildAttemptAsync(
+        ProjectRunContext context,
         List<string> args,
         CancellationToken cancellationToken,
         string? logBanner = null) =>
         await cliRunner.RunAsync(
-            Local.RootFolder,
+            context.WorkingDirectory,
             args,
             cancellationToken,
             OnBuildOutputLine,

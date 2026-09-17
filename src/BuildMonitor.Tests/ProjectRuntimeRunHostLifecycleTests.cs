@@ -29,6 +29,11 @@ public sealed class ProjectRuntimeRunHostLifecycleTests
 
         Assert.Equal(DesiredRunHostState.Running, env.Runtime.DesiredRunHostState);
         Assert.True(env.Runtime.ProcessStartCount > before);
+        Assert.Equal(Path.GetFullPath(env.LogsRoot), env.Runtime.LastStartedWorkingDirectory);
+        Assert.NotNull(env.Runtime.LastStartedContext);
+        Assert.Equal(env.Runtime.ProjectId, env.Runtime.LastStartedContext!.ProjectId);
+        Assert.Contains("--no-launch-profile", env.Runtime.LastStartedCommandLine, StringComparison.Ordinal);
+        Assert.Contains(env.Runtime.LastStartedContext.StartupProjectPath, env.Runtime.LastStartedCommandLine, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

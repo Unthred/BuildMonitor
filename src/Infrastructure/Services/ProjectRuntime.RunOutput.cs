@@ -235,7 +235,7 @@ internal sealed partial class ProjectRuntime
         });
     }
 
-    public void EnsureRunProcessStartedAfterBuild()
+    public void EnsureRunProcessStartedAfterBuild(ProjectRunContext? operationContext = null)
     {
         if (!RunHostLifecyclePolicy.MayStartOrRestartHost(desiredRunHostState))
         {
@@ -252,7 +252,7 @@ internal sealed partial class ProjectRuntime
             return;
         }
 
-        StartRunProcess(skipEmbeddedBuild: true);
+        StartRunProcess(skipEmbeddedBuild: true, operationContext);
     }
 
     public Task RestartAppAsync(CancellationToken cancellationToken) =>
@@ -286,6 +286,9 @@ internal sealed partial class ProjectRuntime
         {
             await WaitForBuildIdleAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        var context = CaptureRunContext();
+        Interlocked.Exchange(ref suppressAutoOpenLog, 1);
 
         // Explicit Run/Restart: desired state becomes Running.
         desiredRunHostState = DesiredRunHostState.Running;
@@ -335,7 +338,7 @@ internal sealed partial class ProjectRuntime
                     UserNotificationCategory.Info);
             }
 
-            EnsureRunProcessStartedAfterBuild();
+            EnsureRunProcessStartedAfterBuild(context);
             history.CompleteIntentionalRestart(runProcess?.IsRunning == true);
             restartCompleted = true;
         }

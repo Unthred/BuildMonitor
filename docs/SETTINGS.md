@@ -1,8 +1,8 @@
-# Settings schema (v22)
+# Settings schema (v24)
 
 File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
-**Current schema version is 22.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization).
+**Current schema version is 24.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization; v24 adds optional `local.applicationUrl`).
 
 A **project** is a logical software product with optional attachments:
 
@@ -25,6 +25,7 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
         "rootFolder": "C:\\src\\MyApp",
         "projectFile": "MyApp.csproj",
         "launchProfile": "https",
+        "applicationUrl": "",
         "testProjectFile": "",
         "extraDotNetArgs": "",
         "startOnLaunch": true,
@@ -59,6 +60,24 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
   }
 }
 ```
+
+## Application URL (v24)
+
+`local.applicationUrl` is an optional semicolon-separated ASP.NET URL list (for example `https://localhost:44349;http://localhost:5170`). BuildMonitor applies it as `ASPNETCORE_URLS` and always starts with `--no-launch-profile`, so `dotnet` does not read or rewrite `Properties/launchSettings.json`.
+
+When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project.
+
+## Launch profile environment (v24)
+
+`dotnet run` / `watch` always use `--no-launch-profile` so `dotnet` does not apply or rewrite `Properties/launchSettings.json`. BuildMonitor still **reads** the initiating project's selected profile (or `https`, then the first profile) from that project's own file and copies `environmentVariables` onto **that child process only**.
+
+URL precedence when values conflict:
+
+1. BuildMonitor effective URL (`local.applicationUrl`, including an auto-assigned offset) as `ASPNETCORE_URLS`
+2. Profile `environmentVariables.ASPNETCORE_URLS`
+3. Profile `applicationUrl`
+
+`ASPNETCORE_ENVIRONMENT` and other profile variables follow the profile. They never leak into the BuildMonitor process, another configured project, or later starts. Extra `dotnet` args from Settings remain a per-project command-line override. Runtime logs record project name, root, startup project, profile name, environment name, and effective URL — not environment-variable values, connection strings, passwords, or user secrets.
 
 ## Azure DevOps connection (Slice 2)
 

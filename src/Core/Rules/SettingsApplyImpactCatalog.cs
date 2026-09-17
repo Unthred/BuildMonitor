@@ -49,6 +49,8 @@ public static class SettingsApplyImpactCatalog
             "Changes run environment / launch profile; remount process without compile."),
         new("Projects[].Local.ExtraDotNetArgs", SettingsApplyImpact.HardRestart,
             "Changes CLI args for run/next build; remount process without compile."),
+        new("Projects[].Local.ApplicationUrl", SettingsApplyImpact.SoftRuntime,
+            "Persisted runtime URL/port override; next start reads it without remounting siblings."),
         new("Projects[].Local.TestProjectFile", SettingsApplyImpact.SoftRuntime,
             "Test target for subsequent RunTests; UpdateDefinition adopts without Local rebuild."),
         new("Projects[].Local.StartOnLaunch", SettingsApplyImpact.SoftRuntime,

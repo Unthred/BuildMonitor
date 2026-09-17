@@ -24,6 +24,17 @@ public sealed class AutoOpenLogSession
             return false;
         }
 
+        if (snapshot.SuppressAutoOpenLog)
+        {
+            previous[snapshot.ProjectId] = new ObservedBuild(
+                snapshot.Health,
+                snapshot.State,
+                snapshot.LastBuildExitCode,
+                snapshot.LastBuildFinishedAtUtc);
+            latched.Remove(snapshot.ProjectId);
+            return false;
+        }
+
         var hadPrevious = previous.TryGetValue(snapshot.ProjectId, out var prior);
         if (hadPrevious && prior.LastBuildFinishedAtUtc != snapshot.LastBuildFinishedAtUtc)
         {

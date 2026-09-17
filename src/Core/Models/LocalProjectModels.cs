@@ -135,7 +135,12 @@ public sealed record ProjectHealthSnapshot(
     /// <summary>Structured last completed failed Local test run; cleared when tests recover or restart.</summary>
     LocalTestFailureSnapshot? LastTestFailure = null,
     /// <summary>Desired supervised host state (#106). Distinct from process liveness and temporary pause.</summary>
-    DesiredRunHostState DesiredRunHostState = DesiredRunHostState.Stopped);
+    DesiredRunHostState DesiredRunHostState = DesiredRunHostState.Stopped,
+    /// <summary>
+    /// When true, the log viewer must not auto-open or steal focus (Rebuild &amp; restart).
+    /// Live capture to the project's log file continues regardless of window visibility.
+    /// </summary>
+    bool SuppressAutoOpenLog = false);
 
 public enum BuildTriggerKind
 {

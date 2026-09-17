@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 23;
+    public int SchemaVersion { get; set; } = 24;
     /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
     public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
     public List<MonitoredProjectSettings> Projects { get; set; } = [];
@@ -90,6 +90,7 @@ public sealed class LocalProjectAttachment : INotifyPropertyChanged
     private string projectFile = string.Empty;
     private string launchProfile = string.Empty;
     private string extraDotNetArgs = string.Empty;
+    private string applicationUrl = string.Empty;
     private string testProjectFile = string.Empty;
     private bool startOnLaunch = true;
     private ProjectBuildControlMode buildControlMode = ProjectBuildControlMode.FileWatching;
@@ -117,6 +118,16 @@ public sealed class LocalProjectAttachment : INotifyPropertyChanged
     {
         get => extraDotNetArgs;
         set => SetField(ref extraDotNetArgs, value);
+    }
+
+    /// <summary>
+    /// Optional ASP.NET application URL list (semicolon-separated). When set, used as
+    /// <c>ASPNETCORE_URLS</c> at process start and never written back to launchSettings.json.
+    /// </summary>
+    public string ApplicationUrl
+    {
+        get => applicationUrl;
+        set => SetField(ref applicationUrl, value);
     }
 
     /// <summary>Optional .sln/.slnx or test .csproj. Empty = auto-detect from repo root.</summary>
@@ -297,6 +308,7 @@ public sealed class LegacyFlatProjectSettings
     public string ProjectFile { get; set; } = string.Empty;
     public string LaunchProfile { get; set; } = string.Empty;
     public string ExtraDotNetArgs { get; set; } = string.Empty;
+    public string ApplicationUrl { get; set; } = string.Empty;
     public string TestProjectFile { get; set; } = string.Empty;
     public bool IsActiveInSession { get; set; }
     public bool StartOnLaunch { get; set; } = true;

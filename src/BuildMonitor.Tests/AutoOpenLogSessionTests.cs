@@ -89,6 +89,22 @@ public sealed class AutoOpenLogSessionTests
         Assert.False(session.ShouldOpenViewer(AutoOpenLogMode.Warnings, warned));
     }
 
+    [Fact]
+    public void Rebuild_and_restart_does_not_open_logs_even_on_crash()
+    {
+        var session = new AutoOpenLogSession();
+        var t1 = DateTimeOffset.UtcNow;
+        session.ShouldOpenViewer(
+            AutoOpenLogMode.Errors,
+            Snapshot(ProjectLifecycleState.Building, MonitorHealth.Green, 0, t1, 0));
+
+        var crashed = Snapshot(ProjectLifecycleState.Crashed, MonitorHealth.Red, 1, t1.AddSeconds(2), 1)
+            with { SuppressAutoOpenLog = true };
+
+        Assert.False(session.ShouldOpenViewer(AutoOpenLogMode.Errors, crashed));
+        Assert.False(session.ShouldOpenViewer(AutoOpenLogMode.Always, crashed));
+    }
+
     private static ProjectHealthSnapshot Snapshot(
         ProjectLifecycleState state,
         MonitorHealth health,

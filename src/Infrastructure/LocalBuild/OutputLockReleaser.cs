@@ -169,7 +169,11 @@ public static class OutputLockReleaser
                         continue;
                     }
 
-                    if (MatchesByProcessName(process, assemblyName))
+                    if (IsOwnedByProjectRoot(
+                            process.ProcessName,
+                            TryGetExecutablePath(process),
+                            assemblyName,
+                            projectRoot))
                     {
                         candidates.Add(process.Id);
                     }
@@ -289,9 +293,33 @@ public static class OutputLockReleaser
                && Path.GetFileNameWithoutExtension(fullPath).Equals(assemblyLower, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool MatchesByProcessName(Process process, string assemblyName) =>
-        process.ProcessName.Equals(assemblyName, StringComparison.OrdinalIgnoreCase)
-        || process.ProcessName.Equals(assemblyName + ".exe", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsOwnedByProjectRoot(
+        string processName,
+        string? executablePath,
+        string assemblyName,
+        string projectRoot)
+    {
+        if (!processName.Equals(assemblyName, StringComparison.OrdinalIgnoreCase)
+            && !processName.Equals(assemblyName + ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(executablePath)
+               && IsUnderDirectory(executablePath, projectRoot);
+    }
+
+    private static string? TryGetExecutablePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static bool IsProtectedHostProcess(string commandLine) =>
         commandLine.Contains("BuildMonitor.TrayApp", StringComparison.OrdinalIgnoreCase)
