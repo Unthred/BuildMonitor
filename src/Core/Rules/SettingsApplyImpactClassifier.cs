@@ -216,6 +216,7 @@ public static class SettingsApplyImpactClassifier
     private static object SliceLocalSoft(LocalProjectAttachment local) => new
     {
         local.TestProjectFile,
+        local.ApplicationUrl,
         local.StartOnLaunch,
         local.BuildControlMode,
         local.PreferredSiteUrlScheme,

@@ -189,6 +189,7 @@ public sealed class ProjectRuntimeRemountWithoutBuildTests
 
         Assert.Equal(0, scope.Runtime.BuildAsyncInvocationCount);
         Assert.Equal(1, scope.Runtime.RemountWithoutBuildCount);
+        Assert.Equal(DesiredRunHostState.Running, scope.Runtime.DesiredRunHostState);
     }
 
     private static MonitoredProjectSettings GetDefinition(ProjectRuntime runtime)

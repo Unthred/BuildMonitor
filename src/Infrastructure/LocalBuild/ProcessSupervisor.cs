@@ -22,11 +22,20 @@ public sealed class SupervisedProcess : IDisposable
     public void Start(
         string workingDirectory,
         IReadOnlyList<string> arguments,
-        Action<ProcessStartInfo>? configure = null)
+        Action<ProcessStartInfo>? configure = null,
+        string? logBanner = null)
     {
         Stop();
 
         CommandLine = "dotnet " + string.Join(' ', arguments);
+        if (!string.IsNullOrWhiteSpace(logBanner))
+        {
+            lock (output)
+            {
+                output.AppendLine(logBanner);
+            }
+        }
+
         var psi = new ProcessStartInfo
         {
             WorkingDirectory = workingDirectory,

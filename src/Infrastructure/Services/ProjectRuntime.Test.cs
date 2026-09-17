@@ -388,7 +388,7 @@ internal sealed partial class ProjectRuntime
         List<string> args,
         CancellationToken cancellationToken) =>
         await cliRunner.RunAsync(
-            Local.RootFolder,
+            CaptureRunContext().RootFolder,
             args,
             cancellationToken,
             OnTestOutputLine);

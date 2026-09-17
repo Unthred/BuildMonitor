@@ -355,7 +355,15 @@
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- Row 7 intentionally unused (#92): avoid orphaned context beside empty Project column -->
+                            <!-- Row 7: Application URL (runtime override; never writes launchSettings.json) -->
+                            <StackPanel Grid.Row="7" Grid.Column="2" Margin="12,10,12,0">
+                                <TextBlock Text="Application URL"
+                                           Style="{StaticResource SettingsFieldLabel}"
+                                           ToolTip="Optional ASPNETCORE_URLS override for this project (for example https://localhost:44349;http://localhost:5170). Used at process start so worktrees do not share or rewrite launchSettings.json." />
+                                <TextBox x:Name="ApplicationUrlText"
+                                         Margin="0,4,0,0"
+                                         Style="{StaticResource SettingsPeerFieldTextBox}" />
+                            </StackPanel>
 
                             <!-- Peer 3: Project file ↔ Extra dotnet args -->
                             <TextBlock Grid.Row="8" Grid.Column="0" Margin="12,10,12,0"

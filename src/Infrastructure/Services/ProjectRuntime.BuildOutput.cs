@@ -270,9 +270,9 @@ internal sealed partial class ProjectRuntime
     private void NotifyProgressChanged(bool force = false) =>
         RequestHealthCoalesce(force);
 
-    private List<string> BuildProjectArgs(bool forceFullRebuild = false)
+    private List<string> BuildProjectArgs(ProjectRunContext context, bool forceFullRebuild = false)
     {
-        var args = new List<string> { "build", ResolveProjectFileArg() };
+        var args = new List<string> { "build", context.StartupProjectPath };
         DotNetBuildArguments.ApplyFullRebuildFlag(args, forceFullRebuild);
         if (!string.IsNullOrWhiteSpace(shipCheckConfiguration))
         {
@@ -285,9 +285,7 @@ internal sealed partial class ProjectRuntime
     }
 
     private string ResolveProjectFileArg() =>
-        Path.IsPathRooted(Local.ProjectFile)
-            ? Local.ProjectFile
-            : Path.Combine(Local.RootFolder, Local.ProjectFile);
+        CaptureRunContext().StartupProjectPath;
     public async Task<BuildOutputRepairResult> RepairBuildOutputAsync(
         CancellationToken cancellationToken,
         bool restartAfter)

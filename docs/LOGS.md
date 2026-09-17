@@ -6,7 +6,7 @@
 |------|------|
 | `last-build.log` | `dotnet build` |
 | `last-test.log` | `dotnet test` |
-| `last-run.log` | failed `dotnet run` / `watch` exit |
+| `last-run.log` | failed `dotnet run` / `watch` exit; also captures output while the log window is closed. The first line of a start is a diagnostic banner (`Starting '…' root=… startup=… profile=… environment=… url=…`) with no environment-variable values. |
 | `*.meta.json` | metadata (command, exit code, error lines) |
 
 ## Viewing

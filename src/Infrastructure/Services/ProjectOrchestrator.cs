@@ -13,9 +13,8 @@ using BuildMonitor.Infrastructure.Security;
 
 namespace BuildMonitor.Infrastructure.Services;
 
-public sealed partial class ProjectOrchestrator : IDisposable
+public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePeers
 {
-    private readonly DotNetCliRunner cliRunner = new();
     private readonly BuildLogStore logStore;
     private readonly BuildTriggerJournal triggerJournal;
     private readonly ControlPlaneEventJournal controlPlaneEventJournal;
@@ -137,12 +136,13 @@ public sealed partial class ProjectOrchestrator : IDisposable
         new(
             project,
             logStore,
-            cliRunner,
+            new DotNetCliRunner(),
             triggerJournal,
             burstStatsStore,
             trainingStore,
             RaiseUserNotification,
-            operationalHistory);
+            operationalHistory,
+            peers: this);
 
     public void SetTrayMenuOpen(bool open) => healthCoalescer.SetTrayMenuOpen(open);
 
@@ -321,8 +321,9 @@ public sealed partial class ProjectOrchestrator : IDisposable
         List<ProjectRuntime> toStart;
         lock (sync)
         {
-            toStart = runtimes.Values
-                .Where(runtime => ShouldStartOnLaunch(runtime.ProjectId))
+            toStart = settings.Projects
+                .Where(project => ShouldStartOnLaunch(project.Id) && runtimes.ContainsKey(project.Id))
+                .Select(project => runtimes[project.Id])
                 .Take(settings.Monitor.MaxConcurrentActiveProjects)
                 .ToList();
         }
@@ -668,6 +669,45 @@ public sealed partial class ProjectOrchestrator : IDisposable
         UserNotificationKind kind,
         UserNotificationCategory category) =>
         UserNotification?.Invoke(projectId, title, message, kind, category);
+
+    public IReadOnlyList<PeerProjectListenInfo> GetPeers(string projectId)
+    {
+        lock (sync)
+        {
+            return runtimes.Values
+                .Where(runtime =>
+                    runtime.IsRunProcessActive
+                    && !runtime.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase))
+                .Select(runtime => new PeerProjectListenInfo(
+                    runtime.ProjectId,
+                    runtime.DisplayName,
+                    runtime.RootFolder,
+                    runtime.GetOwnedListenUrls(),
+                    runtime.IsRunProcessActive))
+                .ToList();
+        }
+    }
+
+    public void PersistApplicationUrl(string projectId, string applicationUrl)
+    {
+        lock (sync)
+        {
+            var project = settings.Projects.FirstOrDefault(p =>
+                p.Id.Equals(projectId, StringComparison.OrdinalIgnoreCase));
+            if (project?.Local is null)
+            {
+                return;
+            }
+
+            project.Local.ApplicationUrl = applicationUrl;
+            if (runtimes.TryGetValue(project.Id, out var runtime))
+            {
+                runtime.UpdateDefinition(project, settings.Monitor);
+            }
+        }
+
+        settingsPersistRequested?.Invoke(GetSettingsSnapshot());
+    }
 
     public void Dispose()
     {

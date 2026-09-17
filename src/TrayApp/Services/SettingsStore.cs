@@ -47,12 +47,17 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = SettingsSchemaV23.Version;
         }
 
+        if (settings.SchemaVersion < SettingsSchemaV24.Version)
+        {
+            settings.SchemaVersion = SettingsSchemaV24.Version;
+        }
+
         return settings;
     }
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = SettingsSchemaV23.Version;
+        settings.SchemaVersion = SettingsSchemaV24.Version;
         settings.Connections ??= [];
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);
@@ -298,7 +303,7 @@ public sealed class SettingsStore(string settingsPath)
         }
     }
 
-    private static AppSettings BuildDefaults() => new() { SchemaVersion = SettingsSchemaV23.Version };
+    private static AppSettings BuildDefaults() => new() { SchemaVersion = SettingsSchemaV24.Version };
 
     private static void ApplyV23Migration(AppSettings settings)
     {

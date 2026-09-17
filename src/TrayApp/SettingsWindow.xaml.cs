@@ -278,6 +278,7 @@ public partial class SettingsWindow : Window
                 RootFolderText.Text = local.RootFolder;
                 ProjectFileText.Text = local.ProjectFile;
                 ExtraArgsText.Text = local.ExtraDotNetArgs;
+                ApplicationUrlText.Text = local.ApplicationUrl;
                 RunModeCombo.SelectedItem = local.RunOptions.RunMode;
                 SelectBuildControlMode(local.BuildControlMode);
                 SelectPreferredSiteUrlScheme(local.PreferredSiteUrlScheme);
@@ -420,6 +421,7 @@ public partial class SettingsWindow : Window
         RootFolderText.IsEnabled = enabled;
         ProjectFileText.IsEnabled = enabled;
         ExtraArgsText.IsEnabled = enabled;
+        ApplicationUrlText.IsEnabled = enabled;
         LaunchProfileCombo.IsEnabled = enabled;
         PreferredSiteUrlCombo.IsEnabled = enabled;
         RunModeCombo.IsEnabled = enabled;
@@ -781,6 +783,7 @@ public partial class SettingsWindow : Window
             local.RootFolder,
             TestProjectCombo.Text.Trim());
         local.ExtraDotNetArgs = ExtraArgsText.Text.Trim();
+        local.ApplicationUrl = ApplicationUrlText.Text.Trim();
         local.RunOptions.RunMode = (ProjectRunMode)(RunModeCombo.SelectedItem ?? ProjectRunMode.Watch);
         local.BuildControlMode = ResolveBuildControlMode();
         if (PreferredSiteUrlCombo.Visibility == Visibility.Visible)

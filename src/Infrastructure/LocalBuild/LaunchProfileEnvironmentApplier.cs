@@ -3,38 +3,84 @@ using System.Text.Json;
 
 namespace BuildMonitor.Infrastructure.LocalBuild;
 
+public readonly record struct LaunchProfileApplyResult(
+    string? LaunchProfile,
+    string? EnvironmentName,
+    string? EffectiveUrls,
+    string LaunchSettingsPath);
+
+/// <summary>
+/// Copies the selected launch profile's environment into a child ProcessStartInfo only.
+/// Never writes launchSettings.json. Never mutates BuildMonitor's process environment.
+/// Precedence for listen URLs:
+/// 1. BuildMonitor effective URL (<c>local.applicationUrl</c> / port isolation) as <c>ASPNETCORE_URLS</c>
+/// 2. Profile <c>environmentVariables.ASPNETCORE_URLS</c>
+/// 3. Profile <c>applicationUrl</c>
+/// </summary>
 public static class LaunchProfileEnvironmentApplier
 {
-    public static void ApplyTo(
+    public static LaunchProfileApplyResult ApplyTo(
         ProcessStartInfo startInfo,
         string rootFolder,
         string projectFile,
-        string? launchProfile)
+        string? launchProfile,
+        string? applicationUrlOverride = null)
     {
-        if (string.IsNullOrWhiteSpace(launchProfile))
-        {
-            return;
-        }
-
-        var settings = TryLoadProfile(rootFolder, projectFile, launchProfile);
-        if (settings is null)
-        {
-            return;
-        }
+        var launchSettingsPath = ResolveLaunchSettingsPath(rootFolder, projectFile);
+        var effectiveProfile = ResolveEffectiveLaunchProfile(rootFolder, projectFile, launchProfile);
 
         startInfo.Environment.Remove("ASPNETCORE_URLS");
         startInfo.Environment.Remove("ASPNETCORE_HTTPS_PORT");
-        startInfo.Environment.Remove("ASPNETCORE_ENVIRONMENT");
+        startInfo.Environment.Remove("DOTNET_LAUNCH_PROFILE");
 
-        if (!string.IsNullOrWhiteSpace(settings.ApplicationUrl))
+        var settings = string.IsNullOrWhiteSpace(effectiveProfile)
+            ? null
+            : TryLoadProfile(rootFolder, projectFile, effectiveProfile);
+
+        if (settings is not null)
         {
-            startInfo.Environment["ASPNETCORE_URLS"] = settings.ApplicationUrl;
+            startInfo.Environment.Remove("ASPNETCORE_ENVIRONMENT");
+
+            foreach (var pair in settings.EnvironmentVariables)
+            {
+                if (pair.Key.Equals("ASPNETCORE_URLS", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(applicationUrlOverride))
+                {
+                    continue;
+                }
+
+                startInfo.Environment[pair.Key] = pair.Value;
+            }
+
+            if (string.IsNullOrWhiteSpace(applicationUrlOverride)
+                && !HasEnvironmentValue(startInfo, "ASPNETCORE_URLS")
+                && !string.IsNullOrWhiteSpace(settings.ApplicationUrl))
+            {
+                startInfo.Environment["ASPNETCORE_URLS"] = settings.ApplicationUrl;
+            }
         }
 
-        foreach (var pair in settings.EnvironmentVariables)
+        if (!string.IsNullOrWhiteSpace(applicationUrlOverride))
         {
-            startInfo.Environment[pair.Key] = pair.Value;
+            startInfo.Environment["ASPNETCORE_URLS"] = applicationUrlOverride;
         }
+
+        return new LaunchProfileApplyResult(
+            effectiveProfile,
+            GetEnvironmentValue(startInfo, "ASPNETCORE_ENVIRONMENT"),
+            GetEnvironmentValue(startInfo, "ASPNETCORE_URLS"),
+            launchSettingsPath);
+    }
+
+    public static string FormatStartDiagnostics(
+        string displayName,
+        string rootFolder,
+        string startupProjectPath,
+        string? launchProfile,
+        string? environmentName,
+        string? effectiveUrl)
+    {
+        return $"Starting '{displayName}' root={rootFolder} startup={startupProjectPath} profile={NullDash(launchProfile)} environment={NullDash(environmentName)} url={NullDash(effectiveUrl)}";
     }
 
     public static string? ResolvePrimaryListenUrl(string rootFolder, string projectFile, string? launchProfile)
@@ -97,21 +143,38 @@ public static class LaunchProfileEnvironmentApplier
             .ToList();
     }
 
+    public static string ResolveLaunchSettingsPath(string rootFolder, string projectFile)
+    {
+        var projectDir = ResolveProjectDirectory(rootFolder, projectFile);
+        return Path.Combine(projectDir, "Properties", "launchSettings.json");
+    }
+
+    public static string ResolveProjectDirectory(string rootFolder, string projectFile)
+    {
+        var projectPath = Path.IsPathRooted(projectFile)
+            ? projectFile
+            : Path.Combine(rootFolder, projectFile);
+        var projectDir = Path.GetDirectoryName(Path.GetFullPath(projectPath));
+        return string.IsNullOrWhiteSpace(projectDir) ? Path.GetFullPath(rootFolder) : projectDir;
+    }
+
+    private static string NullDash(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "(none)" : value.Trim();
+
+    private static bool HasEnvironmentValue(ProcessStartInfo startInfo, string key) =>
+        startInfo.Environment.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value);
+
+    private static string? GetEnvironmentValue(ProcessStartInfo startInfo, string key) =>
+        startInfo.Environment.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
+
     private static IReadOnlyList<string> SplitUrlList(string value) =>
         value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static IReadOnlyList<string> ListProfileNames(string rootFolder, string projectFile)
     {
-        var projectPath = Path.IsPathRooted(projectFile)
-            ? projectFile
-            : Path.Combine(rootFolder, projectFile);
-        var projectDir = Path.GetDirectoryName(projectPath);
-        if (string.IsNullOrWhiteSpace(projectDir))
-        {
-            return [];
-        }
-
-        var launchSettingsPath = Path.Combine(projectDir, "Properties", "launchSettings.json");
+        var launchSettingsPath = ResolveLaunchSettingsPath(rootFolder, projectFile);
         if (!File.Exists(launchSettingsPath))
         {
             return [];
@@ -138,16 +201,7 @@ public static class LaunchProfileEnvironmentApplier
 
     private static LaunchProfileSettings? TryLoadProfile(string rootFolder, string projectFile, string launchProfile)
     {
-        var projectPath = Path.IsPathRooted(projectFile)
-            ? projectFile
-            : Path.Combine(rootFolder, projectFile);
-        var projectDir = Path.GetDirectoryName(projectPath);
-        if (string.IsNullOrWhiteSpace(projectDir))
-        {
-            return null;
-        }
-
-        var launchSettingsPath = Path.Combine(projectDir, "Properties", "launchSettings.json");
+        var launchSettingsPath = ResolveLaunchSettingsPath(rootFolder, projectFile);
         if (!File.Exists(launchSettingsPath))
         {
             return null;

@@ -17,6 +17,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private readonly BuildTrainingStore trainingStore;
     private readonly DotNetCliRunner cliRunner;
     private readonly OperationalHistoryEmitter history;
+    private readonly IProjectRuntimePeers? peers;
     private Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser;
     private SupervisedProcess? runProcess;
     private DebouncedFileWatcher? fileWatcher;
@@ -99,6 +100,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private int remountWithoutBuildCount;
     private int watcherCreateCount;
     private int processStartCount;
+    private int suppressAutoOpenLog;
 
     private readonly List<string> registeredWorkerIds = [];
     private readonly Dictionary<string, DateTimeOffset> lastWorkerHeartbeatUtc = new(StringComparer.OrdinalIgnoreCase);
@@ -126,6 +128,15 @@ internal sealed partial class ProjectRuntime : IDisposable
 
     /// <summary>Test probe: supervised process start attempts.</summary>
     public int ProcessStartCount => Volatile.Read(ref processStartCount);
+
+    /// <summary>Test probe: working directory of the last run/watch start.</summary>
+    internal string? LastStartedWorkingDirectory { get; private set; }
+
+    /// <summary>Test probe: immutable context captured for the last run/watch start.</summary>
+    internal ProjectRunContext? LastStartedContext { get; private set; }
+
+    /// <summary>Test probe: command line of the last run/watch start.</summary>
+    internal string? LastStartedCommandLine { get; private set; }
 
     public ProjectHealthSnapshot Snapshot => BuildSnapshot();
 
@@ -176,7 +187,30 @@ internal sealed partial class ProjectRuntime : IDisposable
                 LastFailedBuildTriggerId: lastFailedBuildTriggerId,
                 LastFailedBuildOperationId: lastFailedBuildOperationId,
                 LastTestFailure: lastTestFailure,
-                DesiredRunHostState: desiredRunHostState);
+                DesiredRunHostState: desiredRunHostState,
+                SuppressAutoOpenLog: Volatile.Read(ref suppressAutoOpenLog) != 0);
+    }
+
+    internal string RootFolder => Local.RootFolder;
+
+    internal IReadOnlyList<string> GetOwnedListenUrls()
+    {
+        var urls = new List<string>();
+        if (!string.IsNullOrWhiteSpace(pendingListenUrl))
+        {
+            urls.Add(pendingListenUrl);
+        }
+
+        urls.AddRange(candidateListenUrls);
+        if (!string.IsNullOrWhiteSpace(Local.ApplicationUrl))
+        {
+            urls.AddRange(ProjectPortIsolation.SplitApplicationUrl(Local.ApplicationUrl));
+        }
+
+        return urls
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private TestRunLiveProgress? ResolveLiveTestProgress()
@@ -229,7 +263,8 @@ internal sealed partial class ProjectRuntime : IDisposable
         FileChangeBurstStatsStore burstStatsStore,
         BuildTrainingStore trainingStore,
         Action<string, string, string, UserNotificationKind, UserNotificationCategory>? notifyUser = null,
-        IOperationalHistoryStore? operationalHistory = null)
+        IOperationalHistoryStore? operationalHistory = null,
+        IProjectRuntimePeers? peers = null)
     {
         if (projectSettings.Local is null)
         {
@@ -243,6 +278,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         this.burstStatsStore = burstStatsStore;
         this.trainingStore = trainingStore;
         this.notifyUser = notifyUser;
+        this.peers = peers;
         history = new OperationalHistoryEmitter(operationalHistory, () => this.projectSettings.Id);
         RegisterProjectWorkers();
     }
@@ -523,6 +559,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     {
         // Cold StartOnLaunch path: session wants the host running after startup freshness work.
         desiredRunHostState = DesiredRunHostState.Running;
+        var context = CaptureRunContext();
         SetProjectCurrentAction("Starting — loading saved build state");
         await HydrateLastBuildFromStoreAsync(cancellationToken);
         TryStartAgentActivityWatcher();
@@ -558,7 +595,7 @@ internal sealed partial class ProjectRuntime : IDisposable
         // BuildAsync may already have started run when RestartAppAfterRebuild is enabled.
         if (runProcess?.IsRunning != true)
         {
-            StartRunProcess(skipEmbeddedBuild: true);
+            StartRunProcess(skipEmbeddedBuild: true, context);
         }
 
         TryStartFileWatcher();
@@ -585,6 +622,7 @@ internal sealed partial class ProjectRuntime : IDisposable
                 break;
 
             case LocalRemountKind.MountFresh:
+                ApplyDesiredHostForActivatedProject();
                 await StopRunProcessAsync(cancellationToken).ConfigureAwait(false);
                 RemountFileWatcherOnly();
                 SetState(fileWatcher is null ? ProjectLifecycleState.Idle : ProjectLifecycleState.Watching);
@@ -624,6 +662,14 @@ internal sealed partial class ProjectRuntime : IDisposable
 
         RefreshHealth();
         HealthCoalesceRequested?.Invoke(true);
+    }
+
+    private void ApplyDesiredHostForActivatedProject()
+    {
+        if (Local.StartOnLaunch && Local.RunOptions.RunMode != ProjectRunMode.None)
+        {
+            desiredRunHostState = DesiredRunHostState.Running;
+        }
     }
 
     private void RemountFileWatcherOnly()
