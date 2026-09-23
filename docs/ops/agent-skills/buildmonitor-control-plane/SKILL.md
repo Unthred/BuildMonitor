@@ -220,8 +220,34 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/run/tests` | `{ "projectId": "…", "filter": "…", "configuration": "Debug" }` optional |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
+| POST | `/run/cancel` | `{ "projectId": "…", "operationId": "…" }` optional — cancel in-flight exclusive `/run/*` |
 
 Treat `ok: false` as failed verification — read `failures` / `log` / `outcome`. HTTP **409**: wait and recheck status; do not start a parallel `dotnet` command.
+
+## Retire completed project (post-merge Ship cleanup)
+
+Used when a product-repo **merge / complete the ship** workflow retires a finished feature **worktree**. Product law lives in that repo’s ship skill; this section owns BuildMonitor mechanics only.
+
+**Terminology:** retire the BuildMonitor **project/runtime** for one `projectId`. Do not call this “delete the folder”.
+
+### Procedure
+
+1. Resolve the **exact** completed worktree path. Claim only when `rootFolder` equals that path.
+2. `GET /projects` — confirm `projectId`, `sessionState` idle, no in-flight rebuild/tests/ship-check for that project alone.
+3. If a `/run/*` is active: wait for completion or `POST /run/cancel` for that `projectId`. Do not retire while busy.
+4. `POST /run/stop` with `{ "projectId" }` — stop the supervised run/watch host and release that project’s reserved ports.
+5. **Unregister** the completed project:
+   - Prefer a documented control-plane unregister/delete operation **when one exists**.
+   - Today the control plane has **no** project-delete HTTP API. Use BuildMonitor **Settings → Remove project** for that entry only (ask the user), then re-check `GET /projects`.
+   - **Never** hand-edit `%LocalAppData%\BuildMonitor\*.json`, settings files, or `control-plane.json` to remove a project.
+6. Confirm sibling projects (other worktrees) remain registered and unaffected.
+
+### Do not
+
+- Retire a project whose `rootFolder` is not the completed worktree
+- Stop or unregister shared/global BuildMonitor configuration
+- Auto-add a replacement project
+- Proceed as if unregistered when Settings removal was deferred — report `BuildMonitor: deferred`
 
 ## Authoritative Azure / Local status
 
@@ -248,3 +274,4 @@ Only query Azure independently if `/projects` has no `azure` facet for that proj
 - Always announce handshake and `/run/*` in chat.
 - Never invent MCP tools for BuildMonitor.
 - Never auto-add a worktree to BuildMonitor because an agent needed a build.
+- When retiring a completed feature worktree: § Retire completed project — exact `projectId` only; `/run/stop`; Settings Remove when no delete API; never hand-edit settings JSON.

@@ -58,3 +58,10 @@ Use `Verification: buildmonitor-control-plane` when selected, then:
 - `Verification: tests…` then `tests — pass` or `fail`
 
 Do not stay silent on handshake or `/run/*` when this provider is selected.
+
+## Retire completed project
+
+When a product ship skill retires a finished feature worktree: use skill
+`buildmonitor-control-plane` § Retire completed project. Exact `projectId` only;
+`POST /run/stop`; unregister via Settings Remove when no delete API; never
+hand-edit settings JSON; never touch sibling projects.
