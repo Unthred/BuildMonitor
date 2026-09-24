@@ -386,8 +386,105 @@ internal static class ControlPlaneHttpRouter
             return Ok(ModeJson(status, includePrevious: true), projectId);
         }
 
+        if (method == "POST" && path == "/projects/register-worktree")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            var parentProjectId = ReadStringProperty(payload, "parentProjectId");
+            var worktreePath = ReadStringProperty(payload, "worktreePath");
+            if (string.IsNullOrWhiteSpace(parentProjectId))
+            {
+                return BadRequest("parentProjectId is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(worktreePath))
+            {
+                return BadRequest("worktreePath is required.");
+            }
+
+            var result = await actions.RegisterDerivedWorktreeAsync(
+                    new ControlPlaneRegisterWorktreeRequest(parentProjectId, worktreePath),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!result.Ok)
+            {
+                return BadRequest(result.Error ?? "Registration failed.");
+            }
+
+            return Ok(ToRegisterWorktreeJson(result), result.ProjectId);
+        }
+
+        if (method == "POST" && path == "/projects/unregister-worktree")
+        {
+            var payload = await ReadBodyAsync(bodyStream, encoding, cancellationToken).ConfigureAwait(false);
+            var projectId = ReadStringProperty(payload, "projectId");
+            if (string.IsNullOrWhiteSpace(projectId)
+                && !TryGetProjectId(url, payload, out projectId, out var error))
+            {
+                return BadRequest(error ?? "projectId is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(projectId))
+            {
+                return BadRequest("projectId is required.");
+            }
+
+            var worktreePath = ReadStringProperty(payload, "worktreePath");
+            var result = await actions.UnregisterDerivedWorktreeAsync(
+                    new ControlPlaneUnregisterWorktreeRequest(projectId, worktreePath),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.Busy)
+            {
+                return new ControlPlaneHttpResponse(
+                    409,
+                    new { ok = false, error = result.Error, busy = true },
+                    projectId);
+            }
+
+            if (!result.Ok)
+            {
+                return BadRequest(result.Error ?? "Unregister failed.");
+            }
+
+            return Ok(ToUnregisterWorktreeJson(result), result.ProjectId);
+        }
+
         return new ControlPlaneHttpResponse(404, new { error = $"Unknown route {method} {path}" });
     }
+
+    private static string? ReadStringProperty(JsonElement? payload, string name)
+    {
+        if (payload is null
+            || !payload.Value.TryGetProperty(name, out var el)
+            || el.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return el.GetString();
+    }
+
+    private static object ToRegisterWorktreeJson(ControlPlaneRegisterWorktreeResult result) => new
+    {
+        ok = result.Ok,
+        created = result.Created,
+        alreadyRegistered = result.AlreadyRegistered,
+        projectId = result.ProjectId,
+        displayName = result.DisplayName,
+        rootFolder = result.RootFolder,
+        applicationUrl = result.ApplicationUrl,
+        parentProjectId = result.ParentProjectId
+    };
+
+    private static object ToUnregisterWorktreeJson(ControlPlaneUnregisterWorktreeResult result) => new
+    {
+        ok = result.Ok,
+        removed = result.Removed,
+        alreadyRemoved = result.AlreadyRemoved,
+        projectId = result.ProjectId
+    };
 
     private static object ModeJson(ControlPlaneModeStatus status, bool includePrevious)
     {

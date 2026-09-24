@@ -264,3 +264,63 @@ public sealed record ControlPlaneModeStatus(
     string ModeWire,
     ProjectBuildControlMode? PreviousMode = null,
     string? PreviousModeWire = null);
+
+public sealed record ControlPlaneRegisterWorktreeRequest(
+    string ParentProjectId,
+    string WorktreePath);
+
+public sealed record ControlPlaneUnregisterWorktreeRequest(
+    string ProjectId,
+    string? WorktreePath = null);
+
+public sealed record ControlPlaneRegisterWorktreeResult(
+    bool Ok,
+    bool Created,
+    bool AlreadyRegistered,
+    string? ProjectId,
+    string? DisplayName,
+    string? RootFolder,
+    string? ApplicationUrl,
+    string? ParentProjectId,
+    string? Error = null)
+{
+    public static ControlPlaneRegisterWorktreeResult Fail(string error) =>
+        new(false, false, false, null, null, null, null, null, error);
+
+    public static ControlPlaneRegisterWorktreeResult SuccessCreated(
+        string projectId,
+        string displayName,
+        string rootFolder,
+        string? applicationUrl,
+        string parentProjectId) =>
+        new(true, true, false, projectId, displayName, rootFolder, applicationUrl, parentProjectId);
+
+    public static ControlPlaneRegisterWorktreeResult SuccessAlreadyRegistered(
+        string projectId,
+        string displayName,
+        string rootFolder,
+        string? applicationUrl,
+        string parentProjectId) =>
+        new(true, false, true, projectId, displayName, rootFolder, applicationUrl, parentProjectId);
+}
+
+public sealed record ControlPlaneUnregisterWorktreeResult(
+    bool Ok,
+    bool Removed,
+    bool AlreadyRemoved,
+    bool Busy,
+    string? ProjectId,
+    string? Error = null)
+{
+    public static ControlPlaneUnregisterWorktreeResult Fail(string error, string? projectId = null) =>
+        new(false, false, false, false, projectId, error);
+
+    public static ControlPlaneUnregisterWorktreeResult FailBusy(string projectId, string error) =>
+        new(false, false, false, true, projectId, error);
+
+    public static ControlPlaneUnregisterWorktreeResult SuccessRemoved(string projectId) =>
+        new(true, true, false, false, projectId);
+
+    public static ControlPlaneUnregisterWorktreeResult SuccessAlreadyRemoved(string? projectId = null) =>
+        new(true, false, true, false, projectId);
+}

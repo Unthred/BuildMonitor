@@ -21,9 +21,25 @@ BuildMonitor is multi-project. Every scoped call requires **`projectId`** (query
 
 1. Discover IDs: `GET http://127.0.0.1:7700/projects`
 2. Claim a project only when `rootFolder` **exactly** equals the folder being edited (full path; trailing separators ignored; case-insensitive). Parent, child, sibling, and similarly named folders are not a match.
-3. Pass that `projectId` on session / watch / ship-check calls. If there is no exact match, decline and let the product repository use `direct-dotnet`. Do not auto-add the worktree.
+3. Pass that `projectId` on session / watch / ship-check calls. If there is no exact match, decline and let the product repository use `direct-dotnet`. Do **not** auto-add the worktree. To opt a new Git worktree into BuildMonitor, call `POST /projects/register-worktree` against an already-claimed parent (see [Derived worktrees](#derived-worktrees-cursor-git-worktrees)).
 
 The build target is the project's configured **Project file** (same as the tray monitor). Tests use **Test project / solution** or auto-discovery; if none, ship-check omits `tests` and `ok` follows build only.
+
+## Derived worktrees (Cursor Git worktrees)
+
+BuildMonitor is **personal local tooling**. Registration never writes into the product repository. Other developers cloning the same remote are unaffected.
+
+| Step | API | Notes |
+|------|-----|--------|
+| Register | `POST /projects/register-worktree` | Body: `{ "parentProjectId", "worktreePath" }`. Parent must already be a claimed Local project. Path must exist, be a Git worktree, share the parent's `git` common dir, and not already be another project's `rootFolder`. |
+| Use | existing `/mode`, `/session/*`, `/run/*` | Exact claim on the new `rootFolder` — same ownership as any configured project. |
+| Unregister | `POST /projects/unregister-worktree` | Body: `{ "projectId" }` (optional confirming `worktreePath`). Stops the managed host first. **409** if exclusive `/run/*` is busy. Removes only projects marked `local.derivedFromProjectId`. Does **not** run `git worktree remove` or delete source files. |
+
+**Lifecycle:** claimed parent → Cursor creates Git worktree → register (derive settings, allocate ports) → BuildMonitor owns build/test/runtime → ship → unregister → caller deletes the Git worktree.
+
+Registration sets `startOnLaunch: false` and does **not** start the app host. Ports are allocated via existing `ProjectPortIsolation` and persisted on the new project as `local.applicationUrl` (never edits `launchSettings.json`).
+
+Idempotency: re-registering the same path returns `alreadyRegistered: true`. Unregistering an unknown id returns `alreadyRemoved: true`. Unregister refuses non-derived (manually configured) projects.
 
 ## Endpoints
 
@@ -32,6 +48,8 @@ Base: `http://127.0.0.1:{controlPlanePort}`
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/projects` | List configured projects with authoritative Local/Azure health (see below) |
+| POST | `/projects/register-worktree` | Register a derived Git worktree from a claimed parent (see above) |
+| POST | `/projects/unregister-worktree` | Stop host + remove derived registration only; never deletes the Git worktree directory |
 | POST | `/app/quit` | Graceful BuildMonitor tray exit (same as tray **Exit**). **202** `{ ok, quitting }` — accept-and-exit: response returns as soon as quit is scheduled (failsafe armed first); teardown continues asynchronously. **503** when quit cannot be scheduled. Must **not** return **500** for thread-affinity/UI errors on the HTTP thread. Hard-exit failsafe (~20s) is armed before UI teardown so a later hang still terminates the process; a second quit/Exit forces immediate hard exit. |
 | GET | `/mode?projectId=` | `{ "projectId", "mode": "file-watching"\|"ai-controlled" }` |
 | POST | `/mode` | `{ "projectId", "mode" }` → `{ "projectId", "previousMode", "mode" }` |

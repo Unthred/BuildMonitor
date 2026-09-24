@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 24;
+    public int SchemaVersion { get; set; } = 25;
     /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
     public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
     public List<MonitoredProjectSettings> Projects { get; set; } = [];
@@ -129,6 +129,14 @@ public sealed class LocalProjectAttachment : INotifyPropertyChanged
         get => applicationUrl;
         set => SetField(ref applicationUrl, value);
     }
+
+    /// <summary>
+    /// When set, this Local attachment was registered by the control plane as a derived
+    /// Git worktree of the named parent project id. Unregister only removes entries with
+    /// this marker. Omitted from settings.json when unset.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DerivedFromProjectId { get; set; }
 
     /// <summary>Optional .sln/.slnx or test .csproj. Empty = auto-detect from repo root.</summary>
     public string TestProjectFile

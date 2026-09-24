@@ -51,6 +51,8 @@ public static class SettingsApplyImpactCatalog
             "Changes CLI args for run/next build; remount process without compile."),
         new("Projects[].Local.ApplicationUrl", SettingsApplyImpact.SoftRuntime,
             "Persisted runtime URL/port override; next start reads it without remounting siblings."),
+        new("Projects[].Local.DerivedFromProjectId", SettingsApplyImpact.SoftRuntime,
+            "Marks control-plane-registered derived worktrees; UpdateDefinition adopts without remount."),
         new("Projects[].Local.TestProjectFile", SettingsApplyImpact.SoftRuntime,
             "Test target for subsequent RunTests; UpdateDefinition adopts without Local rebuild."),
         new("Projects[].Local.StartOnLaunch", SettingsApplyImpact.SoftRuntime,

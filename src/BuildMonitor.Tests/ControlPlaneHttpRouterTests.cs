@@ -475,6 +475,60 @@ public sealed class ControlPlaneHttpRouterTests
         Assert.Contains("false", json, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Post_register_worktree_routes_to_actions()
+    {
+        var actions = new FakeActions
+        {
+            RegisterResult = ControlPlaneRegisterWorktreeResult.SuccessCreated(
+                "d1",
+                "App (wt)",
+                @"C:\src\App-wt",
+                "https://localhost:44349",
+                "parent1")
+        };
+        var body = Encoding.UTF8.GetBytes(
+            """{"parentProjectId":"parent1","worktreePath":"C:\\src\\App-wt"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/projects/register-worktree"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("parent1", actions.LastRegisterParentId);
+        Assert.Equal(@"C:\src\App-wt", actions.LastRegisterWorktreePath);
+        var json = JsonSerializer.Serialize(response.Body);
+        Assert.Contains("\"created\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"projectId\":\"d1\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_unregister_worktree_busy_returns_409()
+    {
+        var actions = new FakeActions
+        {
+            UnregisterResult = ControlPlaneUnregisterWorktreeResult.FailBusy(
+                "d1",
+                "A control-plane rebuild/tests/ship-check is still running for this project.")
+        };
+        var body = Encoding.UTF8.GetBytes("""{"projectId":"d1"}""");
+        var response = await ControlPlaneHttpRouter.DispatchAsync(
+            actions,
+            "POST",
+            new Uri("http://127.0.0.1:7700/projects/unregister-worktree"),
+            new MemoryStream(body),
+            Encoding.UTF8,
+            CancellationToken.None);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Equal("d1", actions.LastUnregisterProjectId);
+        var json = JsonSerializer.Serialize(response.Body);
+        Assert.Contains("busy", json, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class FakeActions : IControlPlaneActions
     {
         public bool ListCalled { get; private set; }
@@ -638,5 +692,33 @@ public sealed class ControlPlaneHttpRouterTests
                 [],
                 null,
                 ControlPlaneOperationOutcome.Succeeded));
+
+        public ControlPlaneRegisterWorktreeResult? RegisterResult { get; set; }
+        public ControlPlaneUnregisterWorktreeResult? UnregisterResult { get; set; }
+        public string? LastRegisterParentId { get; private set; }
+        public string? LastRegisterWorktreePath { get; private set; }
+        public string? LastUnregisterProjectId { get; private set; }
+
+        public Task<ControlPlaneRegisterWorktreeResult> RegisterDerivedWorktreeAsync(
+            ControlPlaneRegisterWorktreeRequest request,
+            CancellationToken cancellationToken)
+        {
+            LastRegisterParentId = request.ParentProjectId;
+            LastRegisterWorktreePath = request.WorktreePath;
+            return Task.FromResult(RegisterResult ?? ControlPlaneRegisterWorktreeResult.SuccessCreated(
+                "derived1",
+                "App (wt)",
+                request.WorktreePath,
+                "https://localhost:44349",
+                request.ParentProjectId));
+        }
+
+        public Task<ControlPlaneUnregisterWorktreeResult> UnregisterDerivedWorktreeAsync(
+            ControlPlaneUnregisterWorktreeRequest request,
+            CancellationToken cancellationToken)
+        {
+            LastUnregisterProjectId = request.ProjectId;
+            return Task.FromResult(UnregisterResult ?? ControlPlaneUnregisterWorktreeResult.SuccessRemoved(request.ProjectId));
+        }
     }
 }

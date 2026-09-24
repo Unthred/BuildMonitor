@@ -987,6 +987,19 @@ internal sealed partial class ProjectRuntime
         Local.BuildControlMode == ProjectBuildControlMode.FileWatching
         && sessionStore?.ShouldBlockAutoBuild(projectSettings.Id) == true;
 
+    /// <summary>
+    /// True while an exclusive control-plane rebuild/tests/ship-check holds exclusivity
+    /// (including the brief post-cancel window before release).
+    /// </summary>
+    internal bool HasExclusiveControlPlaneOperation()
+    {
+        return Volatile.Read(ref shipCheckInProgress) != 0
+            || Volatile.Read(ref agentRebuildInProgress) != 0
+            || Volatile.Read(ref agentTestsInProgress) != 0
+            || Volatile.Read(ref buildInProgress) != 0
+            || activeControlPlaneLease is not null;
+    }
+
     public ProjectBuildControlMode GetBuildControlMode() => Local.BuildControlMode;
 
     /// <summary>

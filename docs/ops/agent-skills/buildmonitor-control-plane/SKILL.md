@@ -220,8 +220,57 @@ Base example: `http://127.0.0.1:7700`
 | POST | `/run/tests` | `{ "projectId": "…", "filter": "…", "configuration": "Debug" }` optional |
 | POST | `/run/ship-check` | `{ "projectId": "…", "configuration": "Debug" }` optional |
 | GET | `/watch` | `?projectId=` |
+| POST | `/projects/register-worktree` | `{ "parentProjectId", "worktreePath" }` — see Derived worktrees |
+| POST | `/projects/unregister-worktree` | `{ "projectId" }` (+ optional `worktreePath`) — see Derived worktrees |
 
 Treat `ok: false` as failed verification — read `failures` / `log` / `outcome`. HTTP **409**: wait and recheck status; do not start a parallel `dotnet` command.
+
+## Derived worktrees (register / unregister)
+
+BuildMonitor is **local personal tooling** for this machine's user settings
+(`%LocalAppData%\BuildMonitor\settings.json`). It is **not** a repository
+capability. Do **not** add BuildMonitor files, rules, or skills to
+WitherbyConnect or any other product repo.
+
+A newly created Cursor Git worktree is **not** magically claimed. Exact claim
+still requires a configured `rootFolder`. Registration is allowed only when the
+**parent** local workspace is already a claimed BuildMonitor project for this
+user.
+
+### Register
+
+After Cursor creates a Git worktree from a claimed parent:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "$base/projects/register-worktree" -ContentType "application/json" `
+  -Body (@{ parentProjectId = $parentProjectId; worktreePath = $exactWorktreePath } | ConvertTo-Json)
+```
+
+BuildMonitor derives Local (and Azure) settings from the parent, allocates
+non-colliding `applicationUrl` ports, marks `derivedFromProjectId`, and persists
+**only** in local user settings. Registration does **not** start the app host
+(`startOnLaunch` is forced false). Announce `BuildMonitor: registered worktree`
+(or note `alreadyRegistered`).
+
+Then claim by the **new** `projectId` / exact `rootFolder` and use the normal
+mode → busy → edit → idle → `/run/*` flow. Once registered, BuildMonitor
+**exclusively** owns local build/test/runtime lifecycle for that worktree.
+
+### Unregister (post-ship cleanup)
+
+```powershell
+# Ensure no exclusive /run/* (409 if busy)
+Invoke-RestMethod -Method Post -Uri "$base/run/stop" -ContentType "application/json" `
+  -Body (@{ projectId = $derivedProjectId } | ConvertTo-Json)
+Invoke-RestMethod -Method Post -Uri "$base/projects/unregister-worktree" -ContentType "application/json" `
+  -Body (@{ projectId = $derivedProjectId; worktreePath = $exactWorktreePath } | ConvertTo-Json)
+```
+
+Unregister stops the managed host and removes the derived BuildMonitor project
+only. It does **not** run `git worktree remove` and does **not** delete source
+files — the caller removes the Git worktree after a successful unregister.
+Refuse unregister of non-derived (manually configured) projects. Idempotent
+when already removed.
 
 ## Authoritative Azure / Local status
 
@@ -247,4 +296,7 @@ Only query Azure independently if `/projects` has no `azure` facet for that proj
 - Prefer `GET /projects` for current Azure run/status over independent Azure inference.
 - Always announce handshake and `/run/*` in chat.
 - Never invent MCP tools for BuildMonitor.
+- Never auto-add a worktree because an agent needed a build — use
+  `/projects/register-worktree` only from an already-claimed parent.
+- Unregister never deletes the Git worktree directory.
 - Never auto-add a worktree to BuildMonitor because an agent needed a build.
