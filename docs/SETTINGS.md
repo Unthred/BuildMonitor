@@ -1,8 +1,8 @@
-# Settings schema (v24)
+# Settings schema (v25)
 
 File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
-**Current schema version is 24.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization; v24 adds optional `local.applicationUrl`).
+**Current schema version is 25.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization; v24 adds optional `local.applicationUrl`; v25 adds optional `local.derivedFromProjectId` for control-plane-registered Git worktrees).
 
 A **project** is a logical software product with optional attachments:
 
@@ -14,7 +14,7 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 
 ```json
 {
-  "schemaVersion": 22,
+  "schemaVersion": 25,
   "connections": [],
   "projects": [
     {
@@ -26,6 +26,7 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
         "projectFile": "MyApp.csproj",
         "launchProfile": "https",
         "applicationUrl": "",
+        "derivedFromProjectId": null,
         "testProjectFile": "",
         "extraDotNetArgs": "",
         "startOnLaunch": true,
@@ -66,6 +67,10 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 `local.applicationUrl` is an optional semicolon-separated ASP.NET URL list (for example `https://localhost:44349;http://localhost:5170`). BuildMonitor applies it as `ASPNETCORE_URLS` and always starts with `--no-launch-profile`, so `dotnet` does not read or rewrite `Properties/launchSettings.json`.
 
 When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project.
+
+## Derived worktree marker (v25)
+
+`local.derivedFromProjectId` is set when `POST /projects/register-worktree` clones a claimed parent into an isolated project for a Cursor Git worktree. Unregister only removes projects with this marker. Omit or null for manually configured projects. See [ops/control-plane.md](ops/control-plane.md#derived-worktrees-cursor-git-worktrees).
 
 ## Launch profile environment (v24)
 

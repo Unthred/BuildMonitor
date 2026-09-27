@@ -23,7 +23,10 @@ outcomes live in the repository being edited.
    are **not** a claim.
 4. If no exact claim: **do nothing**. Do not handshake. Do not forbid `dotnet`.
    Announce `Verification: direct-dotnet` and why. Unconfigured worktrees are
-   valid. **Do not auto-configure.**
+   valid. **Do not auto-configure** unless the agent explicitly calls
+   `POST /projects/register-worktree` against an already-claimed parent (local
+   personal tooling only — never write BuildMonitor config into the product
+   repo). After register, re-claim using the new exact `rootFolder`.
 5. If exact claim but unreachable or the operation is unsupported: decline and
    leave fallback to the product repository.
 

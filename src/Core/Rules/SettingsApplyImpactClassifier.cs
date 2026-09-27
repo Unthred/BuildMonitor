@@ -217,6 +217,7 @@ public static class SettingsApplyImpactClassifier
     {
         local.TestProjectFile,
         local.ApplicationUrl,
+        local.DerivedFromProjectId,
         local.StartOnLaunch,
         local.BuildControlMode,
         local.PreferredSiteUrlScheme,

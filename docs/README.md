@@ -21,6 +21,7 @@
 | Operational history | [features/operational-history.md](features/operational-history.md) |
 | Activity / progress | [features/activity-and-progress.md](features/activity-and-progress.md) |
 | Failure details | [features/failure-details.md](features/failure-details.md) |
+| Derived worktree registration | [features/derived-worktree-registration.md](features/derived-worktree-registration.md) |
 
 ## ADRs
 
@@ -28,3 +29,4 @@
 |-----|-------|--------|
 | [0001-template](adr/0001-template.md) | Template | — |
 | [0002-project-azure-attachments](adr/0002-project-azure-attachments.md) | Project Local/Azure attachments | Accepted |
+| [0003-derived-worktree-registration](adr/0003-derived-worktree-registration.md) | Control-plane derived Git worktree registration | Proposed |

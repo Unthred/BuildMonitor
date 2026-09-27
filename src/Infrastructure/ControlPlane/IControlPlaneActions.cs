@@ -30,6 +30,14 @@ public interface IControlPlaneActions
     ControlPlaneModeStatus SetBuildControlMode(string projectId, ProjectBuildControlMode mode);
     bool ProjectExists(string projectId);
 
+    Task<ControlPlaneRegisterWorktreeResult> RegisterDerivedWorktreeAsync(
+        ControlPlaneRegisterWorktreeRequest request,
+        CancellationToken cancellationToken);
+
+    Task<ControlPlaneUnregisterWorktreeResult> UnregisterDerivedWorktreeAsync(
+        ControlPlaneUnregisterWorktreeRequest request,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Requests a graceful BuildMonitor tray exit (same path as tray Exit).
     /// Used before replacing the installed binary. Returns whether quit was accepted.

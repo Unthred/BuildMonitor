@@ -163,4 +163,26 @@ public sealed class ControlPlaneCoordinator : IControlPlaneActions
                 : $"was {status.PreviousModeWire}");
         return status;
     }
+
+    public Task<ControlPlaneRegisterWorktreeResult> RegisterDerivedWorktreeAsync(
+        ControlPlaneRegisterWorktreeRequest request,
+        CancellationToken cancellationToken) =>
+        orchestrator.RegisterDerivedWorktreeAsync(request, cancellationToken);
+
+    public async Task<ControlPlaneUnregisterWorktreeResult> UnregisterDerivedWorktreeAsync(
+        ControlPlaneUnregisterWorktreeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await orchestrator.UnregisterDerivedWorktreeAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Ok && result.Removed && result.ProjectId is not null)
+        {
+            events.Record(
+                result.ProjectId,
+                ControlPlaneEventKind.RunStop,
+                "Derived worktree unregistered");
+        }
+
+        return result;
+    }
 }
