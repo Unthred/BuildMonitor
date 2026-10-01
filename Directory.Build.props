@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Fail the build on compiler warnings (nullable, unused, etc.). -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

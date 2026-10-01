@@ -181,8 +181,12 @@ public sealed partial class ProjectOrchestrator
         settingsPersistRequested?.Invoke(GetSettingsSnapshot());
         healthCoalescer.Request(immediate: true);
 
-        if (derived.Local.StartOnLaunch
-            && derived.Local.RunOptions.RunMode != ProjectRunMode.None)
+        var local = derived.Local
+            ?? throw new InvalidOperationException(
+                $"Derived project '{derived.Id}' has no Local attachment after registration.");
+
+        if (local.StartOnLaunch
+            && local.RunOptions.RunMode != ProjectRunMode.None)
         {
             if (derivedWorktreeHostStarter is not null)
             {
@@ -218,8 +222,8 @@ public sealed partial class ProjectOrchestrator
         return ControlPlaneRegisterWorktreeResult.SuccessCreated(
             derived.Id,
             derived.DisplayName,
-            derived.Local!.RootFolder,
-            string.IsNullOrWhiteSpace(derived.Local.ApplicationUrl) ? null : derived.Local.ApplicationUrl,
+            local.RootFolder,
+            string.IsNullOrWhiteSpace(local.ApplicationUrl) ? null : local.ApplicationUrl,
             parent.Id);
     }
 

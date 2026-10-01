@@ -21,6 +21,7 @@ jobs:
 
       - name: Build solution
         run: dotnet build BuildMonitor.slnx --configuration Release
+        # TreatWarningsAsErrors is set in Directory.Build.props
 
       - name: Test
         run: dotnet test src/BuildMonitor.Tests/BuildMonitor.Tests.csproj --configuration Release --no-build --verbosity normal
