@@ -26,7 +26,8 @@ public enum SettingsApplyImpact
 
     /// <summary>
     /// Local process/watcher identity (paths, launch/args, RunMode, watch excludes) or Local
-    /// active-session membership — remount affected Local runtimes without compiling.
+    /// active-session membership — remount affected Local runtimes. Newly activated projects
+    /// with StartOnLaunch still cold-start (build then host). Other remounts do not compile.
     /// Cold start (<c>before == null</c>) still uses startup build when StartOnLaunch is enabled.
     /// </summary>
     HardRestart = 3

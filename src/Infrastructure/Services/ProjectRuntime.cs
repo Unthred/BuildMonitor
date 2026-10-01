@@ -602,13 +602,24 @@ internal sealed partial class ProjectRuntime : IDisposable
     }
 
     /// <summary>
-    /// Remount watcher/process after a Hard Settings Save. Structurally does not call
-    /// <see cref="BuildAsync"/> — Settings remount is never a build trigger.
+    /// Remount watcher/process after a Hard Settings Save. Does not compile for
+    /// identity/process remounts. <see cref="LocalRemountKind.MountFresh"/> with
+    /// <c>StartOnLaunch</c> and a runnable mode uses <see cref="StartAsync"/> (build then host)
+    /// so a newly added project gets a listen URL without a manual Rebuild &amp; restart.
     /// </summary>
     public async Task RemountWithoutBuildAsync(LocalRemountKind kind, CancellationToken cancellationToken)
     {
         if (kind is LocalRemountKind.None or LocalRemountKind.StopOnly)
         {
+            return;
+        }
+
+        if (kind == LocalRemountKind.MountFresh
+            && Local.StartOnLaunch
+            && Local.RunOptions.RunMode != ProjectRunMode.None)
+        {
+            SetProjectCurrentAction("Starting newly activated project");
+            await StartAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
