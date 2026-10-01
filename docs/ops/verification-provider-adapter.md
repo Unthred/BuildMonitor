@@ -47,7 +47,19 @@ The adapter claims **yes** only when all of the following are true:
 2. A project `rootFolder` equals the **exact** folder being edited (full path; trailing separators ignored; case-insensitive). Parent, child, sibling, similarly named, and the chat's original workspace are not matches.
 3. That project can run the requested operation (`/run/rebuild`, `/run/tests`, `/run/ship-check`, or status).
 
-Otherwise it declines. The product repository's `direct-dotnet` fallback runs. **Do not auto-configure** the worktree.
+Otherwise the adapter checks for an already-claimed **manual** parent (`derivedFromProjectId` empty) that shares the folder's Git common directory.
+
+| Situation | What the adapter does |
+|-----------|------------------------|
+| Same repository as a claimed parent, exact path not registered | Registration required before build: `POST /projects/register-worktree`, then re-claim the exact path. Own project id, build directory, and port. `startOnLaunch` stays false. |
+| That register fails | Report `BuildMonitor: register failed`. **No silent direct-dotnet fallback.** |
+| No claimed parent | Decline. Product `direct-dotnet` fallback. **Do not auto-configure.** BuildMonitor remains optional. |
+| Pull request still active | No unregister and no `git worktree remove`, even if validation is green. |
+| Pull request merged/completed and validation green | `POST /run/stop`, then unregister that derived project only. After unregister succeeds, remove the Git worktree from another checkout and prune. |
+| Unregister fails | Report it. **Failed unregister blocks worktree removal.** |
+| Main / manual project (no `derivedFromProjectId`) | Never automatically unregister. |
+
+BuildMonitor does not scan Git. `VerificationProviderClaim` still declines an unregistered exact path until register has succeeded.
 
 Once claimed, BuildMonitor exclusively owns rebuild, tests, status, and final verification. Final local verification is `/run/ship-check` (fresh build and tests). HTTP 409 means busy: wait, recheck status, retry. Do not overlap `/run/*`.
 
@@ -56,15 +68,16 @@ Once claimed, BuildMonitor exclusively owns rebuild, tests, status, and final ve
 | Situation | Provider name | Agent does |
 |-----------|---------------|------------|
 | Exact claim + reachable + supported | `buildmonitor-control-plane` | Control-plane `/run/*` only |
-| Unreachable, no exact root, or unsupported op | `direct-dotnet` | Product-repo documented `dotnet build` / `dotnet test` |
+| Same Git repo as a claimed parent, path not registered yet | `buildmonitor-control-plane` after register | Register first. Register failure stops the task. No silent direct-dotnet fallback |
+| No claimed parent, unreachable, or unsupported op | `direct-dotnet` | Product-repo documented `dotnet build` / `dotnet test`. **Do not auto-configure** |
 | More than one exact+available adapter | `direct-dotnet` | Decline; do not guess |
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| Adapter never claims a sibling worktree | Intended. Configure that exact folder in BuildMonitor, or use fallback. Do not point the adapter at a parent checkout. |
-| `Verification: direct-dotnet` while the main clone is watched | The edited worktree path is different. Unconfigured is valid. |
+| Adapter never claims a sibling worktree before register | Intended until `POST /projects/register-worktree` succeeds. Do not point `/run/*` at the parent checkout. |
+| `Verification: direct-dotnet` while the main clone is watched | The edited path is a different worktree. If a claimed parent shares that Git common directory, register was required and a silent fallback is a rule miss. If no parent is claimed, unconfigured is valid. |
 | Installed files look old | Re-run the installer; Inspect status is Missing / Partial / Outdated / Ready. Confirm `adapterVersion: 1.0.0` matches the repo skill. |
 | 409 on `/run/*` | Another exclusive operation is in flight. Wait, `GET /projects` / `GET /session`, retry once. |
 | Handshake skipped | Control plane disabled or port not bound. Tray warning; product fallback applies. |

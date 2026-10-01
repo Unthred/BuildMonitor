@@ -1,15 +1,18 @@
 ---
 description: >-
-  Optional verification provider. Claim only the exact configured worktree when
-  BuildMonitor is reachable. Otherwise decline so the product repo fallback can
-  run. Do not install this rule into other product repositories.
+  Optional verification provider. When a claimed parent already exists for
+  this Git repository, register the exact worktree before build and unregister
+  it only after the pull request is merged. Otherwise decline so the product
+  repo fallback can run. Do not install this rule into other product repositories.
 alwaysApply: true
 ---
 
 # Optional verification provider (BuildMonitor)
 
 This user-level rule is an **optional adapter**, not product law. Product
-outcomes live in the repository being edited.
+outcomes live in the repository being edited. BuildMonitor does **not** scan
+Git repositories. Other developers without a claimed parent keep the product
+repository's `direct-dotnet` fallback.
 
 ## Claim (exact path only)
 
@@ -21,14 +24,81 @@ outcomes live in the repository being edited.
    operation.
 3. Parent, child, sibling, similarly named, and the chat's original workspace
    are **not** a claim.
-4. If no exact claim: **do nothing**. Do not handshake. Do not forbid `dotnet`.
-   Announce `Verification: direct-dotnet` and why. Unconfigured worktrees are
-   valid. **Do not auto-configure** unless the agent explicitly calls
-   `POST /projects/register-worktree` against an already-claimed parent (local
-   personal tooling only — never write BuildMonitor config into the product
-   repo). After register, re-claim using the new exact `rootFolder`.
-5. If exact claim but unreachable or the operation is unsupported: decline and
+4. If there is no exact claim, try **register before build** (below) when a
+   manual parent for the same Git common directory is already claimed. After a
+   successful register, re-claim using the new exact `rootFolder`.
+5. If no claimed parent exists for that repository: **do nothing**. Do not
+   handshake. Do not forbid `dotnet`. Announce `Verification: direct-dotnet`
+   and why. Unconfigured worktrees are valid. **Do not auto-configure.**
+6. If exact claim but unreachable or the operation is unsupported: decline and
    leave fallback to the product repository.
+
+## Register before the first build
+
+When Cursor creates or begins work in a Git worktree that is **not** yet an
+exact `rootFolder`:
+
+1. Resolve `git rev-parse --git-common-dir` for the folder being edited.
+2. A **claimed parent** is a BuildMonitor project whose root has that same
+   common directory and whose `local.derivedFromProjectId` is empty. Read that
+   field from `%LocalAppData%\BuildMonitor\settings.json`. If several manual
+   projects share the repository, use the primary checkout (`.git` is a
+   directory), not another manual worktree.
+3. If such a parent exists, **registration is required before build**. Before
+   the first `/run/rebuild`, `/run/tests`, `/run/ship-check`, or app launch:
+
+   `POST /projects/register-worktree` with `{ "parentProjectId", "worktreePath" }`
+   using that parent id and the **exact** new worktree path.
+
+4. Re-resolve and claim the exact worktree path. The exact path becomes claimable
+   only after register succeeds. Use only that derived
+   `projectId`. It has its own project id, its own build directory (output
+   stays under that `rootFolder`), and its own localhost port
+   (`local.applicationUrl`). `startOnLaunch` remains false. Do not reuse
+   another worktree's build directory, running host, or port.
+5. Announce `BuildMonitor: registered worktree` (or `alreadyRegistered`).
+6. If registration was expected but fails: announce
+   `BuildMonitor: register failed — <error>`. **No silent direct-dotnet
+   fallback.** Stop. Do not build with `dotnet` on that worktree.
+
+This stricter path applies only where a claimed parent already proves this
+machine is configured. The product still declines an unregistered exact path
+until this register call succeeds.
+
+## During work
+
+Build, test, and run only against the exact registered worktree's `projectId`.
+
+## Finish of work
+
+The cleanup gate is a **merged/completed** pull request whose required
+validation/build is green.
+
+Do **not** unregister or remove the worktree because code was committed,
+pushed, or because validation is green while the pull request is still
+**active**. An active PR means no unregister and no worktree removal.
+
+After that successful merge, for the derived project of **this** worktree only:
+
+1. `POST /run/stop` for that `projectId`.
+2. `POST /projects/unregister-worktree` with that `projectId` and the exact
+   `worktreePath`.
+3. Confirm `ok` and `removed` (or `alreadyRemoved`). Announce
+   `BuildMonitor: unregistered worktree`.
+4. Only then, from another checkout, `git worktree remove <path>`.
+5. `git worktree prune` when appropriate.
+
+A project with no `derivedFromProjectId` (main / manual) **must never be
+automatically unregistered**.
+
+If unregister fails: announce `BuildMonitor: unregister failed — <error>`.
+**Failed unregister blocks worktree removal.** Do not run `git worktree remove`.
+
+If worktree removal fails because something still holds the folder: do not
+kill arbitrary processes. Report the lock. Leave folder removal pending.
+
+A pull request closed or abandoned without merge: ask Simon before deleting
+the worktree. Do not delete it on your own.
 
 ## When claimed
 
@@ -59,5 +129,8 @@ Use `Verification: buildmonitor-control-plane` when selected, then:
 - `Verification: rebuild…` then `rebuild — pass` or `fail`
 - `Verification: ship-check…` then `ship-check — pass` or `fail`
 - `Verification: tests…` then `tests — pass` or `fail`
+- `BuildMonitor: registered worktree` / `BuildMonitor: register failed — …`
+- `BuildMonitor: unregistered worktree` / `BuildMonitor: unregister failed — …`
 
-Do not stay silent on handshake or `/run/*` when this provider is selected.
+Do not stay silent on handshake, registration, unregister, or `/run/*` when
+this provider is selected.
