@@ -29,4 +29,5 @@
 |-----|-------|--------|
 | [0001-template](adr/0001-template.md) | Template | — |
 | [0002-project-azure-attachments](adr/0002-project-azure-attachments.md) | Project Local/Azure attachments | Accepted |
-| [0003-derived-worktree-registration](adr/0003-derived-worktree-registration.md) | Control-plane derived Git worktree registration | Proposed |
+| [0003-derived-worktree-registration](adr/0003-derived-worktree-registration.md) | Control-plane derived Git worktree registration | Accepted (partially superseded) |
+| [0004-derived-worktree-start-on-launch](adr/0004-derived-worktree-start-on-launch.md) | Derived worktrees start on launch by default | Proposed |

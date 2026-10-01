@@ -57,12 +57,18 @@ public sealed class SettingsStore(string settingsPath)
             settings.SchemaVersion = SettingsSchemaV25.Version;
         }
 
+        if (settings.SchemaVersion < SettingsSchemaV26.Version)
+        {
+            SettingsSchemaV26.Apply(settings);
+            settings.SchemaVersion = SettingsSchemaV26.Version;
+        }
+
         return settings;
     }
 
     public Task SaveAsync(AppSettings settings)
     {
-        settings.SchemaVersion = SettingsSchemaV25.Version;
+        settings.SchemaVersion = SettingsSchemaV26.Version;
         settings.Connections ??= [];
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(settingsPath, json);

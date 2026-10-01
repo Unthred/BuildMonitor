@@ -54,7 +54,8 @@ exact `rootFolder`:
    only after register succeeds. Use only that derived
    `projectId`. It has its own project id, its own build directory (output
    stays under that `rootFolder`), and its own localhost port
-   (`local.applicationUrl`). `startOnLaunch` remains false. Do not reuse
+   (`local.applicationUrl`). `startOnLaunch` is **true** (host cold-starts on
+   register). Do not reuse
    another worktree's build directory, running host, or port.
 5. Announce `BuildMonitor: registered worktree` (or `alreadyRegistered`).
 6. If registration was expected but fails: announce

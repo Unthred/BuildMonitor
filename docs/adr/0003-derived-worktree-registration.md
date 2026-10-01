@@ -1,6 +1,6 @@
 # ADR 0003: Control-plane derived Git worktree registration
 
-**Status:** Proposed  
+**Status:** Accepted (partially superseded)  
 **Date:** 2026-09-24
 
 ## Context
@@ -25,8 +25,10 @@ Requirements:
    to the loopback control plane.
 2. Validate same-repository identity with absolute `git rev-parse --git-common-dir`
    (not folder naming).
-3. Derive Local (+ Azure) settings from the parent; force `startOnLaunch: false`
-   so registration does not start the host.
+3. Derive Local (+ Azure) settings from the parent; ~~force `startOnLaunch: false`
+   so registration does not start the host~~ — **superseded by
+   [ADR 0004](0004-derived-worktree-start-on-launch.md)** (`startOnLaunch: true`
+   and cold-start on register).
 4. Persist schema **v25** optional `local.derivedFromProjectId` so unregister
    refuses to delete manually configured projects.
 5. Allocate ports with `ProjectPortIsolation.Decide` against configured peers and
@@ -52,3 +54,4 @@ Requirements:
 - [ops/control-plane.md](../ops/control-plane.md#derived-worktrees-cursor-git-worktrees)
 - [features/derived-worktree-registration.md](../features/derived-worktree-registration.md)
 - Issue #152
+- Superseding decision (start on launch): [0004-derived-worktree-start-on-launch](0004-derived-worktree-start-on-launch.md)

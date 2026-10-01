@@ -267,11 +267,12 @@ Invoke-RestMethod -Method Post -Uri "$base/projects/register-worktree" -ContentT
 ```
 
 BuildMonitor derives Local (and Azure) settings from the parent, allocates a
-non-colliding `applicationUrl` port, marks `derivedFromProjectId`, and persists
-**only** in local user settings. The derived project has its own project id,
-its own build directory under that `rootFolder`, and its own localhost port.
-Registration does **not** start the app host (`startOnLaunch` is forced false).
-Announce `BuildMonitor: registered worktree` (or note `alreadyRegistered`).
+non-colliding `applicationUrl` port, marks `derivedFromProjectId`, sets
+`startOnLaunch: true`, and persists **only** in local user settings. The derived
+project has its own project id, its own build directory under that `rootFolder`,
+and its own localhost port. A successful register **cold-starts** that host
+(build then run/watch) so a listen URL appears. Announce
+`BuildMonitor: registered worktree` (or note `alreadyRegistered`).
 
 4. Re-claim by the **new** `projectId` / exact `rootFolder`. The exact path
    becomes claimable only after that register succeeds. Then use mode → busy →

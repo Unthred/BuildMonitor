@@ -26,7 +26,7 @@ public sealed class DerivedWorktreeRegistrationTests
         Assert.Equal("App.csproj", derived.Local.ProjectFile);
         Assert.Equal("https", derived.Local.LaunchProfile);
         Assert.Equal("https://localhost:44349", derived.Local.ApplicationUrl);
-        Assert.False(derived.Local.StartOnLaunch);
+        Assert.True(derived.Local.StartOnLaunch);
         Assert.Equal(parent.Id, derived.Local.DerivedFromProjectId);
         Assert.Equal(ProjectBuildControlMode.AiControlled, derived.Local.BuildControlMode);
         Assert.Equal(ProjectRunMode.Watch, derived.Local.RunOptions.RunMode);
@@ -88,8 +88,9 @@ public sealed class DerivedWorktreeRegistrationTests
         var settings = scope.LastPersisted!;
         var derived = settings.Projects.Single(p => p.Id == result.ProjectId);
         Assert.Equal(parent.Id, derived.Local!.DerivedFromProjectId);
-        Assert.False(derived.Local.StartOnLaunch);
+        Assert.True(derived.Local.StartOnLaunch);
         Assert.Equal(result.ApplicationUrl, derived.Local.ApplicationUrl);
+        Assert.Equal(1, scope.StartedDerivedHostCount);
         Assert.DoesNotContain(
             Path.Combine(worktreeRoot, "BuildMonitor"),
             Directory.GetFileSystemEntries(worktreeRoot),
@@ -271,10 +272,16 @@ public sealed class DerivedWorktreeRegistrationTests
             Directory.CreateDirectory(root);
             Orchestrator = new ProjectOrchestrator(Path.Combine(root, "logs"), root);
             Orchestrator.SetSettingsPersistHandler(s => LastPersisted = CloneSettings(s));
+            Orchestrator.SetDerivedWorktreeHostStarter((_, _) =>
+            {
+                StartedDerivedHostCount++;
+                return Task.CompletedTask;
+            });
         }
 
         public ProjectOrchestrator Orchestrator { get; }
         public AppSettings? LastPersisted { get; private set; }
+        public int StartedDerivedHostCount { get; private set; }
 
         public string CreateGitishFolder(string name)
         {

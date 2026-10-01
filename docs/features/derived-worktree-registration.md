@@ -8,9 +8,9 @@ BuildMonitor projects, derived from an already-claimed parent.
 | Step | What | Where |
 |------|------|--------|
 | 1 | Validate parent Local project + worktree path + same `git` common-dir | `ProjectOrchestrator.DerivedWorktree.cs`, `GitWorktreeIdentityReader` |
-| 2 | Clone settings; remap paths; `startOnLaunch=false`; set `derivedFromProjectId` | `DerivedWorktreeProjectFactory` |
+| 2 | Clone settings; remap paths; `startOnLaunch=true`; set `derivedFromProjectId` | `DerivedWorktreeProjectFactory` |
 | 3 | Allocate non-colliding `applicationUrl` | `ProjectPortIsolation` |
-| 4 | Persist settings + `ApplySettings` (mount runtime; **no** host start) | `ProjectOrchestrator` |
+| 4 | Persist settings + `ApplySettings` + cold-start host when StartOnLaunch | `ProjectOrchestrator` |
 | 5 | Unregister: refuse if exclusive `/run/*` busy → `/run/stop` → remove derived only | `UnregisterDerivedWorktreeAsync` |
 
 **Extension points:** `IGitWorktreeIdentityReader` (test seam).  

@@ -2,7 +2,7 @@
 
 File: `%LOCALAPPDATA%/BuildMonitor/settings.json`
 
-**Current schema version is 25.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization; v24 adds optional `local.applicationUrl`; v25 adds optional `local.derivedFromProjectId` for control-plane-registered Git worktrees).
+**Current schema version is 26.** Older files migrate on load (flat projects → nested `local`; v22 adds optional per-project link browser with **no** automatic field materialization; v24 adds optional `local.applicationUrl`; v25 adds optional `local.derivedFromProjectId` for control-plane-registered Git worktrees; v26 sets `startOnLaunch: true` on existing derived worktrees).
 
 A **project** is a logical software product with optional attachments:
 
@@ -14,7 +14,7 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 
 ```json
 {
-  "schemaVersion": 25,
+  "schemaVersion": 26,
   "connections": [],
   "projects": [
     {
@@ -70,7 +70,7 @@ When empty, URLs are **read** from the startup project's launchSettings (the `.c
 
 ## Derived worktree marker (v25)
 
-`local.derivedFromProjectId` is set when `POST /projects/register-worktree` clones a claimed parent into an isolated project for a Cursor Git worktree. Unregister only removes projects with this marker. Omit or null for manually configured projects. See [ops/control-plane.md](ops/control-plane.md#derived-worktrees-cursor-git-worktrees).
+`local.derivedFromProjectId` is set when `POST /projects/register-worktree` clones a claimed parent into an isolated project for a Cursor Git worktree. Unregister only removes projects with this marker. Omit or null for manually configured projects. Derived projects use `startOnLaunch: true` (schema v26). See [ops/control-plane.md](ops/control-plane.md#derived-worktrees-cursor-git-worktrees).
 
 ## Launch profile environment (v24)
 
@@ -289,7 +289,7 @@ Window size and position are saved in `%LOCALAPPDATA%/BuildMonitor/windows-layou
 
 ## Projects — start on launch
 
-- **`startOnLaunch`** (default **true** for new projects; migrated from global `monitor.autoStartActiveProjectsOnLaunch` in schema v10) — per project. When **true** and **active in session**, the project builds and runs automatically on **cold BuildMonitor/session startup**, and when Settings Save **newly activates** that Local project (`MountFresh` — add project or turn on Active in session with a runnable Run mode). Ordinary HardRestart remounts of an already-active Local project (path/profile/args changes) still remount watcher/process **without** compiling. When **false**, the project stays monitored but idle until you use **Rebuild** / **Restart** from the tray. Derived Git worktrees force **false**. Settings → **Projects** → select project → *Start build when app launches*.
+- **`startOnLaunch`** (default **true** for new projects; migrated from global `monitor.autoStartActiveProjectsOnLaunch` in schema v10) — per project. When **true** and **active in session**, the project builds and runs automatically on **cold BuildMonitor/session startup**, when Settings Save **newly activates** that Local project (`MountFresh` — add project or turn on Active in session with a runnable Run mode), and when a control-plane **derived worktree** is registered (schema v26; see [ADR 0004](adr/0004-derived-worktree-start-on-launch.md)). Ordinary HardRestart remounts of an already-active Local project (path/profile/args changes) still remount watcher/process **without** compiling. When **false**, the project stays monitored but idle until you use **Rebuild** / **Restart** from the tray. Settings → **Projects** → select project → *Start build when app launches*.
 - **`buildControlMode`** (schema v19; default **FileWatching**) — per project. `FileWatching` = debounced auto-build on source changes (held while control-plane busy). `AiControlled` = file watcher observes/counts only; builds require tray Rebuild or `POST /run/rebuild` / `/run/ship-check`. Settings → **Projects** → **Build control**. Wire API uses `file-watching` / `ai-controlled`.
 - **`preferredSiteUrlScheme`** (schema v20; default **Auto**) — per project. When the launch profile lists both HTTP and HTTPS, which URL to show/open: `Auto` (prefer HTTPS), `Https`, or `Http`. Settings → **Projects** → **Preferred site URL**. Also waits briefly for the preferred scheme before locking onto the first open port.
 
