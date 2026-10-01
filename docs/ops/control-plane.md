@@ -21,7 +21,7 @@ BuildMonitor is multi-project. Every scoped call requires **`projectId`** (query
 
 1. Discover IDs: `GET http://127.0.0.1:7700/projects`
 2. Claim a project only when `rootFolder` **exactly** equals the folder being edited (full path; trailing separators ignored; case-insensitive). Parent, child, sibling, and similarly named folders are not a match.
-3. Pass that `projectId` on session / watch / ship-check calls. If there is no exact match, decline and let the product repository use `direct-dotnet`. Do **not** auto-add the worktree. To opt a new Git worktree into BuildMonitor, call `POST /projects/register-worktree` against an already-claimed parent (see [Derived worktrees](#derived-worktrees-cursor-git-worktrees)).
+3. Pass that `projectId` on session / watch / ship-check calls. If there is no exact match, the product still declines that path. On a machine where a **manual** parent project is already claimed for the same Git common directory, the installed user adapter must `POST /projects/register-worktree` before the first build, then claim the new exact `rootFolder`. If that register fails, report it. **No silent direct-dotnet fallback** in that case. If no claimed parent exists, decline and let the product repository use `direct-dotnet`. BuildMonitor does **not** scan Git or auto-add worktrees by itself. **Do not auto-configure** when no parent is claimed (see [Derived worktrees](#derived-worktrees-cursor-git-worktrees)).
 
 The build target is the project's configured **Project file** (same as the tray monitor). Tests use **Test project / solution** or auto-discovery; if none, ship-check omits `tests` and `ok` follows build only.
 
@@ -35,11 +35,13 @@ BuildMonitor is **personal local tooling**. Registration never writes into the p
 | Use | existing `/mode`, `/session/*`, `/run/*` | Exact claim on the new `rootFolder` — same ownership as any configured project. |
 | Unregister | `POST /projects/unregister-worktree` | Body: `{ "projectId" }` (optional confirming `worktreePath`). Stops the managed host first. **409** if exclusive `/run/*` is busy. Removes only projects marked `local.derivedFromProjectId`. Does **not** run `git worktree remove` or delete source files. |
 
-**Lifecycle:** claimed parent → Cursor creates Git worktree → register (derive settings, allocate ports) → BuildMonitor owns build/test/runtime → ship → unregister → caller deletes the Git worktree.
+**Lifecycle (configured machine):** claimed parent → create Git worktree → register before build (own project id, build directory, port) → build/test/run on that exact project → pull request validation may go green while the PR is still active (stay registered) → PR merged/completed → `POST /run/stop` → unregister that derived project → confirm → `git worktree remove` from another checkout → `git worktree prune`.
 
-Registration sets `startOnLaunch: false` and does **not** start the app host. Ports are allocated via existing `ProjectPortIsolation` and persisted on the new project as `local.applicationUrl` (never edits `launchSettings.json`).
+Do not unregister or remove the worktree on commit, push, or green validation alone. An active PR means no unregister and no worktree removal. A pull request closed or abandoned without merge: ask before deleting the worktree. Failed unregister blocks worktree removal. If folder removal fails because a process holds the directory, do not kill arbitrary processes; report the lock and leave removal pending. Projects with no `derivedFromProjectId` (main / manual) must never be automatically unregistered.
 
-Idempotency: re-registering the same path returns `alreadyRegistered: true`. Unregistering an unknown id returns `alreadyRemoved: true`. Unregister refuses non-derived (manually configured) projects.
+Registration sets `startOnLaunch: false` and does **not** start the app host. The derived project gets its own id and `rootFolder`, so build output stays in that worktree. Ports are allocated via existing `ProjectPortIsolation` and persisted as `local.applicationUrl` (never edits `launchSettings.json`).
+
+Idempotency: re-registering the same path returns `alreadyRegistered: true`. Unregistering an unknown id returns `alreadyRemoved: true`. Unregister refuses non-derived (manually configured) projects. The exact path becomes claimable after register succeeds. `VerificationProviderClaim` still declines an unregistered path; the adapter registers first and then claims again.
 
 ## Endpoints
 

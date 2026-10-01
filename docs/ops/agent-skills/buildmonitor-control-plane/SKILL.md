@@ -37,9 +37,18 @@ Handshake once at the start of work **and again whenever the edited root changes
      separators ignored; case-insensitive);
    - the project can run the requested operation (`/run/rebuild`, `/run/tests`,
      `/run/ship-check`, or `/projects` for status).
-4. Otherwise **decline cleanly**. Announce `Verification: direct-dotnet` plus
-   why (unreachable / no exact claim / operation unsupported). Do **not**
-   auto-configure the worktree. Unconfigured is valid, not an error.
+4. If there is no exact `rootFolder`, and the folder shares a Git common
+   directory with an already-claimed **manual** parent (`derivedFromProjectId`
+   empty), registration is required before build. Follow
+   [Worktree lifecycle](#worktree-lifecycle). After `POST /projects/register-worktree`
+   succeeds, re-claim that exact path. If that register fails, announce
+   `BuildMonitor: register failed — <error>` and stop. **No silent direct-dotnet
+   fallback.**
+5. If no claimed parent exists for that repository, **decline cleanly**.
+   Announce `Verification: direct-dotnet` plus why (unreachable / no exact
+   claim / operation unsupported). **Do not auto-configure.** Unconfigured is
+   valid when this machine has no claimed parent. BuildMonitor remains optional
+   for developers without a claimed parent.
 
 ## Exclusive ownership
 
@@ -201,7 +210,10 @@ try { Invoke-RestMethod "http://127.0.0.1:7700/projects" } catch { $null }
 
 3. **Cache** `baseUrl` and `projectId` for this worktree. Recheck when the root changes.
 
-4. If no exact project: decline. Do not handshake. Product-repo `direct-dotnet` fallback applies.
+4. If no exact project: run the [worktree lifecycle](#worktree-lifecycle)
+   register step when a claimed manual parent shares the Git common directory.
+   If no such parent exists, decline. Do not handshake. Product-repo
+   `direct-dotnet` fallback applies only in that case.
 
 ## API (all scoped calls need projectId)
 
@@ -225,52 +237,95 @@ Base example: `http://127.0.0.1:7700`
 
 Treat `ok: false` as failed verification — read `failures` / `log` / `outcome`. HTTP **409**: wait and recheck status; do not start a parallel `dotnet` command.
 
-## Derived worktrees (register / unregister)
+## Worktree lifecycle
 
 BuildMonitor is **local personal tooling** for this machine's user settings
 (`%LocalAppData%\BuildMonitor\settings.json`). It is **not** a repository
 capability. Do **not** add BuildMonitor files, rules, or skills to
-WitherbyConnect or any other product repo.
+WitherbyConnect or any other product repo. The product does not scan Git.
+`VerificationProviderClaim` still declines an unregistered exact path; this
+adapter registers first, then claims again.
 
-A newly created Cursor Git worktree is **not** magically claimed. Exact claim
-still requires a configured `rootFolder`. Registration is allowed only when the
-**parent** local workspace is already a claimed BuildMonitor project for this
-user.
+Normal shape on a configured machine: **main + genuinely active worktrees**.
+Finished issues are unregistered after merge. Do not bulk-delete old worktrees
+merely because they are old.
 
-### Register
+### Start — registration required before build
 
-After Cursor creates a Git worktree from a claimed parent:
+When the folder being edited is a Git worktree of the same common directory as
+an already-claimed manual parent:
+
+1. Parent id: the claimed project with empty `local.derivedFromProjectId` whose
+   root shares `git rev-parse --git-common-dir`. If several manual projects
+   match, use the primary checkout (`.git` is a directory).
+2. Skip register when that exact path is already claimed.
+3. Otherwise, **before** the first build, test, or launch:
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri "$base/projects/register-worktree" -ContentType "application/json" `
   -Body (@{ parentProjectId = $parentProjectId; worktreePath = $exactWorktreePath } | ConvertTo-Json)
 ```
 
-BuildMonitor derives Local (and Azure) settings from the parent, allocates
-non-colliding `applicationUrl` ports, marks `derivedFromProjectId`, and persists
-**only** in local user settings. Registration does **not** start the app host
-(`startOnLaunch` is forced false). Announce `BuildMonitor: registered worktree`
-(or note `alreadyRegistered`).
+BuildMonitor derives Local (and Azure) settings from the parent, allocates a
+non-colliding `applicationUrl` port, marks `derivedFromProjectId`, and persists
+**only** in local user settings. The derived project has its own project id,
+its own build directory under that `rootFolder`, and its own localhost port.
+Registration does **not** start the app host (`startOnLaunch` is forced false).
+Announce `BuildMonitor: registered worktree` (or note `alreadyRegistered`).
 
-Then claim by the **new** `projectId` / exact `rootFolder` and use the normal
-mode → busy → edit → idle → `/run/*` flow. Once registered, BuildMonitor
-**exclusively** owns local build/test/runtime lifecycle for that worktree.
+4. Re-claim by the **new** `projectId` / exact `rootFolder`. The exact path
+   becomes claimable only after that register succeeds. Then use mode → busy →
+   edit → idle → `/run/*`. Do not reuse another worktree's build directory,
+   running host, or port.
 
-### Unregister (post-ship cleanup)
+If registration was expected but the call fails: announce
+`BuildMonitor: register failed — <error>`. **No silent direct-dotnet fallback.**
+
+If no claimed parent exists, do not register. Direct-dotnet remains valid.
+**Do not auto-configure.**
+
+### During work
+
+Always `/run/*` against the exact registered worktree `projectId`.
+
+### Finish — unregister only after merge
+
+Do **not** unregister or `git worktree remove` because of a commit, a push, or
+green validation while the pull request is still **active**. An active PR means
+no unregister and no worktree removal.
+
+Cleanup gate: pull request **merged/completed** and required validation/build
+green. Then, for that derived project only:
 
 ```powershell
-# Ensure no exclusive /run/* (409 if busy)
 Invoke-RestMethod -Method Post -Uri "$base/run/stop" -ContentType "application/json" `
   -Body (@{ projectId = $derivedProjectId } | ConvertTo-Json)
 Invoke-RestMethod -Method Post -Uri "$base/projects/unregister-worktree" -ContentType "application/json" `
   -Body (@{ projectId = $derivedProjectId; worktreePath = $exactWorktreePath } | ConvertTo-Json)
 ```
 
-Unregister stops the managed host and removes the derived BuildMonitor project
-only. It does **not** run `git worktree remove` and does **not** delete source
-files — the caller removes the Git worktree after a successful unregister.
-Refuse unregister of non-derived (manually configured) projects. Idempotent
-when already removed.
+Confirm `ok` with `removed` or `alreadyRemoved`. Announce
+`BuildMonitor: unregistered worktree`.
+
+Unregister removes the derived BuildMonitor project only. It does **not** run
+`git worktree remove`. A project with no `derivedFromProjectId` (main / manual)
+**must never be automatically unregistered**. The API refuses those.
+
+**Failed unregister blocks worktree removal.** Announce
+`BuildMonitor: unregister failed — <error>` and do not delete the folder.
+
+Only after unregister succeeds, from another checkout:
+
+```powershell
+git worktree remove <exact-worktree-path>
+git worktree prune
+```
+
+If `git worktree remove` fails because something still holds the folder: do not
+kill arbitrary processes. Report the lock. Leave folder removal pending.
+
+A pull request closed or abandoned without merge: ask Simon before deleting
+the worktree.
 
 ## Authoritative Azure / Local status
 
@@ -296,7 +351,8 @@ Only query Azure independently if `/projects` has no `azure` facet for that proj
 - Prefer `GET /projects` for current Azure run/status over independent Azure inference.
 - Always announce handshake and `/run/*` in chat.
 - Never invent MCP tools for BuildMonitor.
-- Never auto-add a worktree because an agent needed a build — use
-  `/projects/register-worktree` only from an already-claimed parent.
-- Unregister never deletes the Git worktree directory.
-- Never auto-add a worktree to BuildMonitor because an agent needed a build.
+- When a claimed manual parent shares the Git common directory, registration
+  is required before build. Do not register any other repository.
+- Unregister only after the pull request is merged/completed, and only for that
+  derived project. Unregister never deletes the Git worktree directory.
+- **Do not auto-configure** when no claimed parent exists.
