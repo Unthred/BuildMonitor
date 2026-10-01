@@ -10,10 +10,15 @@ namespace BuildMonitor.Infrastructure.Services;
 public sealed partial class ProjectOrchestrator
 {
     private IGitWorktreeIdentityReader gitWorktreeIdentityReader = new GitWorktreeIdentityReader();
+    private Func<string, CancellationToken, Task>? derivedWorktreeHostStarter;
 
     /// <summary>Test seam for Git identity checks during derived-worktree register.</summary>
     internal void SetGitWorktreeIdentityReader(IGitWorktreeIdentityReader reader) =>
         gitWorktreeIdentityReader = reader ?? throw new ArgumentNullException(nameof(reader));
+
+    /// <summary>Test seam to observe or skip cold-start after derived register.</summary>
+    internal void SetDerivedWorktreeHostStarter(Func<string, CancellationToken, Task>? starter) =>
+        derivedWorktreeHostStarter = starter;
 
     public async Task<ControlPlaneRegisterWorktreeResult> RegisterDerivedWorktreeAsync(
         ControlPlaneRegisterWorktreeRequest request,
@@ -168,13 +173,47 @@ public sealed partial class ProjectOrchestrator
             }
 
             settings.Projects.Add(derived);
-            settings.SchemaVersion = Math.Max(settings.SchemaVersion, SettingsSchemaV25.Version);
+            settings.SchemaVersion = Math.Max(settings.SchemaVersion, SettingsSchemaV26.Version);
             snapshot = settings;
         }
 
         ApplySettings(snapshot);
         settingsPersistRequested?.Invoke(GetSettingsSnapshot());
         healthCoalescer.Request(immediate: true);
+
+        if (derived.Local.StartOnLaunch
+            && derived.Local.RunOptions.RunMode != ProjectRunMode.None)
+        {
+            if (derivedWorktreeHostStarter is not null)
+            {
+                await derivedWorktreeHostStarter(derived.Id, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                ProjectRuntime? runtime;
+                lock (sync)
+                {
+                    runtimes.TryGetValue(derived.Id, out runtime);
+                }
+
+                if (runtime is not null)
+                {
+                    try
+                    {
+                        await runtime.StartAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        RaiseUserNotification(
+                            runtime.ProjectId,
+                            $"Failed to start {runtime.DisplayName}",
+                            ExceptionDetailFormatter.Format(ex),
+                            UserNotificationKind.Error,
+                            UserNotificationCategory.Error);
+                    }
+                }
+            }
+        }
 
         return ControlPlaneRegisterWorktreeResult.SuccessCreated(
             derived.Id,

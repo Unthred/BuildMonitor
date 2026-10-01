@@ -89,7 +89,7 @@ public static class DerivedWorktreeProjectFactory
             ApplicationUrl = allocatedApplicationUrl?.Trim() ?? string.Empty,
             TestProjectFile = RemapPathUnderRoot(parentLocal.TestProjectFile, parentRoot, worktreeRoot)
                 ?? string.Empty,
-            StartOnLaunch = false,
+            StartOnLaunch = true,
             BuildControlMode = parentLocal.BuildControlMode,
             PreferredSiteUrlScheme = parentLocal.PreferredSiteUrlScheme,
             DerivedFromProjectId = parentProjectId,

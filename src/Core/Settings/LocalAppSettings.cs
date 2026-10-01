@@ -7,7 +7,7 @@ namespace BuildMonitor.Core.Settings;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 25;
+    public int SchemaVersion { get; set; } = 26;
     /// <summary>Azure DevOps org connections (credential references live outside settings.json).</summary>
     public List<AzureDevOpsConnectionSettings> Connections { get; set; } = [];
     public List<MonitoredProjectSettings> Projects { get; set; } = [];
