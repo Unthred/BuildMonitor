@@ -347,7 +347,9 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
     }
 
     /// <summary>
-    /// Hard Settings Save remount: apply per-project remount kinds without compiling.
+    /// Hard Settings Save remount: apply per-project remount kinds. Identity/process
+    /// remounts do not compile. Newly activated projects with StartOnLaunch use cold start
+    /// (build then host) via <see cref="ProjectRuntime.RemountWithoutBuildAsync"/>.
     /// Call after <see cref="ApplySettings"/> so definitions are current.
     /// </summary>
     public async Task RemountLocalProjectsWithoutBuildAsync(

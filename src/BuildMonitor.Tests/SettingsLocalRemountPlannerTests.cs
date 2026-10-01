@@ -179,17 +179,47 @@ public sealed class ProjectRuntimeRemountWithoutBuildTests
     }
 
     [Fact]
-    public async Task Mount_fresh_does_not_build()
+    public async Task Mount_fresh_with_StartOnLaunch_cold_starts_build()
     {
         await using var scope = await RemountTestScope.CreateAsync(
             ProjectRunMode.Watch,
-            ProjectBuildControlMode.AiControlled);
+            ProjectBuildControlMode.AiControlled,
+            startOnLaunch: true);
+
+        await scope.Runtime.RemountWithoutBuildAsync(LocalRemountKind.MountFresh, CancellationToken.None);
+
+        Assert.True(scope.Runtime.BuildAsyncInvocationCount >= 1);
+        Assert.Equal(0, scope.Runtime.RemountWithoutBuildCount);
+        Assert.Equal(DesiredRunHostState.Running, scope.Runtime.DesiredRunHostState);
+    }
+
+    [Fact]
+    public async Task Mount_fresh_without_StartOnLaunch_does_not_build()
+    {
+        await using var scope = await RemountTestScope.CreateAsync(
+            ProjectRunMode.Watch,
+            ProjectBuildControlMode.AiControlled,
+            startOnLaunch: false);
 
         await scope.Runtime.RemountWithoutBuildAsync(LocalRemountKind.MountFresh, CancellationToken.None);
 
         Assert.Equal(0, scope.Runtime.BuildAsyncInvocationCount);
         Assert.Equal(1, scope.Runtime.RemountWithoutBuildCount);
-        Assert.Equal(DesiredRunHostState.Running, scope.Runtime.DesiredRunHostState);
+        Assert.Equal(DesiredRunHostState.Stopped, scope.Runtime.DesiredRunHostState);
+    }
+
+    [Fact]
+    public async Task Mount_fresh_StartOnLaunch_with_RunMode_None_does_not_build()
+    {
+        await using var scope = await RemountTestScope.CreateAsync(
+            ProjectRunMode.None,
+            ProjectBuildControlMode.AiControlled,
+            startOnLaunch: true);
+
+        await scope.Runtime.RemountWithoutBuildAsync(LocalRemountKind.MountFresh, CancellationToken.None);
+
+        Assert.Equal(0, scope.Runtime.BuildAsyncInvocationCount);
+        Assert.Equal(1, scope.Runtime.RemountWithoutBuildCount);
     }
 
     private static MonitoredProjectSettings GetDefinition(ProjectRuntime runtime)
@@ -225,7 +255,8 @@ public sealed class ProjectRuntimeRemountWithoutBuildTests
 
         public static Task<RemountTestScope> CreateAsync(
             ProjectRunMode runMode,
-            ProjectBuildControlMode mode)
+            ProjectBuildControlMode mode,
+            bool startOnLaunch = true)
         {
             var root = CreateTempDir();
             var logsRoot = CreateTempDir();
@@ -240,7 +271,7 @@ public sealed class ProjectRuntimeRemountWithoutBuildTests
                     RunMode = runMode,
                     FileChanges = FileChangeMode.TriggerRebuild
                 });
-            definition.Local!.StartOnLaunch = true;
+            definition.Local!.StartOnLaunch = startOnLaunch;
 
             var runtime = new ProjectRuntime(
                 definition,

@@ -14,7 +14,10 @@ public enum LocalRemountKind
     /// <summary>Project deactivated — orchestrator disposes the runtime.</summary>
     StopOnly = 1,
 
-    /// <summary>Newly activated — mount watcher only; do not compile or start the app.</summary>
+    /// <summary>
+    /// Newly activated. When <c>StartOnLaunch</c> and runnable, cold-start
+    /// (build then host). Otherwise mount watcher only — no compile.
+    /// </summary>
     MountFresh = 2,
 
     /// <summary>Watch ignore / root-adjacent watcher config — recreate watcher; leave process running.</summary>
