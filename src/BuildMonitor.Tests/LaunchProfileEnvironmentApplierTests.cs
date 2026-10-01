@@ -155,8 +155,10 @@ public class LaunchProfileEnvironmentApplierTests : IDisposable
         Assert.Equal("https://localhost:44349;http://localhost:5170", psi.Environment["ASPNETCORE_URLS"]);
         Assert.Equal("https://localhost:44349;http://localhost:5170", result.EffectiveUrls);
         Assert.Equal("Development", psi.Environment["ASPNETCORE_ENVIRONMENT"]);
-        Assert.False(psi.Environment["ASPNETCORE_URLS"].Contains("7001", StringComparison.Ordinal));
-        Assert.False(psi.Environment["ASPNETCORE_URLS"].Contains("44333", StringComparison.Ordinal));
+        var appliedUrls = psi.Environment["ASPNETCORE_URLS"];
+        Assert.NotNull(appliedUrls);
+        Assert.False(appliedUrls.Contains("7001", StringComparison.Ordinal));
+        Assert.False(appliedUrls.Contains("44333", StringComparison.Ordinal));
     }
 
     [Fact]

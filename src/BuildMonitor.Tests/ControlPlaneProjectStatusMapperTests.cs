@@ -287,7 +287,7 @@ public sealed class ControlPlaneProjectStatusMapperTests
         Assert.Equal(started, info.Activities[0].StartedAtUtc);
         Assert.NotNull(info.Activities[0].Progress);
         Assert.Equal(318, info.Activities[0].Progress!.Current);
-        Assert.Null(info.Activities[0].Progress.Total);
+        Assert.Null(info.Activities[0].Progress!.Total);
     }
 
     [Fact]

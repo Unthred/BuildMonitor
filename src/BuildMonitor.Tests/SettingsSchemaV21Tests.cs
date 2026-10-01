@@ -40,7 +40,9 @@ public sealed class SettingsSchemaV21Tests
                         RestartOnCrash = false,
                         MaxRestartRetries = 2,
                         AutoOpenLog = AutoOpenLogMode.Errors,
+#pragma warning disable CS0618 // intentional: migrate legacy ShowStatusPanelWhileBuilding
                         ShowStatusPanelWhileBuilding = false,
+#pragma warning restore CS0618
                         ForceCompleteWarningCounts = false
                     }
                 }
@@ -69,7 +71,9 @@ public sealed class SettingsSchemaV21Tests
         Assert.False(project.Local.RunOptions.RestartOnCrash);
         Assert.Equal(2, project.Local.RunOptions.MaxRestartRetries);
         Assert.Equal(AutoOpenLogMode.Errors, project.Local.RunOptions.AutoOpenLog);
+#pragma warning disable CS0618 // intentional: assert legacy field survived v21 nesting
         Assert.False(project.Local.RunOptions.ShowStatusPanelWhileBuilding);
+#pragma warning restore CS0618
         Assert.False(project.Local.RunOptions.ForceCompleteWarningCounts);
 
         var saved = JsonSerializer.Serialize(settings, JsonOptions);

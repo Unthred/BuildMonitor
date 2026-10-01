@@ -204,7 +204,7 @@ public sealed class OperationalHistoryPresentationMapperTests
         Assert.Single(presentation.Cards);
         Assert.NotNull(presentation.Cards[0].RecentActivity);
         Assert.Equal(OperationalHistoryAvailability.Available, presentation.Cards[0].RecentActivity!.Availability);
-        Assert.True(presentation.Cards[0].RecentActivity.ExpandByDefault);
+        Assert.True(presentation.Cards[0].RecentActivity!.ExpandByDefault);
     }
 
     [Fact]
