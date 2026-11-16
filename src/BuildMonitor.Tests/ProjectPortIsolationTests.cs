@@ -89,4 +89,66 @@ public sealed class ProjectPortIsolationTests
         Assert.False(decision.PersistApplicationUrl);
         Assert.Equal("https://localhost:44333", decision.ApplicationUrl);
     }
+
+    private static PeerProjectListenInfo Peer(string id, params string[] urls) =>
+        new(id, id, @"C:\src\" + id, urls, IsRunProcessActive: false);
+
+    [Fact]
+    public void AllocateNextAvailable_keeps_preferred_ports_when_free()
+    {
+        var decision = ProjectPortIsolation.AllocateNextAvailable(
+            ["https://localhost:44333"], peers: []);
+
+        Assert.True(decision.CanStart);
+        Assert.False(decision.PersistApplicationUrl);
+        Assert.Equal("https://localhost:44333", decision.ApplicationUrl);
+    }
+
+    [Fact]
+    public void AllocateNextAvailable_hands_out_consecutive_ports_for_successive_worktrees()
+    {
+        var peers = new List<PeerProjectListenInfo>();
+        var expected = new[] { "https://localhost:44333", "https://localhost:44334", "https://localhost:44335" };
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var decision = ProjectPortIsolation.AllocateNextAvailable(["https://localhost:44333"], peers);
+            Assert.True(decision.CanStart);
+            Assert.Equal(expected[i], decision.ApplicationUrl);
+            peers.Add(Peer($"wt{i}", decision.ApplicationUrl!));
+        }
+    }
+
+    [Fact]
+    public void AllocateNextAvailable_skips_ports_claimed_on_any_url_of_the_set()
+    {
+        var decision = ProjectPortIsolation.AllocateNextAvailable(
+            ["https://localhost:44333", "http://localhost:5154"],
+            [Peer("a", "https://localhost:44333", "http://localhost:5154"), Peer("b", "http://localhost:5155")]);
+
+        Assert.True(decision.CanStart);
+        Assert.True(decision.PersistApplicationUrl);
+        Assert.Equal("https://localhost:44335;http://localhost:5156", decision.ApplicationUrl);
+    }
+
+    [Fact]
+    public void AllocateNextAvailable_blocks_only_when_the_pool_is_exhausted()
+    {
+        var urls = Enumerable.Range(0, ProjectPortIsolation.MaxSequentialAllocationSteps + 1)
+            .Select(i => $"https://localhost:{44333 + i}")
+            .ToArray();
+        var decision = ProjectPortIsolation.AllocateNextAvailable(
+            ["https://localhost:44333"], [Peer("full", urls)]);
+
+        Assert.False(decision.CanStart);
+        Assert.Equal(44333, decision.BlockingPort);
+    }
+
+    [Fact]
+    public void AllocateNextAvailable_does_not_overflow_past_the_top_of_the_port_range()
+    {
+        var decision = ProjectPortIsolation.AllocateNextAvailable(
+            ["https://localhost:65535"], [Peer("top", "https://localhost:65535")]);
+
+        Assert.False(decision.CanStart);
+    }
 }
