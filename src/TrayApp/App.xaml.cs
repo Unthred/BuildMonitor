@@ -52,6 +52,7 @@ public partial class App : System.Windows.Application
         new(StringComparer.OrdinalIgnoreCase);
     private WindowDisplayChangeWatcher? displayChangeWatcher;
     private readonly BuildLifecycleToastNotifier buildLifecycleToastNotifier = new();
+    private static readonly TimeSpan StaleDerivedWorktreeScanInterval = TimeSpan.FromMinutes(5);
     private readonly TrayContextMenuBuilder trayMenuBuilder = new();
     private int settingsApplyVersion;
     private readonly SemaphoreSlim settingsApplyGate = new(1, 1);
@@ -114,9 +115,22 @@ public partial class App : System.Windows.Application
             }
 
             _ = settingsStore.SaveAsync(settings);
+
+            // Control-plane register/unregister changes projects behind the tray; keep the
+            // tray's copy in step so menus and a later Settings Save do not resurrect them.
+            var synced = CloneSettings(settings);
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                currentSettings = synced;
+                if (Volatile.Read(ref trayMenuOpen) == 0)
+                {
+                    RebuildTrayMenu();
+                }
+            });
         });
         orchestrator.HealthUpdated += OnHealthUpdated;
         orchestrator.UserNotification += OnUserNotification;
+        orchestrator.StartStaleDerivedWorktreeScan(StaleDerivedWorktreeScanInterval);
         controlPlaneHost = new ControlPlaneHostService(orchestrator, appDataDirectory, RequestExit);
 
         WorkerHealthRegistry.Shared.Register(
@@ -1846,8 +1860,52 @@ public partial class App : System.Windows.Application
         RequestExit = RequestExit,
         OpenLogViewerForProject = OpenLogViewerForProject,
         StartRunTestsForProjects = StartRunTestsForProjects,
-        InstallControlPlaneAgentSkill = InstallControlPlaneAgentSkill
+        InstallControlPlaneAgentSkill = InstallControlPlaneAgentSkill,
+        UnregisterStaleWorktrees = UnregisterStaleWorktrees
     };
+
+    private void UnregisterStaleWorktrees(IReadOnlyList<StaleDerivedWorktree> worktrees)
+    {
+        var current = orchestrator;
+        if (current is null || worktrees.Count == 0)
+        {
+            return;
+        }
+
+        var list = string.Join(
+            Environment.NewLine,
+            worktrees.Select(w => $"• {w.DisplayName} — {DerivedWorktreeStaleness.Describe(w.Reason)}"));
+        var confirm = System.Windows.MessageBox.Show(
+            $"Unregister {(worktrees.Count == 1 ? "this finished worktree" : $"these {worktrees.Count} finished worktrees")} from BuildMonitor?\n\n"
+            + list
+            + "\n\nThe host is stopped and the BuildMonitor project is removed. Worktree folders are not deleted.",
+            "Finished worktrees",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        var ids = worktrees.Select(w => w.ProjectId).ToList();
+        RunTrayMenuBackgroundAction(async () =>
+        {
+            var outcomes = await current.UnregisterStaleDerivedWorktreesAsync(ids, CancellationToken.None)
+                .ConfigureAwait(false);
+            var failed = outcomes.Where(o => !o.Ok).ToList();
+            var removed = outcomes.Count - failed.Count;
+            var message = failed.Count == 0
+                ? $"Unregistered {removed} worktree project(s)."
+                : $"Unregistered {removed}; failed {failed.Count}:{Environment.NewLine}"
+                    + string.Join(Environment.NewLine, failed.Select(f => $"{f.Worktree.DisplayName}: {f.Error}"));
+            await Dispatcher.InvokeAsync(() =>
+                ToastNotificationService.ShowIfEnabled(
+                    "Finished worktrees",
+                    message,
+                    failed.Count == 0 ? ToastKind.Info : ToastKind.Warning,
+                    failed.Count == 0 ? UserNotificationCategory.Info : UserNotificationCategory.Warning));
+        });
+    }
 
     private void InstallControlPlaneAgentSkill(string projectRootFolder, string displayName)
     {
