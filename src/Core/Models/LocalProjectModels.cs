@@ -140,7 +140,12 @@ public sealed record ProjectHealthSnapshot(
     /// When true, the log viewer must not auto-open or steal focus (Rebuild &amp; restart).
     /// Live capture to the project's log file continues regardless of window visibility.
     /// </summary>
-    bool SuppressAutoOpenLog = false);
+    bool SuppressAutoOpenLog = false,
+    /// <summary>
+    /// Set when an automatic start held this project back (for example the
+    /// <c>MaxConcurrentActiveProjects</c> limit). Null once the project has started.
+    /// </summary>
+    string? NotStartedReason = null);
 
 public enum BuildTriggerKind
 {

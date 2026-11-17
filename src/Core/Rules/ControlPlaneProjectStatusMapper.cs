@@ -213,7 +213,8 @@ public static class ControlPlaneProjectStatusMapper
             snapshot.ErrorCount,
             snapshot.WarningCount,
             snapshot.State,
-            snapshot.LastBuildExitCode >= 0 ? snapshot.LastBuildExitCode : null);
+            snapshot.LastBuildExitCode >= 0 ? snapshot.LastBuildExitCode : null,
+            snapshot.NotStartedReason);
     }
 
     public static int? ComputeAgeSeconds(DateTimeOffset polledAtUtc, DateTimeOffset utcNow)

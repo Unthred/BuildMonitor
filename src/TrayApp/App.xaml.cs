@@ -1138,6 +1138,13 @@ public partial class App : System.Windows.Application
             RunTrayMenuBackgroundAction(() => CopyProjectErrorsAsync(projectId));
         hoverPanel.RestartAppRequested += projectId =>
             RunTrayMenuBackgroundAction(() => orchestrator!.RestartAppAsync(projectId, CancellationToken.None));
+        hoverPanel.StartRequested += projectId =>
+        {
+            CancelSiteReadyDismissSchedule();
+            statusPanelAutoShownForBuild = true;
+            hoverPanel?.PrepareForPendingRebuild();
+            RunTrayMenuBackgroundAction(() => orchestrator!.StartProjectAsync(projectId, CancellationToken.None));
+        };
         hoverPanel.RebuildRequested += projectId =>
         {
             CancelSiteReadyDismissSchedule();

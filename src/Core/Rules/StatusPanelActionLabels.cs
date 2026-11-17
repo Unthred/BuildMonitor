@@ -7,4 +7,6 @@ public static class StatusPanelActionLabels
     public const string RebuildToolTip = "Build the project (does not restart a run host)";
     public const string RebuildAndRestart = "Rebuild & restart";
     public const string RebuildAndRestartToolTip = "Full build, then start run/watch";
+    public const string Start = "Start";
+    public const string StartToolTip = "Start this project now (build, then run/watch). Ignores the active-project limit.";
 }

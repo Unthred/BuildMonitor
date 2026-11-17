@@ -82,7 +82,7 @@ public static class StatusPanelPresentationBuilder
                 hasSelectedPipelines: snapshot.Azure.HasSelectedPipelines,
                 utcNow);
         var buildSourceRows = BuildSourcePresentationBuilder.BuildAll(snapshot, controlPlane, utcNow);
-        var overallLabel = StatusPanelOverallFormatter.FormatLabel(snapshot.Health, [snapshot]);
+        var overall = StatusPanelOverallFormatter.Summarize(snapshot.Health, [snapshot]);
         var historyEvents = historyStoreAvailable && recentHistoryForProject is not null
             ? recentHistoryForProject(snapshot.ProjectId, OperationalHistoryPresentationMapper.StatusCardRowLimit)
             : Array.Empty<OperationalEvent>();
@@ -139,13 +139,16 @@ public static class StatusPanelPresentationBuilder
             ShowStillEditingButton: false,
             StillEditingToolTip: null,
             OverallHealth: snapshot.Health,
-            OverallLabel: overallLabel,
+            OverallLabel: overall.Label,
             ShowControlPlaneSection: controlPlane.ShowControlPlaneSection,
             Azure: azurePresentation is { ShowSection: true } ? azurePresentation : null,
             BuildSourceRows: buildSourceRows,
             RecentActivity: recentActivity,
             Activity: activity,
-            FailureDetails: failureDetails);
+            FailureDetails: failureDetails,
+            OverallReason: overall.Reason,
+            OverallToolTip: overall.ToolTip,
+            ShowStartButton: StatusPanelCardActionRules.ShowStart(snapshot));
     }
 
     private static IReadOnlyList<StatusPanelStatusRow> BuildDetailRows(
@@ -348,6 +351,11 @@ public static class StatusPanelPresentationBuilder
             return controlPlane.TransientAction;
         }
 
+        if (!string.IsNullOrWhiteSpace(snapshot.NotStartedReason))
+        {
+            return snapshot.NotStartedReason;
+        }
+
         if (snapshot.IsRestarting)
         {
             return "Restarting watch host…";
@@ -371,7 +379,8 @@ public static class StatusPanelPresentationBuilder
         DateTimeOffset utcNow)
     {
         var overallHealth = StatusPanelIdleRailFormatter.ResolveHealth(active);
-        var overallLabel = StatusPanelOverallFormatter.FormatLabel(overallHealth, active);
+        var overall = StatusPanelOverallFormatter.Summarize(overallHealth, active);
+        var overallLabel = overall.Label;
         var webReady = StatusPanelIdleRailFormatter.ResolveWebReady(active);
         var accentSnapshot = active.FirstOrDefault(StatusPanelAccentFormatter.ShouldShowAccentRail);
         if (accentSnapshot is not null)
@@ -382,7 +391,9 @@ public static class StatusPanelPresentationBuilder
                 ActivityLabel: StatusPanelAccentFormatter.FormatActivityLabel(accentSnapshot, utcNow),
                 IdleHealth: overallHealth,
                 IdleLabel: overallLabel,
-                ShowWebReadyBadge: false);
+                ShowWebReadyBadge: false,
+                IdleReason: overall.Reason,
+                IdleToolTip: overall.ToolTip);
         }
 
         return new StatusPanelSideRailPresentation(
@@ -391,6 +402,8 @@ public static class StatusPanelPresentationBuilder
             ActivityLabel: string.Empty,
             IdleHealth: overallHealth,
             IdleLabel: overallLabel,
-            ShowWebReadyBadge: webReady && overallHealth == MonitorHealth.Green);
+            ShowWebReadyBadge: webReady && overallHealth == MonitorHealth.Green,
+            IdleReason: overall.Reason,
+            IdleToolTip: overall.ToolTip);
     }
 }

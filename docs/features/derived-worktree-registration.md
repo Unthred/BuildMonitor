@@ -10,7 +10,7 @@ BuildMonitor projects, derived from an already-claimed parent.
 | 1 | Validate parent Local project + worktree path + same `git` common-dir | `ProjectOrchestrator.DerivedWorktree.cs`, `GitWorktreeIdentityReader` |
 | 2 | Clone settings; remap paths; `startOnLaunch=true`; set `derivedFromProjectId` | `DerivedWorktreeProjectFactory` |
 | 3 | Allocate non-colliding `applicationUrl` | `ProjectPortIsolation` |
-| 4 | Persist settings + `ApplySettings` + cold-start host when StartOnLaunch | `ProjectOrchestrator` |
+| 4 | Persist settings + `ApplySettings` + cold-start host when StartOnLaunch, unless `maxConcurrentActiveProjects` is reached (then `notStartedReason`; see [start limit](status-panel-start-limit-and-overall.md)) | `ProjectOrchestrator` |
 | 5 | Unregister: refuse if exclusive `/run/*` busy → `/run/stop` → remove derived only | `UnregisterDerivedWorktreeAsync` |
 | 6 | Stale scan (30 s after start, then every 5 min): folder gone, no live `.git`, or parent id missing | `DerivedWorktreeStaleness`, `DerivedWorktreeFolderProber`, `ProjectOrchestrator.StaleWorktrees.cs` |
 | 7 | Toast once per newly stale project; tray **Finished worktrees (N)** offers Unregister / Unregister all after confirmation | `TrayContextMenuBuilder`, `App.UnregisterStaleWorktrees` |

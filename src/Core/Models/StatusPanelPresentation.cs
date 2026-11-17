@@ -75,7 +75,12 @@ public sealed record StatusPanelCardPresentation(
     OperationalHistorySectionPresentation? RecentActivity = null,
     ProjectActivitySet? Activity = null,
     /// <summary>Current Local failure details (#111a); null when no current failure reasons.</summary>
-    ProjectFailureDetails? FailureDetails = null);
+    ProjectFailureDetails? FailureDetails = null,
+    /// <summary>Why Overall needs attention, e.g. "14 warnings" (#167).</summary>
+    string? OverallReason = null,
+    string? OverallToolTip = null,
+    /// <summary>Automatic start held this project back; offer an explicit Start (#167).</summary>
+    bool ShowStartButton = false);
 
 /// <summary>Derived view of the right-hand status rail.</summary>
 public sealed record StatusPanelSideRailPresentation(
@@ -84,7 +89,10 @@ public sealed record StatusPanelSideRailPresentation(
     string ActivityLabel,
     MonitorHealth IdleHealth,
     string IdleLabel,
-    bool ShowWebReadyBadge);
+    bool ShowWebReadyBadge,
+    /// <summary>Why Overall needs attention, e.g. "28 warnings" (#167).</summary>
+    string? IdleReason = null,
+    string? IdleToolTip = null);
 
 /// <summary>Single derived model for the entire hover status panel.</summary>
 public sealed record StatusPanelPresentation(
@@ -94,3 +102,14 @@ public sealed record StatusPanelPresentation(
     string? HeaderStillEditingProjectId,
     string? HeaderStillEditingToolTip,
     int ActiveProjectCount);
+
+/// <summary>
+/// Overall headline (Healthy / Attention / Needs fix / …) with the cause for Attention
+/// (for example "14 warnings") and a per-project tooltip. <see cref="Reason"/> is short;
+/// <see cref="ToolTip"/> holds the detail.
+/// </summary>
+public sealed record StatusPanelOverallSummary(string Label, string? Reason = null, string? ToolTip = null)
+{
+    /// <summary>Single-line form, e.g. "Attention · 14 warnings".</summary>
+    public string DisplayText => string.IsNullOrWhiteSpace(Reason) ? Label : $"{Label} · {Reason}";
+}

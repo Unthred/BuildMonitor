@@ -45,6 +45,7 @@ public partial class HoverStatusPanel : Window
     public event Action<string>? ViewLogRequested;
     public event Action<string>? CopyErrorsRequested;
     public event Action<string>? RestartAppRequested;
+    public event Action<string>? StartRequested;
     public event Action<string>? RebuildRequested;
     public event Action<string>? RebuildAndRestartRequested;
     public event Action<string>? RunTestsRequested;
@@ -366,6 +367,22 @@ public partial class HoverStatusPanel : Window
                 actions.Children.Add(copyErrors);
             }
 
+            if (cardModel.ShowStartButton)
+            {
+                var start = new WpfButton
+                {
+                    Content = StatusPanelActionLabels.Start,
+                    ToolTip = StatusPanelActionLabels.StartToolTip,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    FontSize = 10,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    HorizontalAlignment = WpfHorizontalAlignment.Left,
+                    Tag = cardModel.ProjectId
+                };
+                WireActionButton(start, () => StartRequested?.Invoke(cardModel.ProjectId));
+                actions.Children.Add(start);
+            }
+
             if (cardModel.ShowRebuildButton)
             {
                 var rebuild = new WpfButton
@@ -433,7 +450,9 @@ public partial class HoverStatusPanel : Window
             var overall = StatusPanelVisuals.BuildOverallFooterSummary(
                 cardModel.OverallHealth,
                 cardModel.OverallLabel,
-                palette);
+                palette,
+                cardModel.OverallReason,
+                cardModel.OverallToolTip);
             Grid.SetColumn(overall, 1);
             actionRow.Children.Add(overall);
 
@@ -688,6 +707,12 @@ public partial class HoverStatusPanel : Window
         IdleOverallCaption.Foreground = new SolidColorBrush(health == MonitorHealth.Unknown ? palette.Foreground : accent);
         IdleStatusLabel.Text = sideRail.IdleLabel;
         IdleStatusLabel.Foreground = new SolidColorBrush(health == MonitorHealth.Unknown ? palette.Foreground : accent);
+        IdleStatusReason.Text = sideRail.IdleReason ?? string.Empty;
+        IdleStatusReason.Visibility = string.IsNullOrWhiteSpace(sideRail.IdleReason)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        IdleStatusReason.Foreground = new SolidColorBrush(palette.Foreground);
+        SideRail.ToolTip = string.IsNullOrWhiteSpace(sideRail.IdleToolTip) ? null : sideRail.IdleToolTip;
 
         if (webReady && health == MonitorHealth.Green)
         {

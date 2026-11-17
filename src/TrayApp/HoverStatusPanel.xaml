@@ -251,6 +251,14 @@
                                        MaxWidth="56"
                                        FontSize="9"
                                        FontWeight="Bold" />
+                            <TextBlock x:Name="IdleStatusReason"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="56"
+                                       FontSize="8"
+                                       Opacity="0.75"
+                                       Visibility="Collapsed" />
                         </StackPanel>
                     </Grid>
                 </Grid>
