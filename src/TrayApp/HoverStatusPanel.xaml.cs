@@ -26,6 +26,7 @@ public partial class HoverStatusPanel : Window
     private double accentAnimPhase;
     private IReadOnlyList<ProjectHealthSnapshot> lastSnapshots = [];
     private StatusPanelPresentation? lastRenderedPresentation;
+    private readonly StatusPanelFocus focus = new();
     private bool deferCardRebuildUntilMouseLeave;
     private DateTimeOffset? panelDismissAtUtc;
     private readonly Dictionary<StatusPanelBuildSourceVolatileRefresher.BuildSourceCellKey, TextBlock> ageTextBlocks = new();
@@ -99,6 +100,14 @@ public partial class HoverStatusPanel : Window
             countdownTimer.Stop();
             accentAnimTimer.Stop();
         };
+        // Each automatic pop-up starts a fresh busy-only list; a hidden panel reopens showing all.
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is false)
+            {
+                ShowAllProjects();
+            }
+        };
     }
 
     private IReadOnlyList<OperationalEvent> RecentHistoryLookup(string projectId, int limit) =>
@@ -140,6 +149,27 @@ public partial class HoverStatusPanel : Window
         ApplyHeaderStillEditing(null, null);
     }
 
+    /// <summary>Include projects with Azure CI activity in the busy-only list (matches the Azure visibility hold).</summary>
+    public bool IncludeAzureActivityInFocus { get; set; } = true;
+
+    /// <summary>Busy projects only: used when the panel opens by itself for build activity.</summary>
+    public void ShowBusyProjects()
+    {
+        if (focus.ShowBusyProjects())
+        {
+            lastRenderedPresentation = null;
+        }
+    }
+
+    /// <summary>Every project: used for tray hover and click.</summary>
+    public void ShowAllProjects()
+    {
+        if (focus.ShowAllProjects())
+        {
+            lastRenderedPresentation = null;
+        }
+    }
+
     public void Update(IReadOnlyList<ProjectHealthSnapshot> snapshots, DateTimeOffset? dismissAtUtc = null)
     {
         lastSnapshots = snapshots;
@@ -151,6 +181,9 @@ public partial class HoverStatusPanel : Window
             DateTimeOffset.UtcNow,
             RecentHistoryLookup,
             historyStoreAvailable: operationalHistory is not null);
+
+        var activeProjectCount = presentation.ActiveProjectCount;
+        presentation = focus.Apply(presentation, snapshots, IncludeAzureActivityInFocus);
 
         var rebuildCards = StatusPanelPresentationChangeDetector.RequiresCardRebuild(
             lastRenderedPresentation,
@@ -175,12 +208,14 @@ public partial class HoverStatusPanel : Window
             ScheduleFitPanelToContent(repositionAfter: true);
         }
 
-        HeaderText.Text = presentation.ActiveProjectCount switch
-        {
-            0 => "Build status",
-            1 => "Build status",
-            _ => $"Build status ({presentation.ActiveProjectCount})"
-        };
+        HeaderText.Text = StatusPanelFocus.FormatHeader(
+            presentation.Cards.Count,
+            activeProjectCount,
+            focus.Scope);
+        HeaderText.ToolTip = focus.Scope == StatusPanelScope.BusyProjects
+            && presentation.Cards.Count < activeProjectCount
+                ? "Showing busy projects only. Hover the tray icon to see all projects."
+                : null;
 
         ApplySideRail(presentation.SideRail, palette);
         ApplyHeaderCountdownText(presentation.HeaderCountdownText);
