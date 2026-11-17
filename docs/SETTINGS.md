@@ -66,11 +66,13 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 
 `local.applicationUrl` is an optional semicolon-separated ASP.NET URL list (for example `https://localhost:44349;http://localhost:5170`). BuildMonitor applies it as `ASPNETCORE_URLS` and always starts with `--no-launch-profile`, so `dotnet` does not read or rewrite `Properties/launchSettings.json`.
 
-When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project.
+When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project. When a worktree is registered through the control plane, BuildMonitor keeps the preferred ports if free and otherwise takes the next free port(s) one step at a time (44333 → 44334 → 44335); registration fails only when that pool is exhausted. Already-registered worktrees keep their ports, running or not.
 
 ## Derived worktree marker (v25)
 
 `local.derivedFromProjectId` is set when `POST /projects/register-worktree` clones a claimed parent into an isolated project for a Cursor Git worktree. Unregister only removes projects with this marker. Omit or null for manually configured projects. Derived projects use `startOnLaunch: true` (schema v26). See [ops/control-plane.md](ops/control-plane.md#derived-worktrees-cursor-git-worktrees).
+
+**Finished worktrees.** BuildMonitor checks derived projects 30 seconds after start and then every 5 minutes. A derived project is *stale* when its `rootFolder` is gone, when there is no `.git` directory (or `.git` file whose `gitdir:` target exists) at or above it, or when its `derivedFromProjectId` no longer matches any project (an orphan). Stale projects appear in the tray menu under **Finished worktrees (N)**, with **Unregister** for each and **Unregister all**, both behind a confirmation. One toast is shown when new stale projects are found. Unregister uses the same path as `POST /projects/unregister-worktree`. BuildMonitor never unregisters on its own, never deletes worktree folders, and never flags manual projects. A merged or completed pull request is not detected; when the folder still exists, the agent's post-merge unregister remains the clean-up. Settings are not changed by the check itself. See [features/derived-worktree-registration.md](features/derived-worktree-registration.md).
 
 ## Launch profile environment (v24)
 

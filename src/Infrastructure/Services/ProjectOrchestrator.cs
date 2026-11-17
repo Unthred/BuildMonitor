@@ -861,6 +861,7 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
 
     public void Dispose()
     {
+        staleWorktreeScanTimer?.Dispose();
         azureMonitoring.Dispose();
         healthCoalescer.Dispose();
         lock (sync)

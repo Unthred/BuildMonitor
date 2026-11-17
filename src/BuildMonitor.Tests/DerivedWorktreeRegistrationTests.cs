@@ -82,7 +82,7 @@ public sealed class DerivedWorktreeRegistrationTests
 
         Assert.True(result.Ok, result.Error);
         Assert.True(result.Created);
-        Assert.Equal("https://localhost:44349;http://localhost:5170", result.ApplicationUrl);
+        Assert.Equal("https://localhost:44334;http://localhost:5155", result.ApplicationUrl);
         Assert.Equal(parent.Id, result.ParentProjectId);
 
         var settings = scope.LastPersisted!;
