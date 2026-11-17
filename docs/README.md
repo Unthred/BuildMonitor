@@ -23,6 +23,7 @@
 | Failure details | [features/failure-details.md](features/failure-details.md) |
 | Derived worktree registration | [features/derived-worktree-registration.md](features/derived-worktree-registration.md) |
 | Status panel start limit and Overall reason | [features/status-panel-start-limit-and-overall.md](features/status-panel-start-limit-and-overall.md) |
+| Status panel pop-up shows busy projects only | [features/status-panel-busy-only.md](features/status-panel-busy-only.md) |
 
 ## ADRs
 

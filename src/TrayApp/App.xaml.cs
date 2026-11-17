@@ -435,7 +435,7 @@ public partial class App : System.Windows.Application
             if (hoverPanel is not { IsVisible: true }
                 && statusPanelActivityAutoShowCycle.ShouldAutoShowForActivityHold(hasHold))
             {
-                ShowStatusPanel();
+                ShowStatusPanel(StatusPanelScope.BusyProjects);
                 statusPanelAutoShownForBuild = true;
             }
 
@@ -685,7 +685,7 @@ public partial class App : System.Windows.Application
                 // Keep the panel up from the quiet countdown into the build itself.
                 if (hoverPanel is not { IsVisible: true })
                 {
-                    ShowStatusPanel();
+                    ShowStatusPanel(StatusPanelScope.BusyProjects);
                 }
 
                 statusPanelAutoShownForBuild = true;
@@ -699,7 +699,7 @@ public partial class App : System.Windows.Application
             {
                 if (hoverPanel is not { IsVisible: true })
                 {
-                    ShowStatusPanel();
+                    ShowStatusPanel(StatusPanelScope.BusyProjects);
                 }
 
                 statusPanelAutoShownForEditGating = true;
@@ -712,7 +712,7 @@ public partial class App : System.Windows.Application
             {
                 if (hoverPanel is not { IsVisible: true })
                 {
-                    ShowStatusPanel();
+                    ShowStatusPanel(StatusPanelScope.BusyProjects);
                 }
 
                 statusPanelAutoShownForEditGating = true;
@@ -905,7 +905,7 @@ public partial class App : System.Windows.Application
         // Hover watch: cancel any Closing countdown so the panel stays up while on the icon.
         CancelSiteReadyDismissSchedule();
         hideStatusPanelTimer?.Stop();
-        ShowStatusPanel();
+        ShowStatusPanel(StatusPanelScope.AllProjects);
         EnsureTrayHoverPollTimer();
     }
 
@@ -1002,7 +1002,8 @@ public partial class App : System.Windows.Application
         }
 
         // Manual open while suppressed is allowed; does not clear the activity-cycle gate.
-        hoverPanel!.Update(ResolveStatusPanelSnapshots(), statusPanelDismissAtUtc);
+        hoverPanel!.ShowAllProjects();
+        hoverPanel.Update(ResolveStatusPanelSnapshots(), statusPanelDismissAtUtc);
         ShowStatusPanelNearTray();
     }
 
@@ -1070,7 +1071,11 @@ public partial class App : System.Windows.Application
         RepositionStatusPanelNearTray();
     }
 
-    private void ShowStatusPanel()
+    /// <summary>
+    /// Shows (or refreshes) the panel. Automatic pop-ups pass <see cref="StatusPanelScope.BusyProjects"/>
+    /// so only busy projects get cards; tray hover passes <see cref="StatusPanelScope.AllProjects"/>.
+    /// </summary>
+    private void ShowStatusPanel(StatusPanelScope scope)
     {
         var snapshots = ResolveStatusPanelSnapshots();
         if (!snapshots.Any(s => s.IsActive))
@@ -1080,7 +1085,18 @@ public partial class App : System.Windows.Application
 
         CancelStatusPanelTimers();
         EnsureHoverPanel();
-        hoverPanel!.Update(snapshots, statusPanelDismissAtUtc);
+        hoverPanel!.IncludeAzureActivityInFocus =
+            currentSettings.AppBehavior.KeepStatusVisibleDuringAzureBuildActivity;
+        if (scope == StatusPanelScope.BusyProjects)
+        {
+            hoverPanel.ShowBusyProjects();
+        }
+        else
+        {
+            hoverPanel.ShowAllProjects();
+        }
+
+        hoverPanel.Update(snapshots, statusPanelDismissAtUtc);
         ShowStatusPanelNearTray();
     }
 
@@ -1862,7 +1878,7 @@ public partial class App : System.Windows.Application
     {
         RunUi = RunTrayMenuUiAction,
         RunBackground = RunTrayMenuBackgroundAction,
-        ShowStatus = ShowStatusPanel,
+        ShowStatus = () => ShowStatusPanel(StatusPanelScope.AllProjects),
         ShowBuildDiagnostics = ShowBuildDiagnostics,
         ShowBuildMonitorHealth = ShowBuildMonitorHealth,
         ShowSettings = () => _ = ShowSettingsAsync(),
