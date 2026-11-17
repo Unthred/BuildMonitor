@@ -15,6 +15,14 @@ public static class ProjectPortIsolation
     /// </summary>
     public const int SiblingPortOffset = 16;
 
+    /// <summary>
+    /// Upper bound on how many consecutive port steps <see cref="AllocateNextAvailable"/> probes
+    /// above the preferred ports before reporting the pool as exhausted.
+    /// </summary>
+    public const int MaxSequentialAllocationSteps = 1024;
+
+    private const int MaxTcpPort = 65535;
+
     public static IReadOnlyList<string> SplitApplicationUrl(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -136,6 +144,42 @@ public static class ProjectPortIsolation
         }
 
         return ProjectPortDecision.Allow(JoinApplicationUrl(candidates), persist: false);
+    }
+
+    /// <summary>
+    /// Worktree-registration allocation: keep the preferred (launch-profile) ports when no
+    /// registered project claims them, otherwise step every URL up by one port at a time
+    /// (44333 → 44334 → 44335 …) until a conflict-free set is found. Already-registered
+    /// projects are never moved; only an exhausted pool blocks.
+    /// </summary>
+    public static ProjectPortDecision AllocateNextAvailable(
+        IReadOnlyList<string> profileUrls,
+        IReadOnlyList<PeerProjectListenInfo> peers)
+    {
+        if (ExtractPorts(profileUrls).Count == 0)
+        {
+            return ProjectPortDecision.Allow(
+                profileUrls.Count == 0 ? null : JoinApplicationUrl(profileUrls),
+                persist: false);
+        }
+
+        if (!TryFindClaimingPeer(profileUrls, peers, out var peer, out var port))
+        {
+            return ProjectPortDecision.Allow(JoinApplicationUrl(profileUrls), persist: false);
+        }
+
+        var highestPort = ExtractPorts(profileUrls).Max();
+        var maxStep = Math.Min(MaxSequentialAllocationSteps, MaxTcpPort - highestPort);
+        for (var step = 1; step <= maxStep; step++)
+        {
+            var shifted = OffsetUrls(profileUrls, step);
+            if (!TryFindClaimingPeer(shifted, peers, out _, out _))
+            {
+                return ProjectPortDecision.Allow(JoinApplicationUrl(shifted), persist: true);
+            }
+        }
+
+        return ProjectPortDecision.Block(peer, port);
     }
 }
 

@@ -431,17 +431,14 @@ public sealed partial class ProjectOrchestrator
             }
         }
 
-        var decision = ProjectPortIsolation.Decide(
-            configuredOverride: null,
-            profileUrls,
-            peers);
+        var decision = ProjectPortIsolation.AllocateNextAvailable(profileUrls, peers);
 
         if (!decision.CanStart)
         {
             throw new InvalidOperationException(
                 decision.BlockingPeer is null
                     ? "Could not allocate a non-conflicting application URL."
-                    : $"Could not allocate ports; blocked by '{decision.BlockingPeer.DisplayName}' on port {decision.BlockingPort}.");
+                    : $"Could not allocate ports; port pool exhausted, blocked by '{decision.BlockingPeer.DisplayName}' on port {decision.BlockingPort}.");
         }
 
         return decision.ApplicationUrl;

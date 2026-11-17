@@ -66,7 +66,7 @@ At least one attachment is required. Top-level `connections` hold Azure DevOps o
 
 `local.applicationUrl` is an optional semicolon-separated ASP.NET URL list (for example `https://localhost:44349;http://localhost:5170`). BuildMonitor applies it as `ASPNETCORE_URLS` and always starts with `--no-launch-profile`, so `dotnet` does not read or rewrite `Properties/launchSettings.json`.
 
-When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project.
+When empty, URLs are **read** from the startup project's launchSettings (the `.csproj` directory for that configured project). If those ports are already owned by **another running configured project**, BuildMonitor assigns this project an offset URL (HTTPS 44333 → 44349) and persists it here. Explicit values stay stable and are never stolen from a sibling project. When a worktree is registered through the control plane, BuildMonitor keeps the preferred ports if free and otherwise takes the next free port(s) one step at a time (44333 → 44334 → 44335); registration fails only when that pool is exhausted. Already-registered worktrees keep their ports, running or not.
 
 ## Derived worktree marker (v25)
 
