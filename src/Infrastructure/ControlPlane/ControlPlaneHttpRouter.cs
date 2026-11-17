@@ -475,7 +475,8 @@ internal static class ControlPlaneHttpRouter
         displayName = result.DisplayName,
         rootFolder = result.RootFolder,
         applicationUrl = result.ApplicationUrl,
-        parentProjectId = result.ParentProjectId
+        parentProjectId = result.ParentProjectId,
+        notStartedReason = result.NotStartedReason
     };
 
     private static object ToUnregisterWorktreeJson(ControlPlaneUnregisterWorktreeResult result) => new

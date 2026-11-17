@@ -22,6 +22,7 @@
 | Activity / progress | [features/activity-and-progress.md](features/activity-and-progress.md) |
 | Failure details | [features/failure-details.md](features/failure-details.md) |
 | Derived worktree registration | [features/derived-worktree-registration.md](features/derived-worktree-registration.md) |
+| Status panel start limit and Overall reason | [features/status-panel-start-limit-and-overall.md](features/status-panel-start-limit-and-overall.md) |
 
 ## ADRs
 

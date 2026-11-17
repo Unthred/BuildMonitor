@@ -67,7 +67,9 @@ public sealed record ControlPlaneLocalFacetInfo(
     int Errors,
     int Warnings,
     ProjectLifecycleState LifecycleState,
-    int? LastBuildExitCode = null);
+    int? LastBuildExitCode = null,
+    /// <summary>Why an automatic start held this project back; null once started.</summary>
+    string? NotStartedReason = null);
 
 /// <summary>
 /// Azure CI facet on <c>GET /projects</c>.
@@ -282,7 +284,9 @@ public sealed record ControlPlaneRegisterWorktreeResult(
     string? RootFolder,
     string? ApplicationUrl,
     string? ParentProjectId,
-    string? Error = null)
+    string? Error = null,
+    /// <summary>Set when the cold start on register was held back (for example the concurrency limit).</summary>
+    string? NotStartedReason = null)
 {
     public static ControlPlaneRegisterWorktreeResult Fail(string error) =>
         new(false, false, false, null, null, null, null, null, error);

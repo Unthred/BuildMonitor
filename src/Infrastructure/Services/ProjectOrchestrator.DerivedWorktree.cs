@@ -185,37 +185,38 @@ public sealed partial class ProjectOrchestrator
             ?? throw new InvalidOperationException(
                 $"Derived project '{derived.Id}' has no Local attachment after registration.");
 
+        string? notStartedReason = null;
         if (local.StartOnLaunch
             && local.RunOptions.RunMode != ProjectRunMode.None)
         {
-            if (derivedWorktreeHostStarter is not null)
+            ProjectRuntime? runtime;
+            lock (sync)
             {
-                await derivedWorktreeHostStarter(derived.Id, cancellationToken).ConfigureAwait(false);
+                runtimes.TryGetValue(derived.Id, out runtime);
             }
-            else
-            {
-                ProjectRuntime? runtime;
-                lock (sync)
-                {
-                    runtimes.TryGetValue(derived.Id, out runtime);
-                }
 
+            // Cold start on register is an automatic start: same limit as launch (#167).
+            if (!HasFreeStartSlot(out var limit))
+            {
                 if (runtime is not null)
                 {
-                    try
-                    {
-                        await runtime.StartAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        RaiseUserNotification(
-                            runtime.ProjectId,
-                            $"Failed to start {runtime.DisplayName}",
-                            ExceptionDetailFormatter.Format(ex),
-                            UserNotificationKind.Error,
-                            UserNotificationCategory.Error);
-                    }
+                    DeferForConcurrencyLimit([runtime], limit);
                 }
+
+                notStartedReason = ProjectStartConcurrencyLimit.FormatNotStartedReason(limit);
+            }
+            else if (derivedWorktreeHostStarter is not null)
+            {
+                if (runtime is not null)
+                {
+                    MarkStarted(runtime);
+                }
+
+                await derivedWorktreeHostStarter(derived.Id, cancellationToken).ConfigureAwait(false);
+            }
+            else if (runtime is not null)
+            {
+                await StartRuntimeAsync(runtime, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -224,7 +225,7 @@ public sealed partial class ProjectOrchestrator
             derived.DisplayName,
             local.RootFolder,
             string.IsNullOrWhiteSpace(local.ApplicationUrl) ? null : local.ApplicationUrl,
-            parent.Id);
+            parent.Id) with { NotStartedReason = notStartedReason };
     }
 
     public async Task<ControlPlaneUnregisterWorktreeResult> UnregisterDerivedWorktreeAsync(

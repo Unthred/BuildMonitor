@@ -26,6 +26,48 @@ public sealed class StatusPanelPresentationBuilderTests
     }
 
     [Fact]
+    public void Build_held_back_project_says_why_and_offers_start()
+    {
+        var snapshot = Snapshot(ProjectLifecycleState.Idle, health: MonitorHealth.Unknown, healthLabel: "Unknown") with
+        {
+            NotStartedReason = "Not started: limit of 5 active projects reached"
+        };
+
+        var card = Assert.Single(StatusPanelPresentationBuilder.Build([snapshot], null, Now).Cards);
+
+        Assert.Equal("Not started: limit of 5 active projects reached", card.CurrentActionText);
+        Assert.Equal("Not started", card.OverallLabel);
+        Assert.True(card.ShowStartButton);
+    }
+
+    [Fact]
+    public void Build_started_project_has_no_start_button()
+    {
+        var card = Assert.Single(StatusPanelPresentationBuilder.Build(
+            [Snapshot(ProjectLifecycleState.Watching)], null, Now).Cards);
+
+        Assert.False(card.ShowStartButton);
+    }
+
+    [Fact]
+    public void Build_attention_card_and_rail_carry_warning_reason()
+    {
+        var snapshot = Snapshot(
+            ProjectLifecycleState.Watching,
+            health: MonitorHealth.Amber,
+            healthLabel: "Warnings",
+            warningCount: 14);
+
+        var presentation = StatusPanelPresentationBuilder.Build([snapshot], null, Now);
+
+        var card = Assert.Single(presentation.Cards);
+        Assert.Equal("Attention", card.OverallLabel);
+        Assert.Equal("14 warnings", card.OverallReason);
+        Assert.Equal("Attention", presentation.SideRail.IdleLabel);
+        Assert.Equal("14 warnings", presentation.SideRail.IdleReason);
+    }
+
+    [Fact]
     public void Build_side_rail_and_card_agree_during_site_awaiting()
     {
         var snapshot = Snapshot(

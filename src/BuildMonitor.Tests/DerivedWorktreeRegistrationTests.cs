@@ -98,6 +98,39 @@ public sealed class DerivedWorktreeRegistrationTests
     }
 
     [Fact]
+    public async Task Register_over_concurrency_limit_holds_back_cold_start()
+    {
+        using var scope = new OrchestratorScope();
+        var parentRoot = scope.CreateGitishFolder("parent");
+        var worktreeRoot = scope.CreateGitishFolder("worktree");
+        WriteLaunchSettings(worktreeRoot, "https://localhost:44333;http://localhost:5154");
+        WriteLaunchSettings(parentRoot, "https://localhost:44333;http://localhost:5154");
+
+        var parent = CreateParent(parentRoot, applicationUrl: "https://localhost:44333;http://localhost:5154");
+        scope.Orchestrator.ApplySettings(new AppSettings
+        {
+            SchemaVersion = SettingsSchemaV25.Version,
+            Monitor = new GlobalMonitorSettings { MaxConcurrentActiveProjects = 1 },
+            Projects = [parent]
+        });
+        scope.Orchestrator.SetGitWorktreeIdentityReader(new FakeGitIdentity(parentRoot, worktreeRoot));
+        scope.Orchestrator.SetRuntimeStarter((_, _) => Task.CompletedTask);
+        await scope.Orchestrator.StartActiveProjectsAsync(CancellationToken.None);
+
+        var result = await scope.Orchestrator.RegisterDerivedWorktreeAsync(
+            new ControlPlaneRegisterWorktreeRequest(parent.Id, worktreeRoot),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.True(result.Created);
+        Assert.Equal("Not started: limit of 1 active project reached", result.NotStartedReason);
+        Assert.Equal(0, scope.StartedDerivedHostCount);
+        Assert.Equal(
+            result.NotStartedReason,
+            scope.Orchestrator.TryGetRuntimeForTest(result.ProjectId!)?.NotStartedReason);
+    }
+
+    [Fact]
     public async Task Register_rejects_unrelated_repository_keeps_settings()
     {
         using var scope = new OrchestratorScope();

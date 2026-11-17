@@ -539,10 +539,12 @@ internal static class StatusPanelVisuals
     public static UIElement BuildOverallFooterSummary(
         MonitorHealth overallHealth,
         string overallLabel,
-        ThemePalette palette)
+        ThemePalette palette,
+        string? overallReason = null,
+        string? overallToolTip = null)
     {
         var health = overallHealth;
-        var label = overallLabel;
+        var label = new StatusPanelOverallSummary(overallLabel, overallReason).DisplayText;
         var glyph = health switch
         {
             MonitorHealth.Red => "●",
@@ -592,6 +594,11 @@ internal static class StatusPanelVisuals
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
+        if (!string.IsNullOrWhiteSpace(overallToolTip))
+        {
+            panel.ToolTip = overallToolTip;
+        }
+
         return panel;
     }
 

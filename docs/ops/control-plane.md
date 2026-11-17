@@ -39,7 +39,7 @@ BuildMonitor is **personal local tooling**. Registration never writes into the p
 
 Do not unregister or remove the worktree on commit, push, or green validation alone. An active PR means no unregister and no worktree removal. A pull request closed or abandoned without merge: ask before deleting the worktree. Failed unregister blocks worktree removal. If folder removal fails because a process holds the directory, do not kill arbitrary processes; report the lock and leave removal pending. Projects with no `derivedFromProjectId` (main / manual) must never be automatically unregistered.
 
-Registration sets `startOnLaunch: true` and cold-starts the derived host after a successful register (build then run/watch) so a listen URL appears without a manual Rebuild & restart. The derived project gets its own id and `rootFolder`, so build output stays in that worktree. Ports are allocated via existing `ProjectPortIsolation` and persisted as `local.applicationUrl` (never edits `launchSettings.json`). Schema **v26** migrates existing derived projects to `startOnLaunch: true`.
+Registration sets `startOnLaunch: true` and cold-starts the derived host after a successful register (build then run/watch) so a listen URL appears without a manual Rebuild & restart. When `monitor.maxConcurrentActiveProjects` projects are already started, the cold start is held back: the response carries `notStartedReason` and `GET /projects` shows `local.notStartedReason` until the user presses **Start** on the card ([details](../features/status-panel-start-limit-and-overall.md)). The derived project gets its own id and `rootFolder`, so build output stays in that worktree. Ports are allocated via existing `ProjectPortIsolation` and persisted as `local.applicationUrl` (never edits `launchSettings.json`). Schema **v26** migrates existing derived projects to `startOnLaunch: true`.
 
 Idempotency: re-registering the same path returns `alreadyRegistered: true`. Unregistering an unknown id returns `alreadyRemoved: true`. Unregister refuses non-derived (manually configured) projects. The exact path becomes claimable after register succeeds. `VerificationProviderClaim` still declines an unregistered path; the adapter registers first and then claims again.
 
@@ -132,7 +132,7 @@ Optional tests body: `{ "projectId", "configuration": "Debug", "filter": "FullyQ
 
 | Concept | Field(s) | Meaning |
 |---------|----------|---------|
-| Lifecycle | `local.lifecycleState` | Machine/watch lifecycle (e.g. `watching`, `building`) — independent of activity |
+| Lifecycle | `local.lifecycleState` | Machine/watch lifecycle (e.g. `watching`, `building`) — independent of activity. `idle` with `local.notStartedReason` set means the start limit held the project back |
 | Health | `overallHealth`, local/azure status | Is it healthy? |
 | Activity | `activities`, `activitySummary` | What is happening **now**? |
 

@@ -101,6 +101,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     private int watcherCreateCount;
     private int processStartCount;
     private int suppressAutoOpenLog;
+    private volatile string? notStartedReason;
 
     private readonly List<string> registeredWorkerIds = [];
     private readonly Dictionary<string, DateTimeOffset> lastWorkerHeartbeatUtc = new(StringComparer.OrdinalIgnoreCase);
@@ -116,6 +117,43 @@ internal sealed partial class ProjectRuntime : IDisposable
     /// Desired supervised host state (Running vs Stopped). Separate from temporary operational pause.
     /// </summary>
     public DesiredRunHostState DesiredRunHostState => desiredRunHostState;
+
+    /// <summary>Why an automatic start held this project back; null once started.</summary>
+    public string? NotStartedReason => notStartedReason;
+
+    /// <summary>
+    /// Records that an automatic start skipped this project (concurrency limit) so the card and
+    /// <c>GET /projects</c> say why it is idle. Cleared by <see cref="ClearNotStarted"/> and
+    /// <see cref="StartAsync"/>.
+    /// </summary>
+    public void MarkNotStarted(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        notStartedReason = reason;
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
+    }
+
+    public void ClearNotStarted()
+    {
+        if (notStartedReason is null)
+        {
+            return;
+        }
+
+        notStartedReason = null;
+        MarkHealthDirty();
+        HealthCoalesceRequested?.Invoke(true);
+    }
+
+    /// <summary>
+    /// True when <see cref="RemountWithoutBuildAsync"/> for <paramref name="kind"/> would cold-start
+    /// (build then host) rather than only remount the watcher.
+    /// </summary>
+    public bool IsColdStartRemount(LocalRemountKind kind) =>
+        kind == LocalRemountKind.MountFresh
+        && Local.StartOnLaunch
+        && Local.RunOptions.RunMode != ProjectRunMode.None;
 
     /// <summary>Test probe: how many times <see cref="BuildAsync"/> was entered.</summary>
     public int BuildAsyncInvocationCount => Volatile.Read(ref buildAsyncInvocationCount);
@@ -188,7 +226,8 @@ internal sealed partial class ProjectRuntime : IDisposable
                 LastFailedBuildOperationId: lastFailedBuildOperationId,
                 LastTestFailure: lastTestFailure,
                 DesiredRunHostState: desiredRunHostState,
-                SuppressAutoOpenLog: Volatile.Read(ref suppressAutoOpenLog) != 0);
+                SuppressAutoOpenLog: Volatile.Read(ref suppressAutoOpenLog) != 0,
+                NotStartedReason: notStartedReason);
     }
 
     internal string RootFolder => Local.RootFolder;
@@ -559,6 +598,7 @@ internal sealed partial class ProjectRuntime : IDisposable
     {
         // Cold StartOnLaunch path: session wants the host running after startup freshness work.
         desiredRunHostState = DesiredRunHostState.Running;
+        notStartedReason = null;
         var context = CaptureRunContext();
         SetProjectCurrentAction("Starting — loading saved build state");
         await HydrateLastBuildFromStoreAsync(cancellationToken);
@@ -614,9 +654,7 @@ internal sealed partial class ProjectRuntime : IDisposable
             return;
         }
 
-        if (kind == LocalRemountKind.MountFresh
-            && Local.StartOnLaunch
-            && Local.RunOptions.RunMode != ProjectRunMode.None)
+        if (IsColdStartRemount(kind))
         {
             SetProjectCurrentAction("Starting newly activated project");
             await StartAsync(cancellationToken).ConfigureAwait(false);

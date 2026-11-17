@@ -38,9 +38,10 @@ This supersedes ADR 0003 decision item 3 (`force startOnLaunch: false`).
 
 **Trade-offs:**
 
-- Several active derived worktrees can start hosts on tray launch (still gated
-  by `maxConcurrentActiveProjects` for cold `StartActiveProjectsAsync`; register
-  starts the newly registered project immediately).
+- Several active derived worktrees can start hosts on tray launch. Since #167
+  every automatic start (tray launch, Settings Save activation, register) is
+  gated by `maxConcurrentActiveProjects`; a held-back project shows why and
+  offers **Start** ([details](../features/status-panel-start-limit-and-overall.md)).
 - Unregister remains required after merge so finished worktrees do not keep
   starting.
 

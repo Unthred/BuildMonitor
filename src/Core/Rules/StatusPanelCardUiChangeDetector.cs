@@ -54,6 +54,7 @@ public static class StatusPanelCardUiChangeDetector
         && a.IsEditGatingActive == b.IsEditGatingActive
         && a.EditGatingDetailText == b.EditGatingDetailText
         && a.RebuildQuietUntilUtc == b.RebuildQuietUntilUtc
+        && a.NotStartedReason == b.NotStartedReason
         && ControlPlaneEquals(a.ControlPlane, b.ControlPlane)
         && ProgressStepsEqual(a.ProgressSteps, b.ProgressSteps);
 

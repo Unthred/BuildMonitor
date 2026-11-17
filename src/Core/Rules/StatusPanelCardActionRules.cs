@@ -22,6 +22,13 @@ public static class StatusPanelCardActionRules
     public static bool ShowRebuildAndRestart(ProjectHealthSnapshot snapshot) =>
         ShowRebuild(snapshot) && ShowRestart(snapshot);
 
+    /// <summary>
+    /// Explicit start for a project an automatic start held back (concurrency limit, #167).
+    /// The user's Start ignores the limit.
+    /// </summary>
+    public static bool ShowStart(ProjectHealthSnapshot snapshot) =>
+        snapshot.IsActive && !string.IsNullOrWhiteSpace(snapshot.NotStartedReason);
+
     /// <summary>Manual test run — always offered for active Local projects.</summary>
     public static bool ShowRunTests(ProjectHealthSnapshot snapshot) =>
         snapshot.IsActive;

@@ -33,6 +33,11 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
     private AppSettings settings = new();
     private Action<AppSettings>? settingsPersistRequested;
 
+    // Ids whose start has run this session; counts toward MaxConcurrentActiveProjects (#167).
+    // Entries for removed runtimes are ignored (see CountStartedRuntimesLocked) and pruned on stop.
+    private readonly HashSet<string> startedProjectIds = new(StringComparer.OrdinalIgnoreCase);
+    private Func<ProjectRuntime, CancellationToken, Task>? runtimeStarter;
+
     public event Action<IReadOnlyList<ProjectHealthSnapshot>, MonitorHealth>? HealthUpdated;
     public event Action<string, string, string, UserNotificationKind, UserNotificationCategory>? UserNotification;
 
@@ -318,32 +323,157 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
 
     public async Task StartActiveProjectsAsync(CancellationToken cancellationToken)
     {
-        List<ProjectRuntime> toStart;
+        IReadOnlyList<ProjectRuntime> toStart;
+        IReadOnlyList<ProjectRuntime> deferred;
+        int limit;
         lock (sync)
         {
-            toStart = settings.Projects
+            limit = settings.Monitor.MaxConcurrentActiveProjects;
+            var candidates = settings.Projects
                 .Where(project => ShouldStartOnLaunch(project.Id) && runtimes.ContainsKey(project.Id))
                 .Select(project => runtimes[project.Id])
-                .Take(settings.Monitor.MaxConcurrentActiveProjects)
+                .Where(runtime => !startedProjectIds.Contains(runtime.ProjectId))
                 .ToList();
+            var partition = ProjectStartConcurrencyLimit.Split(candidates, CountStartedRuntimesLocked(), limit);
+            toStart = partition.Start;
+            deferred = partition.Deferred;
         }
+
+        DeferForConcurrencyLimit(deferred, limit);
 
         foreach (var runtime in toStart)
         {
-            try
+            await StartRuntimeAsync(runtime, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// User-requested start (status card Start). Ignores <c>MaxConcurrentActiveProjects</c>:
+    /// the limit only gates automatic starts.
+    /// </summary>
+    public async Task StartProjectAsync(string projectId, CancellationToken cancellationToken)
+    {
+        ProjectRuntime? runtime;
+        lock (sync)
+        {
+            runtimes.TryGetValue(projectId, out runtime);
+            if (runtime is not null && startedProjectIds.Contains(projectId))
+            {
+                return;
+            }
+        }
+
+        if (runtime is null)
+        {
+            return;
+        }
+
+        await StartRuntimeAsync(runtime, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Test seam: replaces <see cref="ProjectRuntime.StartAsync"/> for orchestrated starts.</summary>
+    internal void SetRuntimeStarter(Func<ProjectRuntime, CancellationToken, Task>? starter) =>
+        runtimeStarter = starter;
+
+    /// <summary>Test probe: the live runtime for a project, if any.</summary>
+    internal ProjectRuntime? TryGetRuntimeForTest(string projectId)
+    {
+        lock (sync)
+        {
+            return runtimes.GetValueOrDefault(projectId);
+        }
+    }
+
+    /// <summary>Projects whose automatic or user start has run (counts toward the limit).</summary>
+    internal IReadOnlyCollection<string> GetStartedProjectIds()
+    {
+        lock (sync)
+        {
+            return startedProjectIds.Where(runtimes.ContainsKey).ToList();
+        }
+    }
+
+    private bool IsStarted(string projectId)
+    {
+        lock (sync)
+        {
+            return startedProjectIds.Contains(projectId);
+        }
+    }
+
+    private void MarkStarted(ProjectRuntime runtime)
+    {
+        lock (sync)
+        {
+            startedProjectIds.Add(runtime.ProjectId);
+        }
+
+        runtime.ClearNotStarted();
+    }
+
+    private async Task StartRuntimeAsync(ProjectRuntime runtime, CancellationToken cancellationToken)
+    {
+        MarkStarted(runtime);
+        try
+        {
+            if (runtimeStarter is not null)
+            {
+                await runtimeStarter(runtime, cancellationToken).ConfigureAwait(false);
+            }
+            else
             {
                 await runtime.StartAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                RaiseUserNotification(
-                    runtime.ProjectId,
-                    $"Failed to start {runtime.DisplayName}",
-                    ExceptionDetailFormatter.Format(ex),
-                    UserNotificationKind.Error,
-                    UserNotificationCategory.Error);
-            }
         }
+        catch (Exception ex)
+        {
+            RaiseUserNotification(
+                runtime.ProjectId,
+                $"Failed to start {runtime.DisplayName}",
+                ExceptionDetailFormatter.Format(ex),
+                UserNotificationKind.Error,
+                UserNotificationCategory.Error);
+        }
+    }
+
+    /// <summary>Caller holds <see cref="sync"/>.</summary>
+    private int CountStartedRuntimesLocked() => startedProjectIds.Count(runtimes.ContainsKey);
+
+    /// <summary>
+    /// True when one more automatic start fits under <c>MaxConcurrentActiveProjects</c>.
+    /// <paramref name="limit"/> is the limit to report when it does not.
+    /// </summary>
+    private bool HasFreeStartSlot(out int limit)
+    {
+        lock (sync)
+        {
+            limit = settings.Monitor.MaxConcurrentActiveProjects;
+            return ProjectStartConcurrencyLimit.HasFreeSlot(CountStartedRuntimesLocked(), limit);
+        }
+    }
+
+    /// <summary>Marks each runtime as held back and raises one warning naming them all.</summary>
+    private void DeferForConcurrencyLimit(IReadOnlyList<ProjectRuntime> deferred, int limit)
+    {
+        if (deferred.Count == 0)
+        {
+            return;
+        }
+
+        var reason = ProjectStartConcurrencyLimit.FormatNotStartedReason(limit);
+        foreach (var runtime in deferred)
+        {
+            runtime.MarkNotStarted(reason);
+        }
+
+        RaiseUserNotification(
+            deferred.Count == 1 ? deferred[0].ProjectId : string.Empty,
+            ProjectStartConcurrencyLimit.FormatNotificationTitle(deferred.Count),
+            ProjectStartConcurrencyLimit.FormatNotificationMessage(
+                deferred.Select(runtime => runtime.DisplayName).ToList(),
+                limit),
+            UserNotificationKind.Warning,
+            UserNotificationCategory.Warning);
     }
 
     /// <summary>
@@ -357,6 +487,8 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(remounts);
+        var deferred = new List<ProjectRuntime>();
+        var deferredLimit = 0;
         foreach (var plan in remounts)
         {
             if (plan.Kind == LocalRemountKind.StopOnly)
@@ -375,6 +507,19 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
                 continue;
             }
 
+            // Cold start of a newly activated project is an automatic start: same limit as launch.
+            if (runtime.IsColdStartRemount(plan.Kind)
+                && !IsStarted(runtime.ProjectId))
+            {
+                if (!HasFreeStartSlot(out deferredLimit))
+                {
+                    deferred.Add(runtime);
+                    continue;
+                }
+
+                MarkStarted(runtime);
+            }
+
             try
             {
                 await runtime.RemountWithoutBuildAsync(plan.Kind, cancellationToken).ConfigureAwait(false);
@@ -389,6 +534,8 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
                     UserNotificationCategory.Error);
             }
         }
+
+        DeferForConcurrencyLimit(deferred, deferredLimit);
     }
 
     private bool ShouldStartOnLaunch(string projectId)
@@ -593,6 +740,7 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
             }
 
             runtimes.Remove(projectId);
+            startedProjectIds.Remove(projectId);
         }
 
         await runtime.StopAsync();

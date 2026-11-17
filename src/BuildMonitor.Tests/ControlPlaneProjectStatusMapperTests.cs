@@ -164,6 +164,20 @@ public sealed class ControlPlaneProjectStatusMapperTests
     }
 
     [Fact]
+    public void Local_facet_carries_not_started_reason()
+    {
+        var snapshot = Snapshot(MonitorHealth.Unknown, ProjectLifecycleState.Idle, 0, 0, 0) with
+        {
+            NotStartedReason = "Not started: limit of 5 active projects reached"
+        };
+
+        var local = ControlPlaneProjectStatusMapper.MapLocal(snapshot);
+
+        Assert.Equal(ProjectLifecycleState.Idle, local.LifecycleState);
+        Assert.Equal("Not started: limit of 5 active projects reached", local.NotStartedReason);
+    }
+
+    [Fact]
     public void Serialized_projects_json_has_no_pat_or_token_fields()
     {
         var merged = ProjectHealthComposer.WithAzure(
