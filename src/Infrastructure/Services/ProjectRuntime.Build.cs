@@ -671,12 +671,13 @@ internal sealed partial class ProjectRuntime
         await BuildAsync(CancellationToken.None);
     }
 
-    private async Task HydrateLastBuildFromStoreAsync(CancellationToken cancellationToken)
+    /// <summary>Restores the saved last build into runtime state and returns it (null when none).</summary>
+    private async Task<BuildLogRecord?> HydrateLastBuildFromStoreAsync(CancellationToken cancellationToken)
     {
         var metadata = await logStore.LoadMetadataAsync(projectSettings.Id, BuildLogKind.Build, cancellationToken);
         if (metadata is null)
         {
-            return;
+            return null;
         }
 
         lastBuildExitCode = metadata.ExitCode;
@@ -703,6 +704,7 @@ internal sealed partial class ProjectRuntime
 
         RefreshHealth();
         HealthCoalesceRequested?.Invoke(true);
+        return metadata;
     }
 
     private string WriteBuildStartBanner(string reason)

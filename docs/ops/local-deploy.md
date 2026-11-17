@@ -32,6 +32,8 @@ If quit is unavailable (build without `/app/quit`, or tray already stopped), exi
 
 **Agents:** if `/app/quit` fails or a rebuild is blocked by a locked tray binary, **stop and ask** the user to Exit the tray or approve stopping the process. Do **not** copy the app to `%TEMP%`, start a second tray instance, or invent another install path. See `.cursor/rules/tray-exit-and-binary-locks.mdc`.
 
+On exit, every project's host is stopped at the same time (`ProjectOrchestrator.StopAllAsync`), so the stop takes about one 2-second grace period plus the kill wait however many projects are running, within the 12-second exit budget in `App.ExitAsync`. Stopping them one at a time used to run past that budget and leave the last projects' sites running with their DLLs locked.
+
 Builds that include the exit failsafe will still terminate within ~20s after a successful `/app/quit` (or a second Exit forces an immediate hard exit) so a hung child stop cannot leave binaries locked indefinitely.
 
 Override the folder:
