@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BuildMonitor.Infrastructure.LocalBuild;
 
 namespace BuildMonitor.Tests;
@@ -15,10 +16,18 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(root))
+        if (!Directory.Exists(root))
         {
-            Directory.Delete(root, recursive: true);
+            return;
         }
+
+        // Git marks object files read-only.
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+        }
+
+        Directory.Delete(root, recursive: true);
     }
 
     private string WriteFile(string relativePath, DateTime writtenUtc)
@@ -30,6 +39,32 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
         return path;
     }
 
+    private DateTimeOffset? Newest() =>
+        StartupBuildFreshnessProbe.FindNewestSourceWriteUtc(
+            root,
+            WatchExcludeSegments.DefaultSegmentSet,
+            CancellationToken.None);
+
+    private void Git(params string[] arguments)
+    {
+        var psi = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in arguments)
+        {
+            psi.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(psi)!;
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
+    }
+
     [Fact]
     public void Newest_source_ignores_excluded_folders_and_noise_files()
     {
@@ -39,12 +74,7 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
         WriteFile(@"docs\notes.txt", Newer);
         WriteFile(@"src\README.md", Newer);
 
-        var newest = StartupBuildFreshnessProbe.FindNewestSourceWriteUtc(
-            root,
-            WatchExcludeSegments.DefaultSegmentSet,
-            CancellationToken.None);
-
-        Assert.Equal(new DateTimeOffset(Old), newest);
+        Assert.Equal(new DateTimeOffset(Old), Newest());
     }
 
     [Fact]
@@ -53,12 +83,35 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
         WriteFile(@"src\App.cs", Old);
         WriteFile(@"src\Pages\Index.razor", Newer);
 
-        var newest = StartupBuildFreshnessProbe.FindNewestSourceWriteUtc(
-            root,
-            WatchExcludeSegments.DefaultSegmentSet,
-            CancellationToken.None);
+        Assert.Equal(new DateTimeOffset(Newer), Newest());
+    }
 
-        Assert.Equal(new DateTimeOffset(Newer), newest);
+    [Fact]
+    public void Newest_source_skips_files_git_ignores()
+    {
+        Git("init", "-q");
+        WriteFile(".gitignore", Old);
+        File.WriteAllText(Path.Combine(root, ".gitignore"), "wwwroot/js/generated.js\n");
+        File.SetLastWriteTimeUtc(Path.Combine(root, ".gitignore"), Old);
+        WriteFile(@"src\App.cs", Old);
+        WriteFile(@"src\Untracked.cs", Old);
+        Git("add", ".gitignore", "src/App.cs");
+
+        // Written by the build into the source tree, and gitignored.
+        WriteFile(@"wwwroot\js\generated.js", Newer);
+
+        Assert.Equal(new DateTimeOffset(Old), Newest());
+    }
+
+    [Fact]
+    public void Newest_source_counts_untracked_files_git_does_not_ignore()
+    {
+        Git("init", "-q");
+        WriteFile(@"src\App.cs", Old);
+        Git("add", "src/App.cs");
+        WriteFile(@"src\NewPage.razor", Newer);
+
+        Assert.Equal(new DateTimeOffset(Newer), Newest());
     }
 
     [Fact]
@@ -69,15 +122,30 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
             CancellationToken.None));
 
     [Fact]
-    public void Output_time_is_oldest_copy_of_project_assembly()
+    public void Output_time_uses_only_the_run_configuration()
     {
         var project = WriteFile(@"App\App.csproj", Old);
-        WriteFile(@"App\bin\Debug\net10.0\App.dll", Old);
-        WriteFile(@"App\bin\Release\net10.0\App.dll", Newer);
+        WriteFile(@"App\bin\Debug\net10.0\App.dll", Newer);
+        WriteFile(@"App\bin\Release\net10.0\App.dll", Old);
+
+        Assert.Equal(
+            new DateTimeOffset(Newer),
+            StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project, "Debug"));
+        Assert.Equal(
+            new DateTimeOffset(Old),
+            StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project, "Release"));
+    }
+
+    [Fact]
+    public void Output_time_is_oldest_copy_across_target_frameworks()
+    {
+        var project = WriteFile(@"App\App.csproj", Old);
+        WriteFile(@"App\bin\Debug\net9.0\App.dll", Old);
+        WriteFile(@"App\bin\Debug\net10.0\App.dll", Newer);
 
         Assert.Equal(
             new DateTimeOffset(Old),
-            StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project));
+            StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project, "Debug"));
     }
 
     [Fact]
@@ -86,14 +154,27 @@ public sealed class StartupBuildFreshnessProbeTests : IDisposable
         var project = WriteFile(@"App\App.csproj", Old);
         WriteFile(@"App\bin\Debug\net10.0\Other.dll", Newer);
 
-        Assert.Null(StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project));
+        Assert.Null(StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project, "Debug"));
     }
 
     [Fact]
-    public void Output_time_is_null_without_bin_folder()
+    public void Output_time_is_null_without_configuration_folder()
     {
         var project = WriteFile(@"App\App.csproj", Old);
+        WriteFile(@"App\bin\Release\net10.0\App.dll", Newer);
 
-        Assert.Null(StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project));
+        Assert.Null(StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(project, "Debug"));
     }
+
+    [Theory]
+    [InlineData(null, "Debug")]
+    [InlineData("", "Debug")]
+    [InlineData("--no-restore", "Debug")]
+    [InlineData("-c Release", "Release")]
+    [InlineData("--configuration Staging", "Staging")]
+    [InlineData("-c:Release", "Release")]
+    [InlineData("--configuration=Release", "Release")]
+    [InlineData("--no-restore -c Release --verbosity q", "Release")]
+    public void Configuration_comes_from_extra_args(string? extraArgs, string expected) =>
+        Assert.Equal(expected, StartupBuildFreshnessProbe.ResolveConfiguration(extraArgs));
 }

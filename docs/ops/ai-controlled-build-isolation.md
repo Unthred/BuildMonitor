@@ -50,11 +50,11 @@ Restarting the tray (deploy, Settings change, Windows logon) must not recompile 
 |------|------|-------|
 | 1 | Restore the saved last build (exit code, start time, counts) | `ProjectRuntime.HydrateLastBuildFromStoreAsync` |
 | 2 | File Watching projects always build (`--no-incremental`) | `StartupBuildPolicy.Decide` |
-| 3 | AI Controlled: find the oldest `<ProjectName>.dll` under the startup project's `bin`, and the newest meaningful source file under `rootFolder` (same ignore rules as the file watcher; excluded folders are not walked) | `StartupBuildFreshnessProbe` |
+| 3 | AI Controlled: find the oldest `<ProjectName>.dll` under `bin/<configuration>` next to the startup project (Debug unless `extraDotNetArgs` names one with `-c`/`--configuration`), and the newest meaningful source file under `rootFolder`. Source files are those Git does not ignore (`git ls-files --cached --others --exclude-standard`), filtered by the file watcher's ignore rules; outside Git the folder is walked instead | `StartupBuildFreshnessProbe` |
 | 4 | Skip the build when the last build succeeded, the output exists, and no source was written at or after the earlier of the build's start and the output's write time | `StartupBuildPolicy.Decide` |
-| 5 | Skipped: host starts with `dotnet run --no-build` and the saved warning/error counts. Otherwise the normal startup build runs (deferred until edits settle when configured) | `ProjectRuntime.StartAsync` |
+| 5 | Skipped: host starts with `dotnet run --no-build` and the warning/error counts re-read from the saved `last-build.log` (from the last `Build #N started` banner, not the trailing `finished` banner). Otherwise the normal startup build runs (deferred until edits settle when configured) | `ProjectRuntime.StartAsync`, `BuildLogParser.ExtractLatestBuildResultSegment` |
 
-**Failure and fallback:** anything uncertain builds — no saved build, a failed build, missing output (including a custom assembly name or output path), or any newer source. Using the oldest assembly copy and the earlier timestamp means a Release ship-check cannot hide a stale Debug output.
+**Failure and fallback:** anything uncertain builds — no saved build, a failed build, missing output (including a custom assembly name or output path), or any newer source. Only the run configuration's output counts, so a leftover Release ship-check copy neither hides a stale Debug output nor forces a rebuild. Gitignored files a build writes into the source tree (for example a generated `wwwroot/js` script) are not treated as source; without that they would always be newer than the build's start.
 
 ## Status presentation
 

@@ -662,7 +662,9 @@ internal sealed partial class ProjectRuntime : IDisposable
         var ignoreSegments = GetEffectiveWatchIgnoreSegments();
         var (outputWritten, newestSource) = await Task.Run(
             () => (
-                StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(context.StartupProjectPath),
+                StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(
+                    context.StartupProjectPath,
+                    StartupBuildFreshnessProbe.ResolveConfiguration(context.ExtraDotNetArgs)),
                 StartupBuildFreshnessProbe.FindNewestSourceWriteUtc(
                     context.RootFolder,
                     ignoreSegments,

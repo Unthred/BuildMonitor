@@ -206,6 +206,35 @@ public static class BuildLogParser
     /// When BuildMonitor banners are present, uses the latest build block so errors above
     /// <c>Build FAILED</c> are not dropped from count/issue parsing.
     /// </summary>
+    /// <summary>
+    /// Index of the last "Build #N started" banner. Saved logs end with a "Build #N finished"
+    /// banner; starting the segment there would drop the MSBuild summary above it.
+    /// A banner that is not a finish banner (older formats) still counts as a start.
+    /// </summary>
+    private static int FindLastBuildStartBanner(string normalized, string buildBanner)
+    {
+        var searchEnd = normalized.Length - 1;
+        while (searchEnd >= 0)
+        {
+            var index = normalized.LastIndexOf(buildBanner, searchEnd, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return -1;
+            }
+
+            var lineEnd = normalized.IndexOf('\n', index);
+            var line = lineEnd < 0 ? normalized[index..] : normalized[index..lineEnd];
+            if (!line.Contains(" finished ", StringComparison.Ordinal))
+            {
+                return index;
+            }
+
+            searchEnd = index - 1;
+        }
+
+        return -1;
+    }
+
     internal static string ExtractLatestBuildResultSegment(string logText)
     {
         if (string.IsNullOrWhiteSpace(logText))
@@ -215,7 +244,7 @@ public static class BuildLogParser
 
         var normalized = logText.Replace("\r\n", "\n");
         const string buildBanner = "[BuildMonitor] ===== Build #";
-        var lastBanner = normalized.LastIndexOf(buildBanner, StringComparison.Ordinal);
+        var lastBanner = FindLastBuildStartBanner(normalized, buildBanner);
         if (lastBanner >= 0)
         {
             return normalized[lastBanner..];
