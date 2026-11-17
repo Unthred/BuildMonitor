@@ -1752,7 +1752,9 @@ public partial class App : System.Windows.Application
 
             if (orchestrator is not null)
             {
-                using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                // Projects stop concurrently: one 2 s grace period plus up to 5 s kill wait.
+                // Stays under the 20 s exit failsafe armed in ArmExitFailsafe.
+                using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                 try
                 {
                     await Task.Run(async () =>

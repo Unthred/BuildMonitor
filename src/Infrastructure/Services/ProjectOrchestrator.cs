@@ -544,7 +544,12 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
         return project is { IsActiveInSession: true, Local.StartOnLaunch: true };
     }
 
-    public async Task StopAllAsync()
+    /// <summary>
+    /// Stops every project at once. Each host stop can take a 2-second grace period plus a
+    /// kill wait, and tray quit allows only a few seconds in total, so stopping one by one
+    /// left the last projects' hosts running after BuildMonitor exited.
+    /// </summary>
+    public Task StopAllAsync()
     {
         List<ProjectRuntime> all;
         lock (sync)
@@ -552,11 +557,15 @@ public sealed partial class ProjectOrchestrator : IDisposable, IProjectRuntimePe
             all = runtimes.Values.ToList();
         }
 
-        foreach (var runtime in all)
-        {
-            await runtime.StopAsync();
-        }
+        return StopConcurrentlyAsync(all.Select(runtime => (Func<Task>)runtime.StopAsync));
     }
+
+    /// <summary>
+    /// Runs every stop on its own thread-pool task (runtime stops block synchronously) and
+    /// waits for all of them.
+    /// </summary>
+    internal static Task StopConcurrentlyAsync(IEnumerable<Func<Task>> stops) =>
+        Task.WhenAll(stops.Select(stop => Task.Run(stop)));
 
     public async Task RebuildAsync(string projectId, CancellationToken cancellationToken)
     {

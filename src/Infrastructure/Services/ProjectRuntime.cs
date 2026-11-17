@@ -601,11 +601,16 @@ internal sealed partial class ProjectRuntime : IDisposable
         notStartedReason = null;
         var context = CaptureRunContext();
         SetProjectCurrentAction("Starting — loading saved build state");
-        await HydrateLastBuildFromStoreAsync(cancellationToken);
+        var savedBuild = await HydrateLastBuildFromStoreAsync(cancellationToken);
         TryStartAgentActivityWatcher();
 
+        var startupBuild = await DecideStartupBuildAsync(savedBuild, context, cancellationToken);
         var activity = EvaluateEditActivity();
-        if (BuildSuppressionPolicy.ShouldDeferStartupBuild(GetSuppressionSettings(), activity))
+        if (!startupBuild.ShouldBuild)
+        {
+            SetProjectCurrentAction($"Starting from last build — {startupBuild.Reason}");
+        }
+        else if (BuildSuppressionPolicy.ShouldDeferStartupBuild(GetSuppressionSettings(), activity))
         {
             pendingFileChangeRebuild = true;
             QueuePendingRebuild(
@@ -639,6 +644,37 @@ internal sealed partial class ProjectRuntime : IDisposable
         }
 
         TryStartFileWatcher();
+    }
+
+    private async Task<StartupBuildDecision> DecideStartupBuildAsync(
+        BuildLogRecord? savedBuild,
+        ProjectRunContext context,
+        CancellationToken cancellationToken)
+    {
+        if (Local.BuildControlMode != ProjectBuildControlMode.AiControlled)
+        {
+            // Skip the source scan: File Watching always builds on startup.
+            return StartupBuildPolicy.Decide(new StartupBuildInputs(
+                Local.BuildControlMode, null, null, null, null));
+        }
+
+        SetProjectCurrentAction("Starting — checking whether the last build is current");
+        var ignoreSegments = GetEffectiveWatchIgnoreSegments();
+        var (outputWritten, newestSource) = await Task.Run(
+            () => (
+                StartupBuildFreshnessProbe.FindBuildOutputWrittenUtc(context.StartupProjectPath),
+                StartupBuildFreshnessProbe.FindNewestSourceWriteUtc(
+                    context.RootFolder,
+                    ignoreSegments,
+                    cancellationToken)),
+            cancellationToken).ConfigureAwait(false);
+
+        return StartupBuildPolicy.Decide(new StartupBuildInputs(
+            Local.BuildControlMode,
+            savedBuild?.ExitCode,
+            savedBuild?.StartedAtUtc,
+            outputWritten,
+            newestSource));
     }
 
     /// <summary>

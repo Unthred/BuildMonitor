@@ -219,7 +219,7 @@ Output uses `--verbosity normal` and a detailed console logger (per-test pass/fa
 
 ## Warning counts
 
-- **`forceCompleteWarningCounts`** (per project, default **true**) — when enabled, every build (including file-change) passes `--no-incremental` so MSBuild re-emits the full warning/error summary. Turn off under **Settings → Projects** for faster file-change builds; those may show `0 Warning(s)` when nothing recompiled. **Startup**, **Rebuild**, and **Rebuild & restart** always force a full compile regardless of this setting.
+- **`forceCompleteWarningCounts`** (per project, default **true**) — when enabled, every build (including file-change) passes `--no-incremental` so MSBuild re-emits the full warning/error summary. Turn off under **Settings → Projects** for faster file-change builds; those may show `0 Warning(s)` when nothing recompiled. **Startup**, **Rebuild**, and **Rebuild & restart** always force a full compile regardless of this setting. In **AI Controlled**, a startup build only runs when the last build is not current; see [Startup build](ops/ai-controlled-build-isolation.md#startup-build).
 
 ## Build output repair
 

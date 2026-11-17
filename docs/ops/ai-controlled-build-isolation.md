@@ -20,7 +20,7 @@ When `buildControlMode` is **AI Controlled**, source-file changes must never ini
 | Busy timeout → idle | May resume auto-build | Policy still false; no schedule started |
 | `/session/idle` | May resume debounce build | Does not schedule in AI Controlled |
 | `RunTests=OnFileChange` | Post-build tests after permitted file-triggered build | No file-triggered builds → preference never fires; not a watcher-side trigger |
-| Startup / `StartOnLaunch` | Initial build on **cold** BuildMonitor/session start | Allowed (not a source-change schedule). Settings HardRestart remounts never compile, including AI Controlled + StartOnLaunch. |
+| Startup / `StartOnLaunch` | Initial build on **cold** BuildMonitor/session start | Only when the last build is not current (see [Startup build](#startup-build)). Settings HardRestart remounts never compile, including AI Controlled + StartOnLaunch. |
 | Manual Rebuild / Restart / Tests | Explicit | Allowed |
 | `/run/rebuild`, `/run/ship-check`, `/run/tests`, `/run/stop` | Explicit | Allowed |
 
@@ -30,7 +30,7 @@ Desired run-host state (**Running** | **Stopped**) is separate from temporary op
 
 | Action | Desired state | Process |
 |--------|---------------|---------|
-| Cold `StartOnLaunch` / `StartAsync` | → Running | Startup freshness build, then start when build succeeds |
+| Cold `StartOnLaunch` / `StartAsync` | → Running | Start from the existing output when the last build is current; otherwise startup build, then start when it succeeds |
 | Explicit `/run/stop` | → Stopped | Host stopped; rebuild/ship-check/tests must not restore it |
 | Explicit Run/Restart | → Running | Starts (or rebuilds then starts) once |
 | `/watch/pause` or ship-check/rebuild pause | unchanged | Temporary unlock; resume only if desired is Running |
@@ -40,6 +40,21 @@ Desired run-host state (**Running** | **Stopped**) is separate from temporary op
 - **Leave AI Controlled**: if project Run mode is Watch and coalescing is off, migrate back to `dotnet watch` with `--no-build` (no surprise compile of AI edits).
 - Coalesced watch rebuilds (`CoalesceWatchRebuilds`) also stay off the watch process in AI Controlled; BuildMonitor’s watcher observes only.
 - AI Controlled source observation never changes desired host state or starts a stopped host.
+
+## Startup build
+
+Restarting the tray (deploy, Settings change, Windows logon) must not recompile every AI Controlled project when nothing changed.
+
+### Behaviour
+| Step | What | Where |
+|------|------|-------|
+| 1 | Restore the saved last build (exit code, start time, counts) | `ProjectRuntime.HydrateLastBuildFromStoreAsync` |
+| 2 | File Watching projects always build (`--no-incremental`) | `StartupBuildPolicy.Decide` |
+| 3 | AI Controlled: find the oldest `<ProjectName>.dll` under the startup project's `bin`, and the newest meaningful source file under `rootFolder` (same ignore rules as the file watcher; excluded folders are not walked) | `StartupBuildFreshnessProbe` |
+| 4 | Skip the build when the last build succeeded, the output exists, and no source was written at or after the earlier of the build's start and the output's write time | `StartupBuildPolicy.Decide` |
+| 5 | Skipped: host starts with `dotnet run --no-build` and the saved warning/error counts. Otherwise the normal startup build runs (deferred until edits settle when configured) | `ProjectRuntime.StartAsync` |
+
+**Failure and fallback:** anything uncertain builds — no saved build, a failed build, missing output (including a custom assembly name or output path), or any newer source. Using the oldest assembly copy and the earlier timestamp means a Release ship-check cannot hide a stale Debug output.
 
 ## Status presentation
 
