@@ -23,6 +23,7 @@ public sealed class TrayContextMenuBuilder
         public required Action<string, string?> OpenLogViewerForProject { get; init; }
         public required Action<IReadOnlyList<MonitoredProjectSettings>> StartRunTestsForProjects { get; init; }
         public required Action<string, string> InstallControlPlaneAgentSkill { get; init; }
+        public required Action<IReadOnlyList<StaleDerivedWorktree>> UnregisterStaleWorktrees { get; init; }
     }
 
     public void Rebuild(
@@ -55,6 +56,13 @@ public sealed class TrayContextMenuBuilder
             menu.Items.Add(BuildViewLogsMenu(active, host));
             menu.Items.Add(BuildCleanOutputMenu(active, orchestrator, host));
             menu.Items.Add(BuildInstallAgentSkillMenu(active, host));
+        }
+
+        var stale = orchestrator.GetStaleDerivedWorktrees();
+        if (stale.Count > 0)
+        {
+            menu.Items.Add(new Forms.ToolStripSeparator());
+            menu.Items.Add(BuildFinishedWorktreesMenu(stale, host));
         }
 
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -287,6 +295,34 @@ public sealed class TrayContextMenuBuilder
             var id = project.Id;
             menu.DropDownItems.Add(new Forms.ToolStripMenuItem(project.DisplayName, null, (_, _) =>
                 host.RunBackground(() => orchestrator.RepairBuildOutputAsync(id, CancellationToken.None))));
+        }
+
+        return menu;
+    }
+
+    private static Forms.ToolStripMenuItem BuildFinishedWorktreesMenu(
+        IReadOnlyList<StaleDerivedWorktree> stale,
+        Host host)
+    {
+        var menu = new Forms.ToolStripMenuItem($"Finished worktrees ({stale.Count})")
+        {
+            ToolTipText = "Derived worktree projects whose folder or parent is gone. Unregister stops the host and removes the BuildMonitor project only; the folder is never deleted."
+        };
+        foreach (var worktree in stale)
+        {
+            var label = $"Unregister — {worktree.DisplayName} ({DerivedWorktreeStaleness.Describe(worktree.Reason)})";
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem(label, null, (_, _) =>
+                host.RunUi(() => host.UnregisterStaleWorktrees([worktree])))
+            {
+                ToolTipText = worktree.RootFolder
+            });
+        }
+
+        if (stale.Count > 1)
+        {
+            menu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            menu.DropDownItems.Add(new Forms.ToolStripMenuItem($"Unregister all ({stale.Count})", null, (_, _) =>
+                host.RunUi(() => host.UnregisterStaleWorktrees(stale))));
         }
 
         return menu;
